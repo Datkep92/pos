@@ -1,0 +1,1507 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #f5f7fb;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    background: #f5f7fb;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+/* ========== HEADER ========== */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #2d5016, #4a7c23);
+    color: white;
+    padding: 12px 20px;
+    flex-shrink: 0;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo-icon {
+    font-size: 28px;
+}
+
+.logo-text {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.header-right {
+    display: flex;
+    gap: 15px;
+    font-size: 14px;
+}
+
+.staff, .time {
+    background: rgba(255,255,255,0.2);
+    padding: 6px 14px;
+    border-radius: 30px;
+}
+
+/* ========== MAIN TABS ========== */
+.main-tabs {
+    display: flex;
+    background: white;
+    border-bottom: 1px solid #e9ecef;
+    overflow-x: auto;
+    flex-shrink: 0;
+    gap: 4px;
+    padding: 8px 12px;
+}
+
+.main-tab {
+    padding: 8px 16px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #6c757d;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.main-tab.active {
+    background: #f97316;
+    color: white;
+}
+
+/* ========== BOTTOM NAV (Mobile) ========== */
+.bottom-nav {
+    display: none;
+    background: white;
+    border-top: 1px solid #e9ecef;
+    padding: 8px 12px;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0;
+    border-radius: 12px;
+    cursor: pointer;
+    color: #adb5bd;
+    font-size: 10px;
+    transition: all 0.2s;
+}
+
+.bottom-icon {
+    font-size: 20px;
+}
+
+.bottom-nav-item.active {
+    background: #fef3c7;
+    color: #f97316;
+}
+
+/* ========== MAIN CONTENT ========== */
+.main-content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.tab-content {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* ========== TAB BÀN ========== */
+.tables-header {
+    margin-bottom: 16px;
+}
+
+.sub-tabs {
+    display: flex;
+    gap: 12px;
+    background: white;
+    padding: 6px;
+    border-radius: 40px;
+    width: fit-content;
+}
+
+.sub-tab {
+    padding: 8px 20px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #6c757d;
+    transition: all 0.2s;
+}
+
+.sub-tab.active {
+    background: #f97316;
+    color: white;
+}
+
+.tables-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.float-buttons {
+    position: fixed;
+    bottom: 80px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 100;
+}
+
+.float-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.float-btn:active { transform: scale(0.92); }
+.float-takeaway { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }
+.float-newtable { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+.float-icon { font-size: 24px; }
+.float-label { font-size: 9px; font-weight: 600; }
+
+/* ========== TAB MENU ========== */
+.menu-categories {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+}
+
+.category-chip {
+    padding: 8px 18px;
+    border-radius: 40px;
+    background: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.category-chip.active {
+    background: #f97316;
+    color: white;
+}
+
+.menu-items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.menu-item-card {
+    background: white;
+    border-radius: 16px;
+    padding: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: 0.1s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.menu-item-card:active { transform: scale(0.96); }
+.menu-item-name { font-weight: 600; font-size: 14px; }
+.menu-item-price { color: #f97316; font-weight: 700; margin-top: 6px; }
+.menu-item-ingredients { font-size: 10px; color: #6c757d; margin-top: 6px; }
+
+.menu-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.btn-add-category, .btn-add-item, .btn-add-ingredient {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* ========== TAB NGUYÊN LIỆU ========== */
+.ingredients-header {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.btn-warning {
+    background: #f59e0b;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ingredients-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ingredient-card {
+    background: white;
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.ingredient-info { flex: 1; }
+.ingredient-name { font-weight: 600; }
+.ingredient-unit { font-size: 12px; color: #6c757d; }
+.ingredient-stock { font-size: 18px; font-weight: 700; margin: 0 10px; }
+.ingredient-stock.low { color: #dc2626; }
+.ingredient-actions { display: flex; gap: 8px; }
+
+.btn-edit, .btn-delete {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+}
+
+.btn-edit { background: #3b82f6; color: white; }
+.btn-delete { background: #dc2626; color: white; }
+
+/* ========== TAB KHÁCH HÀNG ========== */
+.customer-search-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.customer-search-bar input {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 40px;
+}
+
+.debt-summary {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    padding: 14px 20px;
+    border-radius: 20px;
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+    margin-bottom: 16px;
+}
+
+.customer-card {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: white;
+    padding: 14px;
+    border-radius: 20px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+.customer-card:active { transform: scale(0.98); }
+.customer-avatar {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    border-radius: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.customer-info { flex: 1; }
+.customer-name { font-weight: 700; }
+.customer-contact { font-size: 12px; color: #6c757d; }
+.customer-debt.has-debt { background: #fee2e2; color: #dc2626; padding: 4px 12px; border-radius: 20px; }
+.customer-debt.no-debt { background: #d1fae5; color: #10b981; padding: 4px 12px; border-radius: 20px; }
+
+/* ========== TAB LỊCH SỬ ========== */
+.history-header {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.history-header input, .history-header select {
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+}
+
+.history-header button {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.history-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.history-item {
+    background: white;
+    border-radius: 16px;
+    padding: 14px;
+    border-left: 4px solid;
+}
+
+.history-item.takeaway { border-left-color: #f97316; }
+.history-item.dinein { border-left-color: #10b981; }
+.history-item.debt_payment { border-left-color: #3b82f6; }
+
+.history-header-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.history-amount { font-weight: 700; font-size: 16px; }
+.history-detail { font-size: 12px; color: #495057; margin-top: 8px; }
+
+/* ========== TAB BÁO CÁO ========== */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat-card {
+    background: white;
+    border-radius: 20px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.stat-icon { font-size: 32px; }
+.stat-info { flex: 1; }
+.stat-label { font-size: 12px; color: #6c757d; }
+.stat-value { font-size: 20px; font-weight: bold; }
+.stat-amount { font-size: 14px; color: #f97316; font-weight: 600; }
+
+.summary-card {
+    background: linear-gradient(135deg, #2d5016, #4a7c23);
+    color: white;
+    border-radius: 20px;
+    padding: 18px;
+    margin-bottom: 20px;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+}
+
+.summary-highlight { font-size: 20px; font-weight: 800; }
+.history-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* ========== TAB CÀI ĐẶT ========== */
+.settings-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.settings-group {
+    background: white;
+    border-radius: 20px;
+    padding: 18px;
+}
+
+.settings-group h3 {
+    margin-bottom: 16px;
+    color: #1a1a2e;
+}
+
+.settings-group label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 12px 0;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 12px;
+    margin: 5px;
+    cursor: pointer;
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 12px;
+    margin: 5px;
+    cursor: pointer;
+}
+
+/* ========== MODALS ========== */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(3px);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 28px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 85vh;
+    overflow: hidden;
+    animation: slideUp 0.25s;
+}
+
+.modal-large { max-width: 700px; }
+
+@keyframes slideUp {
+    from { transform: translateY(50px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: #f97316;
+    color: white;
+    font-weight: bold;
+}
+
+.modal-close {
+    font-size: 28px;
+    cursor: pointer;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(85vh - 60px);
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #1a1a2e;
+}
+
+.form-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    font-size: 14px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.btn-save {
+    flex: 1;
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-cancel {
+    flex: 1;
+    background: #e9ecef;
+    border: none;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-small {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.payment-options {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+}
+
+.payment-option {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px;
+    border: none;
+    border-radius: 24px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.payment-option.cash { background: #10b981; color: white; }
+.payment-option.transfer { background: #3b82f6; color: white; }
+.payment-icon { font-size: 40px; }
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+    .main-tabs { display: none; }
+    .bottom-nav { display: flex; }
+    .tables-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ========== Ô BÀN - TỐI ƯU ========== */
+.table-card {
+    background: white;
+    border-radius: 16px;
+    padding: 10px 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 4px solid;
+}
+
+.table-card:active {
+    transform: scale(0.97);
+}
+
+.table-card.empty {
+    border-left-color: #adb5bd;
+    background: #fefefe;
+}
+
+.table-card.occupied {
+    border-left-color: #f97316;
+    background: #fffaf5;
+}
+
+.table-card.debt {
+    border-left-color: #dc2626;
+    background: #fff5f5;
+}
+
+/* Hàng trên cùng: tên bàn + thời gian + nút gán tên */
+.table-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.table-name-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.table-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.btn-assign-customer {
+    background: none;
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 20px;
+    background: #e9ecef;
+    color: #6c757d;
+}
+
+.btn-assign-customer:active {
+    transform: scale(0.95);
+}
+
+.table-time {
+    font-size: 10px;
+    color: #868e96;
+    background: #f1f3f5;
+    padding: 2px 6px;
+    border-radius: 20px;
+}
+
+/* Tên khách hàng (nếu có) */
+.table-customer-name {
+    font-size: 11px;
+    color: #f97316;
+    background: #fef3c7;
+    padding: 2px 8px;
+    border-radius: 20px;
+    display: inline-block;
+    margin-bottom: 6px;
+    text-align: center;
+}
+
+/* Thống kê giữa */
+.table-stats {
+    text-align: center;
+    margin: 6px 0;
+}
+
+.table-item-count {
+    font-size: 11px;
+    color: #495057;
+}
+
+.table-item-count span {
+    font-weight: 700;
+    color: #f97316;
+}
+
+.table-total {
+    font-size: 16px;
+    font-weight: 800;
+    color: #2d5016;
+}
+
+.debt-badge-mini {
+    font-size: 9px;
+    color: #dc2626;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* 3 ICON - CHỈ ICON, KHÔNG CHỮ */
+.table-icons {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #e9ecef;
+    gap: 8px;
+}
+
+.table-icon-btn {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 0;
+    border-radius: 30px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.1s;
+    font-size: 18px;
+}
+
+.table-icon-btn:active {
+    transform: scale(0.92);
+    background: #e9ecef;
+}
+
+.icon-add { color: #3b82f6; }
+.icon-pay { color: #10b981; }
+.icon-debt { color: #f59e0b; }
+
+/* Responsive cho ô bàn nhỏ hơn */
+@media (max-width: 480px) {
+    .table-card {
+        padding: 8px 6px;
+    }
+    .table-name {
+        font-size: 13px;
+    }
+    .table-total {
+        font-size: 14px;
+    }
+    .table-icon-btn {
+        font-size: 16px;
+        padding: 4px 0;
+    }
+    .btn-assign-customer {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+}
+
+/* ========== TOAST NOTIFICATION ========== */
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.toast {
+    background: #1f2937;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 48px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: toastSlideIn 0.3s ease;
+    pointer-events: auto;
+}
+
+.toast.success {
+    background: #10b981;
+}
+
+.toast.error {
+    background: #ef4444;
+}
+
+.toast.warning {
+    background: #f59e0b;
+}
+
+.toast.info {
+    background: #3b82f6;
+}
+
+@keyframes toastSlideIn {
+    from {
+        transform: translateY(100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes toastSlideOut {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(100px);
+        opacity: 0;
+    }
+}
+
+/* ========== MODAL THANH TOÁN MỚI ========== */
+.payment-modal-content {
+    max-width: 400px;
+    width: 90%;
+}
+
+.payment-info-section {
+    background: #f8f9fa;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.payment-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 14px;
+    border-bottom: 1px dashed #e9ecef;
+}
+
+.payment-info-row:last-child {
+    border-bottom: none;
+}
+
+.payment-info-label {
+    color: #6c757d;
+}
+
+.payment-info-value {
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.payment-info-value.total {
+    font-size: 18px;
+    color: #f97316;
+}
+
+.payment-items-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.payment-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px dashed #e9ecef;
+}
+
+.payment-item-name {
+    color: #495057;
+}
+
+.payment-item-price {
+    font-weight: 500;
+    color: #f97316;
+}
+
+.payment-methods {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.payment-method-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    border: none;
+    border-radius: 20px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.payment-method-btn:active {
+    transform: scale(0.96);
+}
+
+.payment-method-btn.cash {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+}
+
+.payment-method-btn.transfer {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+}
+
+.payment-method-icon {
+    font-size: 32px;
+}
+
+/* ========== DANH MỤC TRONG POPUP ========== */
+.order-categories {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+}
+
+.order-categories .category-chip {
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: #f8f9fa;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.order-categories .category-chip.active {
+    background: #f97316;
+    color: white;
+}
+
+.order-categories .category-chip:active {
+    transform: scale(0.96);
+}
+
+/* ========== CÔNG THỨC NGUYÊN LIỆU ========== */
+.ingredients-formula {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.formula-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.formula-row select,
+.formula-row input {
+    flex: 1;
+    min-width: 100px;
+}
+
+.btn-small {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 30px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.btn-small:active {
+    transform: scale(0.95);
+}
+
+.btn-small[style*="background:#dc2626"] {
+    background: #dc2626;
+}
+
+.btn-add-ingredient-formula {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.btn-add-ingredient-formula:active {
+    transform: scale(0.97);
+}
+
+/* Đảm bảo select hiển thị đẹp */
+.formula-row select {
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    background: white;
+    font-size: 13px;
+}
+
+.formula-row input {
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    text-align: center;
+}
+
+/* ========== FORM ROW 2 CỘT ========== */
+.form-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+/* ========== NÚT THÊM NGUYÊN LIỆU ========== */
+.btn-add-ingredient {
+    width: 100%;
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 40px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 12px;
+}
+
+.btn-add-ingredient:active {
+    transform: scale(0.97);
+    background: #059669;
+}
+
+/* ========== INGREDIENTS FORMULA ========== */
+.ingredients-formula {
+    background: #f8f9fa;
+    border-radius: 16px;
+    padding: 12px;
+    margin: 8px 0;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #e9ecef;
+}
+
+.ingredients-info {
+    margin-bottom: 8px;
+}
+
+.ingredients-info small {
+    font-size: 11px;
+}
+
+/* ========== FORMULA ROW ========== */
+.formula-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    background: white;
+    padding: 8px;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+}
+
+.formula-row select {
+    flex: 2;
+    min-width: 140px;
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    font-size: 13px;
+    background: white;
+}
+
+.formula-row input {
+    flex: 1;
+    min-width: 80px;
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 13px;
+}
+
+.formula-row button {
+    background: #dc2626;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 30px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.formula-row button:active {
+    transform: scale(0.95);
+}
+
+/* Responsive cho mobile */
+@media (max-width: 500px) {
+    .form-row-2 {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+    
+    .formula-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .formula-row select,
+    .formula-row input {
+        width: 100%;
+    }
+    
+    .formula-row button {
+        align-self: flex-end;
+    }
+}
+
+/* ========== DEBT RECORD CARD ========== */
+.debt-record-card {
+    background: white;
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border-left: 4px solid;
+}
+
+.debt-record-card.unpaid {
+    border-left-color: #dc2626;
+}
+
+.debt-record-card.partial {
+    border-left-color: #f59e0b;
+}
+
+.debt-record-card.paid {
+    border-left-color: #10b981;
+    opacity: 0.8;
+}
+
+.debt-record-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.debt-record-date {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.debt-record-status {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+}
+
+.debt-record-status.unpaid {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.debt-record-status.partial {
+    background: #fef3c7;
+    color: #f59e0b;
+}
+
+.debt-record-status.paid {
+    background: #d1fae5;
+    color: #10b981;
+}
+
+.debt-record-note {
+    font-size: 13px;
+    color: #374151;
+    margin-bottom: 12px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 10px;
+}
+
+.debt-record-amounts {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 10px;
+    margin: 10px 0;
+}
+
+.amount-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    font-size: 13px;
+}
+
+.text-danger {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.text-success {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.text-warning {
+    color: #f59e0b;
+    font-weight: 600;
+}
+
+/* Payment History */
+.payment-history {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #e9ecef;
+}
+
+.payment-history-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+}
+
+.payment-history-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.payment-history-item:last-child {
+    border-bottom: none;
+}
+
+/* Payment Summary */
+.payment-summary-item {
+    background: white;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.payment-summary-date {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.payment-summary-amount {
+    font-weight: 700;
+    color: #10b981;
+}
+
+.payment-summary-method {
+    font-size: 11px;
+    background: #e9ecef;
+    padding: 3px 8px;
+    border-radius: 20px;
+}
+
+.payment-summary-note {
+    font-size: 11px;
+    color: #6c757d;
+    width: 100%;
+}
+
+/* Payment note */
+.payment-note {
+    margin-top: 8px;
+    text-align: right;
+}
+
+.payment-note small {
+    color: #f59e0b;
+    font-weight: 500;
+}
+.table-icon-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ========== DEBT CUSTOMER SELECTOR ========== */
+.debt-customer-selector {
+    padding: 8px;
+}
+
+.selector-tabs {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 8px;
+}
+
+.selector-tab {
+    padding: 8px 20px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    color: #6c757d;
+    transition: all 0.2s;
+}
+
+.selector-tab.active {
+    background: #f97316;
+    color: white;
+}
+
+.debt-selector-tab {
+    display: none;
+}
+
+.debt-selector-tab.active {
+    display: block;
+}
+
+.debt-customer-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.debt-customer-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.debt-customer-item:active {
+    transform: scale(0.98);
+    background: #e9ecef;
+}
+
+.debt-customer-avatar {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    border-radius: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.debt-customer-info {
+    flex: 1;
+}
+
+.debt-customer-name {
+    font-weight: 700;
+    font-size: 16px;
+    color: #1a1a2e;
+}
+
+.debt-customer-contact {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 2px;
+}
+
+.debt-customer-debt {
+    font-size: 12px;
+    color: #dc2626;
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.btn-create-debt-customer {
+    width: 100%;
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 40px;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 16px;
+}
+
+.btn-create-debt-customer:active {
+    transform: scale(0.97);
+}
+
+.customer-search-mini {
+    margin-bottom: 16px;
+}
+
+.customer-search-mini input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 40px;
+    font-size: 14px;
+}
