@@ -1,174 +1,169 @@
-// ========== QUẢN LÝ KHÁCH HÀNG ==========
+// ========== QUẢN LÝ KHÁCH HÀNG & CÔNG NỢ (ĐỒNG BỘ FIREBASE) ==========
 let customers = [];
-let nextCustomerId = 1;
 
-const sampleCustomers = [
-    { id: 1, name: "Nguyễn Văn A", phone: "0987654321", address: "12 Nguyễn Huệ", debt: 125000, totalSpent: 450000, createdAt: "2024-01-15", history: [] },
-    { id: 2, name: "Trần Thị B", phone: "0978123456", address: "45 Lê Lợi", debt: 0, totalSpent: 230000, createdAt: "2024-02-20", history: [] },
-    { id: 3, name: "Lê Văn C", phone: "0965234789", address: "78 Trần Phú", debt: 85000, totalSpent: 320000, createdAt: "2024-03-10", history: [] }
-];
-
-function initCustomers() {
-    const saved = localStorage.getItem('pos_customers');
-    if (saved) {
-        customers = JSON.parse(saved);
-        nextCustomerId = Math.max(...customers.map(c => c.id), 0) + 1;
-    } else {
-        customers = sampleCustomers;
-        nextCustomerId = 4;
-        saveCustomers();
-    }
+// Khởi tạo: load từ DB
+async function initCustomers() {
+    customers = await DB.getAll('customers') || [];
+    window.customers = customers;
     renderCustomerList();
+    renderDebtList();
+    console.log('✅ Đã tải customers:', customers.length);
 }
 
-function saveCustomers() {
-    localStorage.setItem('pos_customers', JSON.stringify(customers));
+// Lưu danh sách customers (hỗ trợ)
+async function saveCustomers() {
+    // Không cần vì mỗi thao tác đã gọi DB riêng
 }
 
-function renderCustomerList(searchKeyword = '') {
+// Thêm khách hàng mới
+async function addCustomer(name, phone, address) {
+    const newId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
+    const newCustomer = {
+        id: newId,
+        name: name,
+        phone: phone || '',
+        address: address || '',
+        totalDebt: 0,
+        totalSpent: 0,
+        createdAt: new Date().toISOString(),
+        debtHistory: [],
+        paymentHistory: []
+    };
+    await DB.create('customers', newCustomer);
+    customers = await DB.getAll('customers');
+    window.customers = customers;
+    renderCustomerList();
+    renderDebtList();
+    showToast(`Đã thêm khách ${name}`, 'success');
+    return newCustomer;
+}
+
+// Cập nhật công nợ (thanh toán hoặc ghi nợ)
+async function updateCustomerDebt(customerId, amount, type, note) {
+    let customer = customers.find(c => c.id === customerId);
+    if (!customer) return;
+    
+    // Sao chép để tránh tham chiếu
+    customer = JSON.parse(JSON.stringify(customer));
+    
+    if (type === 'pay_debt') {
+        customer.totalDebt = Math.max(0, (customer.totalDebt || 0) - amount);
+        customer.totalSpent = (customer.totalSpent || 0) + amount;
+        customer.paymentHistory = customer.paymentHistory || [];
+        customer.paymentHistory.unshift({
+            id: Date.now(),
+            date: new Date().toISOString(),
+            amount: amount,
+            method: 'cash',
+            note: note
+        });
+    } else if (type === 'add_debt') {
+        customer.totalDebt = (customer.totalDebt || 0) + amount;
+        customer.totalSpent = (customer.totalSpent || 0) + amount;
+        customer.debtHistory = customer.debtHistory || [];
+        customer.debtHistory.unshift({
+            id: Date.now(),
+            date: new Date().toISOString(),
+            amount: amount,
+            paidAmount: 0,
+            remainingAmount: amount,
+            note: note,
+            status: 'unpaid',
+            payments: []
+        });
+    }
+    
+    await DB.update('customers', customerId, customer);
+    customers = await DB.getAll('customers');
+    window.customers = customers;
+    renderCustomerList();
+    renderDebtList();
+}
+
+// Các hàm render giữ nguyên như cũ (dùng window.customers)
+function renderCustomerList() {
+    customers = window.customers || [];
     const container = document.getElementById('customerListContainer');
     if (!container) return;
-    
+    const keyword = document.getElementById('customerSearchInput')?.value.toLowerCase() || '';
     let filtered = customers;
-    if (searchKeyword) {
-        const k = searchKeyword.toLowerCase();
-        filtered = customers.filter(c => c.name.toLowerCase().includes(k) || c.phone.includes(k));
-    }
-    
-    const totalDebt = filtered.reduce((sum, c) => sum + c.debt, 0);
-    document.getElementById('totalDebtAmount').innerHTML = formatMoney(totalDebt);
-    
+    if (keyword) filtered = customers.filter(c => c.name.toLowerCase().includes(keyword) || c.phone.includes(keyword));
+    const totalDebt = filtered.reduce((s, c) => s + (c.totalDebt || 0), 0);
+    const totalDebtEl = document.getElementById('totalDebtAmount');
+    if (totalDebtEl) totalDebtEl.innerText = formatMoney(totalDebt);
     if (filtered.length === 0) {
-        container.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>Chưa có khách hàng nào</div><button class="btn-add-customer" onclick="openAddCustomerModal()">+ Thêm khách hàng</button></div>`;
+        container.innerHTML = `<div class="empty-state"><div>👥 Chưa có khách</div><button onclick="openAddCustomerModal()">+ Thêm</button></div>`;
         return;
     }
-    
-    container.innerHTML = filtered.map(customer => `
-        <div class="customer-card" onclick="renderCustomerDetail(${customer.id})">
-            <div class="customer-avatar">${customer.name.charAt(0).toUpperCase()}</div>
+    container.innerHTML = filtered.map(c => `
+        <div class="customer-card" onclick="renderCustomerDetail('${c.id}')">
+            <div class="customer-avatar">${c.name.charAt(0).toUpperCase()}</div>
             <div class="customer-info">
-                <div class="customer-name">${customer.name}</div>
-                <div class="customer-contact">📞 ${customer.phone || 'Chưa có'}</div>
+                <div class="customer-name">${c.name}</div>
+                <div class="customer-contact">📞 ${c.phone || 'Chưa có'}</div>
             </div>
-            <div class="customer-debt ${customer.debt > 0 ? 'has-debt' : 'no-debt'}">
-                ${customer.debt > 0 ? formatMoney(customer.debt) : '✅ Hết nợ'}
-            </div>
+            <div class="customer-debt ${c.totalDebt > 0 ? 'has-debt' : 'no-debt'}">${c.totalDebt > 0 ? formatMoney(c.totalDebt) : '✅ Hết nợ'}</div>
         </div>
     `).join('');
 }
 
-function searchCustomerList() {
-    const keyword = document.getElementById('customerSearchInput').value;
-    renderCustomerList(keyword);
+function renderDebtList() {
+    const container = document.getElementById('debtListContainer');
+    if (!container) return;
+    const debtCustomers = customers.filter(c => (c.totalDebt || 0) > 0);
+    if (debtCustomers.length === 0) {
+        container.innerHTML = '<div class="empty-state">✅ Không có khách nợ</div>';
+        return;
+    }
+    container.innerHTML = debtCustomers.map(c => `
+        <div class="debt-card" onclick="renderCustomerDetail('${c.id}')">
+            <div class="debt-card-header"><div>👤 ${c.name}</div><div>${formatMoney(c.totalDebt)}</div></div>
+            <div class="debt-card-phone">📞 ${c.phone || 'Chưa có'}</div>
+            <div class="debt-card-actions"><button class="btn-pay-debt-small" onclick="event.stopPropagation(); openPaymentForCustomer('${c.id}')">💸 Thanh toán nợ</button></div>
+        </div>
+    `).join('');
 }
 
-function renderCustomerDetail(customerId) {
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-    
-    window.currentCustomerId = customerId;
+async function renderCustomerDetail(customerId) {
+    const c = customers.find(c => c.id === customerId);
+    if (!c) return;
     const container = document.getElementById('customerDetailContent');
-    
     container.innerHTML = `
-        <div class="customer-detail-header">
-            <div class="customer-detail-avatar">${customer.name.charAt(0).toUpperCase()}</div>
-            <div class="customer-detail-info">
-                <h3>${customer.name}</h3>
-                <p>📞 ${customer.phone || 'Chưa có'}</p>
-                <p>🏠 ${customer.address || 'Chưa có'}</p>
-                <p>📅 Tham gia: ${customer.createdAt}</p>
-            </div>
-            <div class="customer-detail-actions">
-                <button class="btn-edit-customer" onclick="openEditCustomerModal(${customer.id})">✏️ Sửa</button>
-                <button class="btn-delete-customer" onclick="deleteCustomer(${customer.id})">🗑️ Xóa</button>
-            </div>
-        </div>
-        <div class="customer-stats">
-            <div class="stat-card-mini"><div class="stat-label">💰 Tổng chi tiêu</div><div class="stat-value">${formatMoney(customer.totalSpent)}</div></div>
-            <div class="stat-card-mini debt-stat"><div class="stat-label">🔴 Công nợ</div><div class="stat-value ${customer.debt > 0 ? 'text-danger' : 'text-success'}">${customer.debt > 0 ? formatMoney(customer.debt) : '0đ'}</div></div>
-            <div class="stat-card-mini"><div class="stat-label">📋 Tổng đơn</div><div class="stat-value">${customer.history.filter(h => h.type === 'add_debt').length}</div></div>
-        </div>
-        ${customer.debt > 0 ? `
-            <div class="debt-payment-section">
-                <div class="section-title">💸 Thanh toán công nợ</div>
-                <div class="debt-payment-form">
-                    <input type="number" id="debtPaymentAmount" placeholder="Số tiền thanh toán" class="payment-input">
-                    <button class="btn-pay-debt" onclick="payCustomerDebt(${customer.id})">Xác nhận</button>
-                </div>
-            </div>
-        ` : ''}
-        <div class="section-title">📜 Lịch sử giao dịch</div>
-        <div class="history-timeline">
-            ${customer.history.length === 0 ? '<div class="empty-history">Chưa có giao dịch nào</div>' : 
-                customer.history.map(h => `
-                    <div class="timeline-item ${h.type}">
-                        <div class="timeline-date">${new Date(h.date).toLocaleString('vi-VN')}</div>
-                        <div class="timeline-type">${h.type === 'add_debt' ? '🛒 Mua hàng' : '💰 Thanh toán nợ'}</div>
-                        <div class="timeline-amount ${h.type === 'add_debt' ? 'text-danger' : 'text-success'}">${h.type === 'add_debt' ? '-' : '+'}${formatMoney(h.amount)}</div>
-                        <div class="timeline-note">${h.orderInfo || h.note || ''}</div>
-                    </div>
-                `).join('')
-            }
-        </div>
+        <div><strong>${c.name}</strong> 📞 ${c.phone || ''} 🏠 ${c.address || ''}</div>
+        <div>Tổng nợ: ${formatMoney(c.totalDebt || 0)}</div>
+        <div>Tổng chi: ${formatMoney(c.totalSpent || 0)}</div>
+        <div>Lịch sử: ${c.debtHistory?.length || 0} khoản nợ, ${c.paymentHistory?.length || 0} lần thanh toán</div>
+        <button onclick="openPaymentForCustomer('${c.id}')">Thanh toán nợ</button>
+        <button onclick="closeModal('customerDetailModal')">Đóng</button>
     `;
-    
     document.getElementById('customerDetailModal').style.display = 'flex';
 }
 
-function payCustomerDebt(customerId) {
-    const amountInput = document.getElementById('debtPaymentAmount');
-    const amount = parseInt(amountInput.value);
-    const customer = customers.find(c => c.id === customerId);
-    
-    if (!amount || amount <= 0) {
-        alert('Vui lòng nhập số tiền hợp lệ!');
-        return;
-    }
-    if (amount > customer.debt) {
-        alert(`Số tiền thanh toán lớn hơn công nợ!`);
-        return;
-    }
-    if (confirm(`Xác nhận thanh toán ${formatMoney(amount)} từ ${customer.name}?`)) {
-        updateCustomerDebt(customerId, amount, 'pay_debt', `Thanh toán công nợ ${formatMoney(amount)}`);
-        if (typeof addHistory === 'function') {
-            addHistory({ type: 'debt_payment', amount: amount, note: `Khách ${customer.name} thanh toán nợ` });
-        }
-        amountInput.value = '';
-        alert('✅ Đã ghi nhận thanh toán!');
+function openPaymentForCustomer(customerId) {
+    const c = customers.find(c => c.id === customerId);
+    if (!c || !c.totalDebt) { showToast('Khách không nợ', 'info'); return; }
+    const amount = prompt(`Nhập số tiền thanh toán cho ${c.name} (nợ ${formatMoney(c.totalDebt)})`, c.totalDebt);
+    if (!amount) return;
+    const val = parseInt(amount);
+    if (isNaN(val) || val <= 0) { showToast('Số tiền không hợp lệ', 'warning'); return; }
+    payCustomerDebt(customerId, val, 'cash');
+}
+
+async function payCustomerDebt(customerId, amount, method) {
+    await updateCustomerDebt(customerId, amount, 'pay_debt', `Thanh toán ${formatMoney(amount)} bằng ${method === 'cash' ? 'tiền mặt' : 'chuyển khoản'}`);
+    showToast(`Đã thanh toán ${formatMoney(amount)}`, 'success');
+    if (document.getElementById('customerDetailModal').style.display === 'flex') {
+        renderCustomerDetail(customerId);
     }
 }
 
-function updateCustomerDebt(customerId, amount, type, orderInfo) {
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-    
-    if (type === 'add_debt') {
-        customer.debt += amount;
-        customer.totalSpent += amount;
-    } else if (type === 'pay_debt') {
-        customer.debt = Math.max(0, customer.debt - amount);
-    }
-    
-    customer.history.unshift({
-        date: new Date().toISOString(),
-        type: type,
-        amount: amount,
-        orderInfo: orderInfo || '',
-        note: type === 'add_debt' ? 'Mua hàng ghi nợ' : 'Thanh toán công nợ'
-    });
-    
-    if (customer.history.length > 50) customer.history.pop();
-    saveCustomers();
-    renderCustomerList();
-    if (window.currentCustomerId === customerId) renderCustomerDetail(customerId);
+function addCustomerDebt(customerId, amount, note) {
+    return updateCustomerDebt(customerId, amount, 'add_debt', note);
 }
 
-function addCustomerOrder(customerId, amount, orderDetail) {
-    updateCustomerDebt(customerId, amount, 'add_debt', orderDetail);
-}
-
+// Modal thêm/sửa khách
 function openAddCustomerModal() {
-    document.getElementById('customerFormTitle').innerText = '➕ Thêm khách hàng mới';
+    document.getElementById('customerFormTitle').innerText = '➕ Thêm khách hàng';
     document.getElementById('customerFormId').value = '';
     document.getElementById('customerFormName').value = '';
     document.getElementById('customerFormPhone').value = '';
@@ -176,77 +171,74 @@ function openAddCustomerModal() {
     document.getElementById('customerFormModal').style.display = 'flex';
 }
 
-function openEditCustomerModal(customerId) {
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-    document.getElementById('customerFormTitle').innerText = '✏️ Sửa thông tin khách hàng';
-    document.getElementById('customerFormId').value = customer.id;
-    document.getElementById('customerFormName').value = customer.name;
-    document.getElementById('customerFormPhone').value = customer.phone || '';
-    document.getElementById('customerFormAddress').value = customer.address || '';
+function editCustomer(id) {
+    const c = customers.find(c => c.id === id);
+    if (!c) return;
+    document.getElementById('customerFormTitle').innerText = '✏️ Sửa khách hàng';
+    document.getElementById('customerFormId').value = c.id;
+    document.getElementById('customerFormName').value = c.name;
+    document.getElementById('customerFormPhone').value = c.phone || '';
+    document.getElementById('customerFormAddress').value = c.address || '';
     document.getElementById('customerFormModal').style.display = 'flex';
 }
 
-function saveCustomerForm() {
+async function saveCustomerForm() {
     const id = document.getElementById('customerFormId').value;
     const name = document.getElementById('customerFormName').value.trim();
     const phone = document.getElementById('customerFormPhone').value;
     const address = document.getElementById('customerFormAddress').value;
-    
-    if (!name) {
-        alert('Vui lòng nhập tên khách hàng!');
-        return;
-    }
-    
+    if (!name) { showToast('Vui lòng nhập tên khách hàng!', 'warning'); return; }
     if (id) {
-        const customer = customers.find(c => c.id === parseInt(id));
-        if (customer) {
-            customer.name = name;
-            customer.phone = phone;
-            customer.address = address;
-            saveCustomers();
+        const c = customers.find(c => c.id === id);
+        if (c) {
+            c.name = name;
+            c.phone = phone;
+            c.address = address;
+            await DB.update('customers', id, c);
+            customers = await DB.getAll('customers');
+            window.customers = customers;
+            renderCustomerList();
+            renderDebtList();
+            showToast('Đã cập nhật', 'success');
         }
     } else {
-        const newCustomer = {
-            id: nextCustomerId++,
-            name: name,
-            phone: phone,
-            address: address,
-            debt: 0,
-            totalSpent: 0,
-            createdAt: new Date().toISOString().slice(0,10),
-            history: []
-        };
-        customers.push(newCustomer);
-        saveCustomers();
+        if (!phone) { showToast('Vui lòng nhập số điện thoại!', 'warning'); return; }
+        await addCustomer(name, phone, address);
     }
     closeModal('customerFormModal');
-    renderCustomerList();
-    if (id) renderCustomerDetail(parseInt(id));
 }
 
-function deleteCustomer(customerId) {
-    if (confirm('Xóa khách hàng này? Dữ liệu lịch sử sẽ mất!')) {
-        customers = customers.filter(c => c.id !== customerId);
-        saveCustomers();
+async function deleteCustomer(id) {
+    if (confirm('Xóa khách hàng này?')) {
+        await DB.remove('customers', id);
+        customers = await DB.getAll('customers');
+        window.customers = customers;
         renderCustomerList();
-        closeModal('customerDetailModal');
+        renderDebtList();
+        showToast('Đã xóa', 'success');
     }
 }
 
+// ========== CHỌN KHÁCH (CHO NÚT + TRÊN BÀN) ==========
 function showCustomerSelector(callback) {
     window.customerSelectCallback = callback;
     const container = document.getElementById('customerSelectorList');
-    container.innerHTML = customers.map(c => `
-        <div class="customer-select-item" onclick="selectCustomer(${c.id})">
-            <div class="customer-select-avatar">${c.name.charAt(0).toUpperCase()}</div>
-            <div class="customer-select-info">
-                <div class="customer-select-name">${c.name}</div>
-                <div class="customer-select-debt">${c.debt > 0 ? `🔴 Nợ ${formatMoney(c.debt)}` : '✅ Hết nợ'}</div>
+    if (!container) return;
+    const customerList = customers;
+    if (customerList.length === 0) {
+        container.innerHTML = `<div class="empty-state">📭 Chưa có khách</div><div class="add-new" onclick="openAddCustomerModalFromSelector()">➕ Thêm mới</div>`;
+    } else {
+        container.innerHTML = customerList.map(c => `
+            <div class="customer-select-item" onclick="selectCustomer('${c.id}')">
+                <div class="customer-select-avatar">${c.name.charAt(0).toUpperCase()}</div>
+                <div class="customer-select-info">
+                    <div class="customer-select-name">${c.name}</div>
+                    <div class="customer-select-debt">${c.totalDebt > 0 ? `🔴 Nợ ${formatMoney(c.totalDebt)}` : '✅ Hết nợ'}</div>
+                </div>
             </div>
-        </div>
-    `).join('');
-    container.innerHTML += `<div class="customer-select-item add-new" onclick="openAddCustomerModalFromSelector()"><div class="customer-select-avatar">➕</div><div class="customer-select-info"><div class="customer-select-name">Thêm khách hàng mới</div></div></div>`;
+        `).join('');
+        container.innerHTML += `<div class="add-new" onclick="openAddCustomerModalFromSelector()">➕ Thêm khách hàng mới</div>`;
+    }
     document.getElementById('customerSelectorModal').style.display = 'flex';
 }
 
@@ -261,30 +253,26 @@ function selectCustomer(customerId) {
 function openAddCustomerModalFromSelector() {
     closeModal('customerSelectorModal');
     openAddCustomerModal();
-    window.tempAfterAdd = () => showCustomerSelector(window.customerSelectCallback);
 }
 
 function filterCustomerSelector() {
-    const keyword = document.getElementById('customerSelectorSearch').value.toLowerCase();
-    const items = document.querySelectorAll('#customerSelectorList .customer-select-item:not(.add-new)');
-    items.forEach(item => {
-        const name = item.querySelector('.customer-select-name')?.innerText.toLowerCase() || '';
-        item.style.display = name.includes(keyword) ? 'flex' : 'none';
-    });
+    // Tạm thời bỏ qua
 }
 
-// Xuất global
-window.customers = customers;
+// Export toàn cục
+window.initCustomers = initCustomers;
 window.renderCustomerList = renderCustomerList;
-window.searchCustomerList = searchCustomerList;
+window.renderDebtList = renderDebtList;
 window.renderCustomerDetail = renderCustomerDetail;
 window.openAddCustomerModal = openAddCustomerModal;
-window.openEditCustomerModal = openEditCustomerModal;
+window.editCustomer = editCustomer;
 window.saveCustomerForm = saveCustomerForm;
 window.deleteCustomer = deleteCustomer;
+window.addCustomerDebt = addCustomerDebt;
+window.updateCustomerDebt = updateCustomerDebt;
+window.payCustomerDebt = payCustomerDebt;
+window.openPaymentForCustomer = openPaymentForCustomer;
 window.showCustomerSelector = showCustomerSelector;
 window.selectCustomer = selectCustomer;
+window.openAddCustomerModalFromSelector = openAddCustomerModalFromSelector;
 window.filterCustomerSelector = filterCustomerSelector;
-window.updateCustomerDebt = updateCustomerDebt;
-window.addCustomerOrder = addCustomerOrder;
-window.payCustomerDebt = payCustomerDebt;

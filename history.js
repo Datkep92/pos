@@ -1,25 +1,18 @@
-// ========== LỊCH SỬ GIAO DỊCH ==========
+// ========== LỊCH SỬ GIAO DỊCH (ĐỒNG BỘ FIREBASE) ==========
 let historyData = [];
 
-function initHistory() {
-    const saved = localStorage.getItem('pos_history');
-    if (saved) {
-        historyData = JSON.parse(saved);
-    } else {
-        historyData = [];
-    }
+async function initHistory() {
+    historyData = await DB.getAll('transactions') || [];
+    window.historyData = historyData;
     renderHistory();
+    console.log(`✅ Đã tải ${historyData.length} giao dịch`);
 }
 
-function saveHistory() {
-    localStorage.setItem('pos_history', JSON.stringify(historyData));
-}
-
-function addHistory(transaction) {
-    const newTransaction = {
-        id: Date.now(),
+async function addHistory(transaction) {
+    const newTrans = {
+        id: Date.now().toString(),
         date: new Date().toISOString(),
-        type: transaction.type, // 'takeaway', 'dinein', 'debt_payment'
+        type: transaction.type,
         amount: transaction.amount,
         paymentMethod: transaction.paymentMethod || 'cash',
         items: transaction.items || [],
@@ -27,32 +20,28 @@ function addHistory(transaction) {
         tableName: transaction.tableName || null,
         note: transaction.note || ''
     };
-    historyData.unshift(newTransaction);
+    await DB.create('transactions', newTrans);
+    historyData.unshift(newTrans);
     if (historyData.length > 500) historyData.pop();
-    saveHistory();
-    if (document.getElementById('historyView').classList.contains('active')) renderHistory();
+    window.historyData = historyData;
+    if (document.getElementById('historyView')?.classList.contains('active')) renderHistory();
 }
 
 function renderHistory() {
+
+    historyData = window.historyData || [];
+
     const container = document.getElementById('historyList');
     if (!container) return;
-    
     const dateFilter = document.getElementById('historyDateFilter')?.value || '';
     const typeFilter = document.getElementById('historyTypeFilter')?.value || 'all';
-    
     let filtered = [...historyData];
-    if (dateFilter) {
-        filtered = filtered.filter(h => h.date.slice(0,10) === dateFilter);
-    }
-    if (typeFilter !== 'all') {
-        filtered = filtered.filter(h => h.type === typeFilter);
-    }
-    
+    if (dateFilter) filtered = filtered.filter(h => h.date?.slice(0,10) === dateFilter);
+    if (typeFilter !== 'all') filtered = filtered.filter(h => h.type === typeFilter);
     if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty-state">📭 Chưa có giao dịch nào</div>';
+        container.innerHTML = '<div class="empty-state">📭 Chưa có giao dịch</div>';
         return;
     }
-    
     container.innerHTML = filtered.map(h => `
         <div class="history-item ${h.type}">
             <div class="history-header-row">
@@ -65,23 +54,24 @@ function renderHistory() {
             </div>
             ${h.tableName ? `<div class="history-detail">📌 ${h.tableName}</div>` : ''}
             ${h.customer ? `<div class="history-detail">👤 ${h.customer.name}</div>` : ''}
-            ${h.items && h.items.length > 0 ? `<div class="history-detail">📋 ${h.items.map(i => `${i.name} x${i.qty}`).join(', ')}</div>` : ''}
+            ${h.items?.length ? `<div class="history-detail">📋 ${h.items.map(i => `${i.name} x${i.qty}`).join(', ')}</div>` : ''}
             ${h.note ? `<div class="history-detail">📝 ${h.note}</div>` : ''}
         </div>
     `).join('');
 }
 
 function exportHistory() {
-    const content = historyData.map(h => `${new Date(h.date).toLocaleString('vi-VN')}\t${h.type}\t${formatMoney(h.amount)}\t${h.paymentMethod}`).join('\n');
+    const content = historyData.map(h => `${new Date(h.date).toLocaleString()}\t${h.type}\t${h.amount}\t${h.paymentMethod}`).join('\n');
     const blob = new Blob([content], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `lichsu_${new Date().toISOString().slice(0,10)}.csv`;
     link.click();
-    alert('✅ Đã xuất lịch sử!');
+    showToast('✅ Đã xuất lịch sử', 'success');
 }
 
 window.historyData = historyData;
+window.initHistory = initHistory;
 window.renderHistory = renderHistory;
 window.addHistory = addHistory;
 window.exportHistory = exportHistory;
