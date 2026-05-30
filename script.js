@@ -151,25 +151,30 @@ async function showPaymentMethod(type, tableId, amount) {
 async function processPaymentDirect(type, tableId, amount, paymentMethod) {
     console.log('💰 Thanh toán:', { type, tableId, amount, paymentMethod });
     
-    // Ghi nhận báo cáo
+    // Ghi nhận báo cáo (nếu có hàm addTransaction)
     if (typeof addTransaction === 'function') {
         addTransaction(type === 'takeaway' ? 'takeaway' : 'dinein', amount, paymentMethod);
     }
     // Ghi lịch sử
     if (typeof addHistory === 'function') {
         let items = [];
+        let tableName = '';
         if (type === 'dinein') {
             const tid = String(tableId);
             const table = await DB.get('tables', tid);
-            items = table ? [...(table.items || [])] : [];
+            if (table) {
+                items = [...(table.items || [])];
+                tableName = table.name;
+            }
         } else {
             items = [...tempOrder];
+            tableName = 'Mang đi';
         }
-        addHistory({
+        await addHistory({
             type: type === 'takeaway' ? 'takeaway' : 'dinein',
             amount, paymentMethod, items,
             customer: null,
-            tableName: type === 'dinein' ? (await DB.get('tables', String(tableId)))?.name : 'Mang đi'
+            tableName: tableName
         });
     }
     // Trừ nguyên liệu
@@ -182,19 +187,18 @@ async function processPaymentDirect(type, tableId, amount, paymentMethod) {
         } else {
             items = [...tempOrder];
         }
-        deductIngredients(items);
+        await deductIngredients(items);
     }
     if (type === 'dinein') {
         const tid = String(tableId);
-        console.log('🔍 Đang xóa bàn với ID:', tid, 'type:', typeof tid);
         const exists = await DB.get('tables', tid);
-        if (!exists) {
-            console.warn('⚠️ Không tìm thấy bàn để xóa!');
-        } else {
+        if (exists) {
             await DB.remove('tables', tid);
             console.log('✅ Đã xóa bàn thành công');
+        } else {
+            console.warn('⚠️ Không tìm thấy bàn để xóa!');
         }
-        await reindexTables();
+        // KHÔNG gọi reindexTables ở đây nữa
     } else {
         tempOrder = [];
     }
@@ -255,11 +259,29 @@ function renderOrderMenuForModal(searchTerm = '') {
     `).join('');
 }
 
-// ========== THÊM MÓN & GIỎ TẠM ==========
 function openAddMenuForTable(tableId) {
     currentContext = { type: 'addToTable', tableId: tableId };
     tempOrder = [];
-    if (typeof renderOrderMenuForModal === 'function') renderOrderMenuForModal('');
+    
+    // Hiển thị danh mục và menu
+    if (typeof renderOrderCategories === 'function') {
+        renderOrderCategories();
+    }
+    // Khởi tạo bộ lọc danh mục mặc định
+    window.currentOrderCategory = 'all';
+    const searchInput = document.getElementById('menuSearchInput2');
+    if (searchInput) {
+        searchInput.oninput = (e) => {
+            if (typeof renderOrderMenuByCategory === 'function') {
+                renderOrderMenuByCategory(window.currentOrderCategory || 'all', e.target.value);
+            }
+        };
+        searchInput.value = '';
+    }
+    if (typeof renderOrderMenuByCategory === 'function') {
+        renderOrderMenuByCategory('all', '');
+    }
+    
     renderTempCartOrder();
     document.getElementById('orderModalTitle').innerHTML = '➕ Thêm món';
     document.getElementById('customerSelectRow').style.display = 'none';
@@ -291,9 +313,15 @@ function addToTempOrder(name, price) {
     renderTempCartOrder();
 }
 
-// ========== XÁC NHẬN ĐƠN ==========
 document.getElementById('confirmOrderBtn')?.addEventListener('click', async () => {
     if (tempOrder.length === 0) { showToast('Vui lòng chọn món!', 'warning'); return; }
+    
+    // Kiểm tra tồn kho trước khi xác nhận
+    if (typeof checkStockForItems === 'function') {
+        const enough = await checkStockForItems(tempOrder);
+        if (!enough) return;
+    }
+    
     const total = tempOrder.reduce((s, i) => s + ((i.price || 0) * (i.qty || 0)), 0);
     if (currentContext?.type === 'takeaway') {
         document.getElementById('orderModal').style.display = 'none';
@@ -314,7 +342,7 @@ document.getElementById('confirmOrderBtn')?.addEventListener('click', async () =
                 startTime: now.toISOString(), time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
             });
             if (currentSelectedCustomer) {
-                await DB.update('tables', String(currentContext.tableId), { customerId: currentSelectedCustomer.id, name: currentSelectedCustomer.name });
+                await DB.update('tables', String(currentContext.tableId), { customerId: currentSelectedCustomer.id, customerName: currentSelectedCustomer.name });
             }
             await renderTables();
             showToast(`✅ Đã tạo đơn tại bàn ${table.name}`, 'success');
@@ -399,7 +427,7 @@ async function showCustomerSelectorForTable(tableId) {
             const tid = String(tableId);
             const table = await DB.get('tables', tid);
             if (table) {
-                const update = { customerId: customer.id, name: customer.name };
+                const update = { customerId: customer.id, customerName: customer.name };
                 let wasEmpty = table.status === 'empty';
                 if (wasEmpty) {
                     update.status = 'occupied';
@@ -408,11 +436,15 @@ async function showCustomerSelectorForTable(tableId) {
                 }
                 await DB.update('tables', tid, update);
                 
-                // Nếu bàn có món (items.length > 0) thì tự động ghi nợ
+                // Nếu bàn có món (items.length > 0) và total > 0, hỏi xem có muốn ghi nợ không
                 if (table.items && table.items.length > 0 && table.total > 0 && typeof addCustomerDebt === 'function') {
-                    const orderDetail = table.items.map(i => `${i.name} x${i.qty}`).join(', ');
-                    addCustomerDebt(customer.id, table.total, `Gán khách tại bàn ${table.name} - ${orderDetail}`);
-                    showToast(`💰 Đã ghi nợ ${formatMoney(table.total)} cho ${customer.name}`, 'warning');
+                    if (confirm(`Bàn đang có đơn trị giá ${formatMoney(table.total)}. Bạn có muốn ghi nợ số tiền này cho khách ${customer.name} không?`)) {
+                        const orderDetail = table.items.map(i => `${i.name} x${i.qty}`).join(', ');
+                        await addCustomerDebt(customer.id, table.total, `Gán khách tại bàn ${table.name} - ${orderDetail}`);
+                        showToast(`💰 Đã ghi nợ ${formatMoney(table.total)} cho ${customer.name}`, 'warning');
+                    } else {
+                        showToast(`Đã gán khách nhưng không ghi nợ`, 'info');
+                    }
                 }
                 
                 await renderTables();
@@ -444,8 +476,16 @@ async function reindexTables() {
         }
     }
 }
-
-// ========== DANH SÁCH KHÁCH NỢ ==========
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+window.escapeHtml = escapeHtml;
 async function renderDebtListForTab() {
     const container = document.getElementById('debtListContainer');
     if (!container) return;
@@ -457,13 +497,16 @@ async function renderDebtListForTab() {
     }
     container.innerHTML = debtCustomers.map(c => `
         <div class="debt-card" onclick="if(typeof renderCustomerDetail === 'function') renderCustomerDetail('${c.id}')">
-            <div class="debt-card-header"><div>👤 ${c.name}</div><div>${formatMoney(c.totalDebt)}</div></div>
+            <div class="debt-card-header"><div>👤 ${escapeHtml(c.name)}</div><div>${formatMoney(c.totalDebt)}</div></div>
             <div class="debt-card-phone">📞 ${c.phone || 'Chưa có số'}</div>
             <div class="debt-card-address">🏠 ${c.address || 'Chưa có địa chỉ'}</div>
             <div class="debt-card-actions"><button class="btn-pay-debt-small" onclick="event.stopPropagation(); if(typeof openPaymentForCustomer === 'function') openPaymentForCustomer('${c.id}')">💸 Thanh toán nợ</button></div>
         </div>
     `).join('');
 }
+
+// Export
+window.renderDebtListForTab = renderDebtListForTab;
 
 // ========== SUB TAB (Bán tại chỗ / Khách nợ) ==========
 document.querySelectorAll('.sub-tab').forEach(subtab => {

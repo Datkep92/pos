@@ -157,7 +157,36 @@ async function deductIngredients(orderItems) {
     window.ingredients = ingredients;
     renderIngredients();
 }
+// Kiểm tra tồn kho cho danh sách món trong orderItems
+// orderItems: [{ name, qty, price }]
+// Trả về true nếu đủ, false nếu thiếu (đã hiển thị toast)
+async function checkStockForItems(orderItems) {
+    const menuItems = window.menuItems || [];
+    const ingredients = window.ingredients || [];
+    
+    for (const orderItem of orderItems) {
+        const menuItem = menuItems.find(m => m.name === orderItem.name);
+        if (!menuItem) continue;
+        
+        const formula = menuItem.ingredients || [];
+        for (const req of formula) {
+            const ing = ingredients.find(i => i.id === req.ingredientId);
+            if (!ing) {
+                showToast(`Nguyên liệu không tồn tại cho món ${orderItem.name}`, 'error');
+                return false;
+            }
+            const needed = (req.quantity || 0) * (orderItem.qty || 0);
+            if (ing.stock < needed) {
+                showToast(`⚠️ Nguyên liệu "${ing.name}" không đủ cho món ${orderItem.name} (cần ${needed} ${ing.unit}, còn ${ing.stock})`, 'error');
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
+// Export hàm kiểm tra
+window.checkStockForItems = checkStockForItems;
 // Xuất global
 window.ingredients = ingredients;
 window.initIngredients = initIngredients;

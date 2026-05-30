@@ -352,5 +352,39 @@
     <script src="report.js"></script>
     <script src="history.js"></script>
     <script src="script.js"></script>
+    <script>
+    // Xử lý confirm modal
+    window.showConfirm = function(message, onOk, onCancel) {
+        const modal = document.getElementById('confirmModal');
+        const msgEl = document.getElementById('confirmMessage');
+        const okBtn = document.getElementById('confirmOkBtn');
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+        if (!modal || !msgEl) return;
+        msgEl.innerText = message;
+        modal.style.display = 'flex';
+        const okHandler = () => {
+            modal.style.display = 'none';
+            if (onOk) onOk();
+            okBtn.removeEventListener('click', okHandler);
+            cancelBtn.removeEventListener('click', cancelHandler);
+        };
+        const cancelHandler = () => {
+            modal.style.display = 'none';
+            if (onCancel) onCancel();
+            okBtn.removeEventListener('click', okHandler);
+            cancelBtn.removeEventListener('click', cancelHandler);
+        };
+        okBtn.removeEventListener('click', okHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        okBtn.addEventListener('click', okHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+    };
+    // Đóng modal khi click ra ngoài
+    window.onclick = function(e) {
+        if (e.target.classList.contains('modal')) {
+            e.target.style.display = 'none';
+        }
+    };
+</script>
 </body>
 </html>

@@ -1,18 +1,11 @@
 // ========== QUẢN LÝ KHÁCH HÀNG & CÔNG NỢ (ĐỒNG BỘ FIREBASE) ==========
-let customers = [];
 
 // Khởi tạo: load từ DB
 async function initCustomers() {
-    customers = await DB.getAll('customers') || [];
-    window.customers = customers;
+    window.customers = await DB.getAll('customers') || [];
     renderCustomerList();
     renderDebtList();
-    console.log('✅ Đã tải customers:', customers.length);
-}
-
-// Lưu danh sách customers (hỗ trợ)
-async function saveCustomers() {
-    // Không cần vì mỗi thao tác đã gọi DB riêng
+    console.log('✅ Đã tải customers:', window.customers.length);
 }
 
 // Thêm khách hàng mới
@@ -20,18 +13,17 @@ async function addCustomer(name, phone, address) {
     const newId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
     const newCustomer = {
         id: newId,
-        name: name,
+        name: name.trim(),
         phone: phone || '',
         address: address || '',
         totalDebt: 0,
-        totalSpent: 0,
+        totalSpent: 0,    // chỉ tính khi khách thanh toán (trả nợ hoặc trả trực tiếp)
         createdAt: new Date().toISOString(),
         debtHistory: [],
         paymentHistory: []
     };
     await DB.create('customers', newCustomer);
-    customers = await DB.getAll('customers');
-    window.customers = customers;
+    window.customers = await DB.getAll('customers');
     renderCustomerList();
     renderDebtList();
     showToast(`Đã thêm khách ${name}`, 'success');
@@ -40,13 +32,14 @@ async function addCustomer(name, phone, address) {
 
 // Cập nhật công nợ (thanh toán hoặc ghi nợ)
 async function updateCustomerDebt(customerId, amount, type, note) {
-    let customer = customers.find(c => c.id === customerId);
+    let customer = window.customers.find(c => c.id === customerId);
     if (!customer) return;
     
     // Sao chép để tránh tham chiếu
     customer = JSON.parse(JSON.stringify(customer));
     
     if (type === 'pay_debt') {
+        // Thanh toán nợ: giảm totalDebt, tăng totalSpent
         customer.totalDebt = Math.max(0, (customer.totalDebt || 0) - amount);
         customer.totalSpent = (customer.totalSpent || 0) + amount;
         customer.paymentHistory = customer.paymentHistory || [];
@@ -54,12 +47,13 @@ async function updateCustomerDebt(customerId, amount, type, note) {
             id: Date.now(),
             date: new Date().toISOString(),
             amount: amount,
-            method: 'cash',
+            method: 'cash',    // có thể truyền method từ ngoài
             note: note
         });
     } else if (type === 'add_debt') {
+        // Ghi nợ thêm: chỉ tăng totalDebt, không tăng totalSpent
         customer.totalDebt = (customer.totalDebt || 0) + amount;
-        customer.totalSpent = (customer.totalSpent || 0) + amount;
+        // KHÔNG cộng totalSpent ở đây
         customer.debtHistory = customer.debtHistory || [];
         customer.debtHistory.unshift({
             id: Date.now(),
@@ -74,15 +68,50 @@ async function updateCustomerDebt(customerId, amount, type, note) {
     }
     
     await DB.update('customers', customerId, customer);
-    customers = await DB.getAll('customers');
-    window.customers = customers;
+    window.customers = await DB.getAll('customers');
     renderCustomerList();
     renderDebtList();
+    
+    // Nếu đang ở sub-tab nợ, cập nhật lại danh sách nợ trong tab đó
+    if (document.querySelector('.sub-tab.active')?.getAttribute('data-subtab') === 'debt') {
+        if (typeof renderDebtListForTab === 'function') await renderDebtListForTab();
+    }
+}
+
+// Hàm thanh toán nợ (gọi từ giao diện)
+async function payCustomerDebt(customerId, amount, method) {
+    const customer = window.customers.find(c => c.id === customerId);
+    if (!customer) return;
+    
+    await updateCustomerDebt(customerId, amount, 'pay_debt', `Thanh toán ${formatMoney(amount)} bằng ${method === 'cash' ? 'tiền mặt' : 'chuyển khoản'}`);
+    
+    // Ghi vào lịch sử giao dịch (transactions)
+    if (typeof addHistory === 'function') {
+        await addHistory({
+            type: 'debt_payment',
+            amount: amount,
+            paymentMethod: method,
+            customer: { id: customer.id, name: customer.name },
+            note: `Thanh toán nợ cho khách ${customer.name}`
+        });
+    }
+    
+    showToast(`Đã thanh toán ${formatMoney(amount)} cho khách ${customer.name}`, 'success');
+    
+    // Cập nhật chi tiết khách nếu modal đang mở
+    if (document.getElementById('customerDetailModal').style.display === 'flex') {
+        renderCustomerDetail(customerId);
+    }
+    
+    // Nếu đang ở subtab nợ, cập nhật lại danh sách
+    if (document.querySelector('.sub-tab.active')?.getAttribute('data-subtab') === 'debt') {
+        if (typeof renderDebtListForTab === 'function') await renderDebtListForTab();
+    }
 }
 
 // Các hàm render giữ nguyên như cũ (dùng window.customers)
 function renderCustomerList() {
-    customers = window.customers || [];
+    const customers = window.customers || [];
     const container = document.getElementById('customerListContainer');
     if (!container) return;
     const keyword = document.getElementById('customerSearchInput')?.value.toLowerCase() || '';
@@ -99,7 +128,7 @@ function renderCustomerList() {
         <div class="customer-card" onclick="renderCustomerDetail('${c.id}')">
             <div class="customer-avatar">${c.name.charAt(0).toUpperCase()}</div>
             <div class="customer-info">
-                <div class="customer-name">${c.name}</div>
+                <div class="customer-name">${escapeHtml(c.name)}</div>
                 <div class="customer-contact">📞 ${c.phone || 'Chưa có'}</div>
             </div>
             <div class="customer-debt ${c.totalDebt > 0 ? 'has-debt' : 'no-debt'}">${c.totalDebt > 0 ? formatMoney(c.totalDebt) : '✅ Hết nợ'}</div>
@@ -108,6 +137,7 @@ function renderCustomerList() {
 }
 
 function renderDebtList() {
+    const customers = window.customers || [];
     const container = document.getElementById('debtListContainer');
     if (!container) return;
     const debtCustomers = customers.filter(c => (c.totalDebt || 0) > 0);
@@ -117,7 +147,7 @@ function renderDebtList() {
     }
     container.innerHTML = debtCustomers.map(c => `
         <div class="debt-card" onclick="renderCustomerDetail('${c.id}')">
-            <div class="debt-card-header"><div>👤 ${c.name}</div><div>${formatMoney(c.totalDebt)}</div></div>
+            <div class="debt-card-header"><div>👤 ${escapeHtml(c.name)}</div><div>${formatMoney(c.totalDebt)}</div></div>
             <div class="debt-card-phone">📞 ${c.phone || 'Chưa có'}</div>
             <div class="debt-card-actions"><button class="btn-pay-debt-small" onclick="event.stopPropagation(); openPaymentForCustomer('${c.id}')">💸 Thanh toán nợ</button></div>
         </div>
@@ -125,11 +155,11 @@ function renderDebtList() {
 }
 
 async function renderCustomerDetail(customerId) {
-    const c = customers.find(c => c.id === customerId);
+    const c = window.customers.find(c => c.id === customerId);
     if (!c) return;
     const container = document.getElementById('customerDetailContent');
     container.innerHTML = `
-        <div><strong>${c.name}</strong> 📞 ${c.phone || ''} 🏠 ${c.address || ''}</div>
+        <div><strong>${escapeHtml(c.name)}</strong> 📞 ${c.phone || ''} 🏠 ${c.address || ''}</div>
         <div>Tổng nợ: ${formatMoney(c.totalDebt || 0)}</div>
         <div>Tổng chi: ${formatMoney(c.totalSpent || 0)}</div>
         <div>Lịch sử: ${c.debtHistory?.length || 0} khoản nợ, ${c.paymentHistory?.length || 0} lần thanh toán</div>
@@ -140,21 +170,13 @@ async function renderCustomerDetail(customerId) {
 }
 
 function openPaymentForCustomer(customerId) {
-    const c = customers.find(c => c.id === customerId);
+    const c = window.customers.find(c => c.id === customerId);
     if (!c || !c.totalDebt) { showToast('Khách không nợ', 'info'); return; }
     const amount = prompt(`Nhập số tiền thanh toán cho ${c.name} (nợ ${formatMoney(c.totalDebt)})`, c.totalDebt);
     if (!amount) return;
     const val = parseInt(amount);
     if (isNaN(val) || val <= 0) { showToast('Số tiền không hợp lệ', 'warning'); return; }
     payCustomerDebt(customerId, val, 'cash');
-}
-
-async function payCustomerDebt(customerId, amount, method) {
-    await updateCustomerDebt(customerId, amount, 'pay_debt', `Thanh toán ${formatMoney(amount)} bằng ${method === 'cash' ? 'tiền mặt' : 'chuyển khoản'}`);
-    showToast(`Đã thanh toán ${formatMoney(amount)}`, 'success');
-    if (document.getElementById('customerDetailModal').style.display === 'flex') {
-        renderCustomerDetail(customerId);
-    }
 }
 
 function addCustomerDebt(customerId, amount, note) {
@@ -172,7 +194,7 @@ function openAddCustomerModal() {
 }
 
 function editCustomer(id) {
-    const c = customers.find(c => c.id === id);
+    const c = window.customers.find(c => c.id === id);
     if (!c) return;
     document.getElementById('customerFormTitle').innerText = '✏️ Sửa khách hàng';
     document.getElementById('customerFormId').value = c.id;
@@ -189,14 +211,13 @@ async function saveCustomerForm() {
     const address = document.getElementById('customerFormAddress').value;
     if (!name) { showToast('Vui lòng nhập tên khách hàng!', 'warning'); return; }
     if (id) {
-        const c = customers.find(c => c.id === id);
+        const c = window.customers.find(c => c.id === id);
         if (c) {
             c.name = name;
             c.phone = phone;
             c.address = address;
             await DB.update('customers', id, c);
-            customers = await DB.getAll('customers');
-            window.customers = customers;
+            window.customers = await DB.getAll('customers');
             renderCustomerList();
             renderDebtList();
             showToast('Đã cập nhật', 'success');
@@ -211,8 +232,7 @@ async function saveCustomerForm() {
 async function deleteCustomer(id) {
     if (confirm('Xóa khách hàng này?')) {
         await DB.remove('customers', id);
-        customers = await DB.getAll('customers');
-        window.customers = customers;
+        window.customers = await DB.getAll('customers');
         renderCustomerList();
         renderDebtList();
         showToast('Đã xóa', 'success');
@@ -224,7 +244,7 @@ function showCustomerSelector(callback) {
     window.customerSelectCallback = callback;
     const container = document.getElementById('customerSelectorList');
     if (!container) return;
-    const customerList = customers;
+    const customerList = window.customers || [];
     if (customerList.length === 0) {
         container.innerHTML = `<div class="empty-state">📭 Chưa có khách</div><div class="add-new" onclick="openAddCustomerModalFromSelector()">➕ Thêm mới</div>`;
     } else {
@@ -232,7 +252,7 @@ function showCustomerSelector(callback) {
             <div class="customer-select-item" onclick="selectCustomer('${c.id}')">
                 <div class="customer-select-avatar">${c.name.charAt(0).toUpperCase()}</div>
                 <div class="customer-select-info">
-                    <div class="customer-select-name">${c.name}</div>
+                    <div class="customer-select-name">${escapeHtml(c.name)}</div>
                     <div class="customer-select-debt">${c.totalDebt > 0 ? `🔴 Nợ ${formatMoney(c.totalDebt)}` : '✅ Hết nợ'}</div>
                 </div>
             </div>
@@ -243,7 +263,7 @@ function showCustomerSelector(callback) {
 }
 
 function selectCustomer(customerId) {
-    const customer = customers.find(c => c.id === customerId);
+    const customer = window.customers.find(c => c.id === customerId);
     if (customer && window.customerSelectCallback) {
         window.customerSelectCallback(customer);
     }
@@ -257,6 +277,21 @@ function openAddCustomerModalFromSelector() {
 
 function filterCustomerSelector() {
     // Tạm thời bỏ qua
+}
+
+function searchCustomerList() {
+    renderCustomerList(); // vì renderCustomerList đã đọc giá trị input
+}
+
+// Hàm thoát HTML để tránh XSS
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
 }
 
 // Export toàn cục
@@ -276,3 +311,4 @@ window.showCustomerSelector = showCustomerSelector;
 window.selectCustomer = selectCustomer;
 window.openAddCustomerModalFromSelector = openAddCustomerModalFromSelector;
 window.filterCustomerSelector = filterCustomerSelector;
+window.searchCustomerList = searchCustomerList;
