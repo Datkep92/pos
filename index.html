@@ -1,691 +1,480 @@
 <!DOCTYPE html>
 <html lang="vi">
-
 <head>
-
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
-    >
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>POS Cafe - Full System</title>
-
     <link rel="stylesheet" href="style.css">
-
 </head>
-
 <body>
-
-<div class="app">
-
-    <!-- =======================================================
-    HEADER
-    ======================================================== -->
-
-    <header class="header">
-
-        <div class="header-top">
-
+    <div class="app">
+        <!-- HEADER -->
+        <div class="header">
             <div class="logo">
+                <span class="logo-icon">☕</span>
+                <span class="logo-text">POS CAFE</span>
+            </div>
+            <div class="header-right">
+                <span class="staff">👤 Nhân viên: Minh</span>
+                <span class="time" id="currentTime">14:30</span>
+            </div>
+        </div>
 
-                <div class="logo-icon">
-                    ☕
-                </div>
+        <!-- MAIN TABS (Thanh tab chính) -->
+        <div class="main-tabs">
+            <div class="main-tab active" data-tab="tables">🍽️ Bàn</div>
+            <div class="main-tab" data-tab="menu">📋 Menu</div>
+            <div class="main-tab" data-tab="ingredients">🥬 Nguyên liệu</div>
+            <div class="main-tab" data-tab="customers">👥 Khách hàng</div>
+            <div class="main-tab" data-tab="history">📜 Lịch sử</div>
+            <div class="main-tab" data-tab="report">📊 Báo cáo</div>
+            <div class="main-tab" data-tab="settings">⚙️ Cài đặt</div>
+        </div>
 
-                <div class="logo-info">
-
-                    <div class="logo-text">
-                        POS CAFE
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+            <!-- ========== TAB BÀN ========== -->
+            <div id="tablesView" class="tab-content active">
+                <div class="tables-header">
+                    <div class="sub-tabs">
+                        <div class="sub-tab active" data-subtab="dining">🍽️ Bán tại chỗ</div>
+                        <div class="sub-tab" data-subtab="debt">💢 Khách nợ</div>
                     </div>
-
-                    <div class="logo-sub">
-                        Quản lý bán hàng
-                    </div>
-
                 </div>
-
+                <div class="tables-container">
+                    <div class="tables-grid" id="tablesGrid"></div>
+                </div>
+                <div class="float-buttons">
+                    <div class="float-btn float-takeaway" id="floatTakeawayBtn">
+                        <span class="float-icon">🛵</span>
+                        <span>Mang đi</span>
+                    </div>
+                    <div class="float-btn float-newtable" id="floatNewtableBtn">
+                        <span class="float-icon">🍽️</span>
+                        <span>Bàn mới</span>
+                    </div>
+                </div>
             </div>
 
-        </div>
-
-        <div class="header-right">
-
-            <div class="staff">
-                👤 Nhân viên: Minh
+            <!-- ========== TAB MENU ========== -->
+            <div id="menuView" class="tab-content">
+                <div class="menu-manager">
+                    <div class="menu-categories" id="menuCategories"></div>
+                    <div class="menu-items-grid" id="menuItemsGrid"></div>
+                    <div class="menu-actions">
+                        <button class="btn-add-category" onclick="openCategoryModal()">+ Thêm danh mục</button>
+                        <button class="btn-add-item" onclick="openItemModal()">+ Thêm món</button>
+                    </div>
+                </div>
             </div>
 
-            <div class="time" id="currentTime">
-                14:30
+            <!-- ========== TAB NGUYÊN LIỆU ========== -->
+            <div id="ingredientsView" class="tab-content">
+                <div class="ingredients-header">
+                    <button class="btn-add-ingredient" onclick="openIngredientModal()">+ Thêm nguyên liệu</button>
+                    <button class="btn-warning" onclick="checkLowStock()">⚠️ Kiểm tra tồn kho thấp</button>
+                </div>
+                <div class="ingredients-list" id="ingredientsList"></div>
             </div>
 
+            <!-- ========== TAB KHÁCH HÀNG ========== -->
+            <div id="customersView" class="tab-content">
+                <div class="customer-search-bar">
+                    <input type="text" id="customerSearchInput" placeholder="🔍 Tìm theo tên, số điện thoại..." oninput="searchCustomerList()">
+                    <button onclick="openAddCustomerModal()">+ Thêm</button>
+                </div>
+                <div class="debt-summary">
+                    <span>💰 Tổng công nợ</span>
+                    <span id="totalDebtAmount">0đ</span>
+                </div>
+                <div id="customerListContainer" class="customer-list-container"></div>
+            </div>
+
+            <!-- ========== TAB LỊCH SỬ ========== -->
+            <div id="historyView" class="tab-content">
+                <div class="history-header">
+                    <input type="date" id="historyDateFilter" onchange="renderHistory()">
+                    <select id="historyTypeFilter" onchange="renderHistory()">
+                        <option value="all">Tất cả</option>
+                        <option value="takeaway">Mang đi</option>
+                        <option value="dinein">Tại chỗ</option>
+                        <option value="debt_payment">Thanh toán nợ</option>
+                    </select>
+                    <button onclick="exportHistory()">📎 Xuất Excel</button>
+                </div>
+                <div id="historyList" class="history-list-container"></div>
+            </div>
+
+            <!-- ========== TAB BÁO CÁO ========== -->
+            <div id="reportView" class="tab-content">
+                <div id="reportContent" class="report-container"></div>
+            </div>
+
+            <!-- ========== TAB CÀI ĐẶT ========== -->
+            <div id="settingsView" class="tab-content">
+                <div class="settings-container">
+                    <div class="settings-group">
+                        <h3>🛒 Cài đặt bán hàng</h3>
+                        <label>
+                            <input type="checkbox" id="settingAutoPrint" onchange="saveSettings()">
+                            Tự động in hóa đơn sau thanh toán
+                        </label>
+                        <label>
+                            <input type="checkbox" id="settingAfterPay" onchange="saveSettings()">
+                            Sau thanh toán: Xóa bàn
+                        </label>
+                        <label>
+                            <input type="checkbox" id="settingShowCustomer" onchange="saveSettings()">
+                            Hiển thị khách hàng trên ô bàn
+                        </label>
+                    </div>
+                    <div class="settings-group">
+                        <h3>🔔 Cảnh báo</h3>
+                        <label>
+                            Cảnh báo tồn kho dưới: 
+                            <input type="number" id="settingMinStock" value="10" onchange="saveSettings()" style="width:80px;"> đơn vị
+                        </label>
+                    </div>
+                    <div class="settings-group">
+                        <h3>💾 Dữ liệu</h3>
+                        <button class="btn-danger" onclick="resetAllData()">⚠️ Reset toàn bộ dữ liệu</button>
+                        <button class="btn-primary" onclick="exportAllData()">📎 Xuất dữ liệu (backup)</button>
+                        <input type="file" id="importFile" accept=".json" style="display:none;" onchange="importAllData(this)">
+                        <button class="btn-primary" onclick="document.getElementById('importFile').click()">📂 Nhập dữ liệu (restore)</button>
+                    </div>
+                    <div class="settings-group">
+                        <h3>ℹ️ Thông tin</h3>
+                        <p>Phiên bản: 2.0.0</p>
+                        <p>Phát triển bởi: POS Cafe System</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
-    </header>
-
-    <!-- =======================================================
-    TOP NAVIGATION
-    ======================================================== -->
-
-    <div class="main-tabs">
-
-        <div class="main-tab active" data-tab="tables">
-            🍽️ Bàn
+        <!-- BOTTOM NAV (Mobile) -->
+        <div class="bottom-nav">
+            <div class="bottom-nav-item active" data-tab="tables">
+                <span class="bottom-icon">🍽️</span>
+                <span>Bàn</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="menu">
+                <span class="bottom-icon">📋</span>
+                <span>Menu</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="ingredients">
+                <span class="bottom-icon">🥬</span>
+                <span>Kho</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="customers">
+                <span class="bottom-icon">👥</span>
+                <span>KH</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="history">
+                <span class="bottom-icon">📜</span>
+                <span>Sử</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="report">
+                <span class="bottom-icon">📊</span>
+                <span>BC</span>
+            </div>
+            <div class="bottom-nav-item" data-tab="settings">
+                <span class="bottom-icon">⚙️</span>
+                <span>Setup</span>
+            </div>
         </div>
-
-        <div class="main-tab" data-tab="menu">
-            📋 Menu
-        </div>
-
-        <div class="main-tab" data-tab="ingredients">
-            🥬 Kho
-        </div>
-
-        <div class="main-tab" data-tab="customers">
-            👥 Khách
-        </div>
-
-        <div class="main-tab" data-tab="history">
-            📜 Lịch sử
-        </div>
-
-        <div class="main-tab" data-tab="report">
-            📊 Báo cáo
-        </div>
-
-        <div class="main-tab" data-tab="settings">
-            ⚙️ Setup
-        </div>
-
     </div>
 
-    <!-- =======================================================
-    MAIN CONTENT
-    ======================================================== -->
+    <!-- ========== MODALS ========== -->
 
-    <main class="main-content">
-
-        <!-- ===================================================
-        TABLES VIEW
-        ==================================================== -->
-
-        <section
-            id="tablesView"
-            class="tab-content active"
-        >
-
-            <!-- SUB TABS -->
-
-            <div class="tables-header">
-
-                <div class="sub-tabs">
-
-                    <div
-                        class="sub-tab active"
-                        data-subtab="dining"
-                    >
-                        🍽️ Tại chỗ
+    <!-- MODAL CHỌN MÓN -->
+    <div class="modal" id="orderModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <span class="modal-title" id="orderModalTitle">🛵 Bán mang đi</span>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="customer-select-row" id="customerSelectRow" style="display:none;">
+                    <div class="selected-customer" id="selectedCustomerDisplay" onclick="showCustomerSelectorForOrder()">
+                        <span>👤 Chọn khách hàng</span>
                     </div>
-
-                    <div
-                        class="sub-tab"
-                        data-subtab="debt"
-                    >
-                        💢 Khách nợ
-                    </div>
-
+                    <button class="btn-clear-customer" onclick="clearSelectedCustomer()" style="display:none;" id="clearCustomerBtn">✖️</button>
                 </div>
-
+                <div class="menu-search">
+                    <input type="text" id="menuSearchInput2" placeholder="🔍 Tìm món...">
+                </div>
+                <div class="order-categories" id="orderCategories"></div>
+                <div class="menu-grid-simple" id="menuGridOrder"></div>
+                <div class="temp-cart" id="tempCartOrder">
+                    <div class="temp-cart-title">🛒 Giỏ hàng</div>
+                    <div class="temp-cart-items" id="tempCartOrderItems">Chưa có món</div>
+                    <div class="temp-cart-total">Tổng: <span id="tempCartOrderTotal">0</span>đ</div>
+                    <button class="btn-confirm-add" id="confirmOrderBtn">✅ Xác nhận</button>
+                </div>
             </div>
+        </div>
+    </div>
 
-            <!-- QUICK STATS -->
-
-            <div class="list-card">
-
-                <div class="table-info">
-
-                    <span>
-                        🔥 Đang phục vụ
-                    </span>
-
-                    <strong id="activeTableCount">
-                        0 bàn
-                    </strong>
-
-                </div>
-
+    <!-- MODAL CHI TIẾT BÀN -->
+    <div class="modal" id="tableDetailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="detailTableName">Bàn 01</span>
+                <span class="modal-close">&times;</span>
             </div>
-
-            <!-- TABLE GRID -->
-
-            <div class="tables-container">
-
-                <div
-                    class="tables-grid"
-                    id="tablesGrid"
-                >
+            <div class="modal-body">
+                <div class="detail-time">⏱️ <span id="detailTime">14:20</span></div>
+                <div class="detail-items-title">📋 Danh sách món</div>
+                <div class="detail-items-list" id="detailItemsList"></div>
+                <div class="detail-total">Tổng: <span id="detailTotal">0</span>đ</div>
+                <div class="detail-actions">
+                    <button class="detail-btn-add" id="detailAddBtn">➕ Thêm món</button>
+                    <button class="detail-btn-pay" id="detailPayBtn">💸 Thanh toán</button>
+                    <button class="detail-btn-debt" id="detailDebtBtn">💢 Trả sau</button>
                 </div>
-
             </div>
+        </div>
+    </div>
 
-            <!-- FLOAT ACTION -->
-
-            <div class="float-buttons">
-
-                <div
-                    class="float-btn float-takeaway"
-                    id="floatTakeawayBtn"
-                >
-
-                    <span class="float-icon">
-                        🛵
-                    </span>
-
-                    <span>
-                        Mang đi
-                    </span>
-
-                </div>
-
-                <div
-                    class="float-btn float-newtable"
-                    id="floatNewtableBtn"
-                >
-
-                    <span class="float-icon">
-                        🍽️
-                    </span>
-
-                    <span>
-                        Bàn mới
-                    </span>
-
-                </div>
-
+    <!-- MODAL CHỌN PHƯƠNG THỨC THANH TOÁN -->
+    <div class="modal" id="paymentMethodModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title">💸 Chọn phương thức</span>
+                <span class="modal-close">&times;</span>
             </div>
-
-        </section>
-
-        <!-- ===================================================
-        MENU VIEW
-        ==================================================== -->
-
-        <section
-            id="menuView"
-            class="tab-content"
-        >
-
-            <div class="menu-manager">
-
-                <div
-                    class="menu-categories"
-                    id="menuCategories"
-                >
+            <div class="modal-body">
+                <div class="payment-options">
+                    <button class="payment-option cash" id="paymentCashBtn">
+                        <span class="payment-icon">💰</span>
+                        <span>Tiền mặt</span>
+                    </button>
+                    <button class="payment-option transfer" id="paymentTransferBtn">
+                        <span class="payment-icon">💳</span>
+                        <span>Chuyển khoản</span>
+                    </button>
                 </div>
+            </div>
+        </div>
+    </div>
 
-                <div
-                    class="menu-items-grid"
-                    id="menuItemsGrid"
-                >
+    <!-- MODAL THÊM/SỬA DANH MỤC -->
+    <div class="modal" id="categoryModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="categoryModalTitle">➕ Thêm danh mục</span>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="categoryId">
+                <div class="form-group">
+                    <label>Tên danh mục</label>
+                    <input type="text" id="categoryName" class="form-input" placeholder="VD: Cà phê, Trà, Bánh...">
                 </div>
-
+                <div class="form-group">
+                    <label>Màu sắc</label>
+                    <input type="color" id="categoryColor" class="form-input" value="#f97316">
+                </div>
                 <div class="form-actions">
-
-                    <button
-                        class="btn-add-category"
-                        onclick="openCategoryModal()"
-                    >
-                        + Danh mục
-                    </button>
-
-                    <button
-                        class="btn-add-item"
-                        onclick="openItemModal()"
-                    >
-                        + Thêm món
-                    </button>
-
+                    <button class="btn-save" onclick="saveCategory()">💾 Lưu</button>
+                    <button class="btn-cancel" onclick="closeModal('categoryModal')">Hủy</button>
                 </div>
-
             </div>
+        </div>
+    </div>
 
-        </section>
-
-        <!-- ===================================================
-        INGREDIENTS VIEW
-        ==================================================== -->
-
-        <section
-            id="ingredientsView"
-            class="tab-content"
-        >
-
-            <div class="form-actions">
-
-                <button
-                    class="btn-primary"
-                    onclick="openIngredientModal()"
-                >
-                    + Nguyên liệu
-                </button>
-
-                <button
-                    class="btn-warning"
-                    onclick="checkLowStock()"
-                >
-                    ⚠️ Tồn thấp
-                </button>
-
+    <!-- MODAL THÊM/SỬA MÓN -->
+<div class="modal" id="itemModal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <span class="modal-title" id="itemModalTitle">➕ Thêm món</span>
+            <span class="modal-close">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="itemId">
+            
+            <div class="form-group">
+                <label>Tên món <span style="color:#dc2626;">*</span></label>
+                <input type="text" id="itemName" class="form-input" placeholder="VD: Cà phê sữa">
             </div>
-
-            <div
-                class="ingredients-list"
-                id="ingredientsList"
-            >
-            </div>
-
-        </section>
-
-        <!-- ===================================================
-        CUSTOMERS VIEW
-        ==================================================== -->
-
-        <section
-            id="customersView"
-            class="tab-content"
-        >
-
-            <div class="customer-search-bar">
-
-                <input
-                    type="text"
-                    id="customerSearchInput"
-                    placeholder="🔍 Tìm khách hàng..."
-                    oninput="searchCustomerList()"
-                >
-
-                <button onclick="openAddCustomerModal()">
-                    +
-                </button>
-
-            </div>
-
-            <div class="list-card">
-
-                <div class="table-info">
-
-                    <span>
-                        💰 Tổng công nợ
-                    </span>
-
-                    <strong id="totalDebtAmount">
-                        0đ
-                    </strong>
-
-                </div>
-
-            </div>
-
-            <div
-                id="customerListContainer"
-                class="customer-list-container"
-            >
-            </div>
-
-        </section>
-
-        <!-- ===================================================
-        HISTORY VIEW
-        ==================================================== -->
-
-        <section
-            id="historyView"
-            class="tab-content"
-        >
-
-            <div class="history-header">
-
-                <input
-                    type="date"
-                    id="historyDateFilter"
-                    onchange="renderHistory()"
-                >
-
-                <select
-                    id="historyTypeFilter"
-                    onchange="renderHistory()"
-                >
-
-                    <option value="all">
-                        Tất cả
-                    </option>
-
-                    <option value="takeaway">
-                        Mang đi
-                    </option>
-
-                    <option value="dinein">
-                        Tại chỗ
-                    </option>
-
-                    <option value="debt_payment">
-                        Thanh toán nợ
-                    </option>
-
+            
+            <div class="form-group">
+                <label>Danh mục <span style="color:#dc2626;">*</span></label>
+                <select id="itemCategory" class="form-input">
+                    <option value="">-- Chọn danh mục --</option>
                 </select>
-
             </div>
-
-            <button
-                class="btn-primary"
-                onclick="exportHistory()"
-                style="width:100%; margin-bottom:16px;"
-            >
-                📎 Xuất Excel
-            </button>
-
-            <div
-                id="historyList"
-                class="history-list-container"
-            >
+            
+            <div class="form-group">
+                <label>Giá bán <span style="color:#dc2626;">*</span></label>
+                <input type="number" id="itemPrice" class="form-input" placeholder="0" step="1000">
             </div>
-
-        </section>
-
-        <!-- ===================================================
-        REPORT VIEW
-        ==================================================== -->
-
-        <section
-            id="reportView"
-            class="tab-content"
-        >
-
-            <div
-                id="reportContent"
-                class="report-container"
-            >
-            </div>
-
-        </section>
-
-        <!-- ===================================================
-        SETTINGS VIEW
-        ==================================================== -->
-
-        <section
-            id="settingsView"
-            class="tab-content"
-        >
-
-            <div class="settings-container">
-
-                <!-- SETTINGS GROUP -->
-
-                <div class="settings-group">
-
-                    <h3>
-                        🛒 Cài đặt bán hàng
-                    </h3>
-
-                    <label>
-
-                        <input
-                            type="checkbox"
-                            id="settingAutoPrint"
-                            onchange="saveSettings()"
-                        >
-
-                        Tự động in hóa đơn
-
-                    </label>
-
-                    <label>
-
-                        <input
-                            type="checkbox"
-                            id="settingAfterPay"
-                            onchange="saveSettings()"
-                        >
-
-                        Sau thanh toán xóa bàn
-
-                    </label>
-
-                    <label>
-
-                        <input
-                            type="checkbox"
-                            id="settingShowCustomer"
-                            onchange="saveSettings()"
-                        >
-
-                        Hiển thị khách trên bàn
-
-                    </label>
-
+            
+            <div class="form-group">
+                <label>📋 Công thức (nguyên liệu)</label>
+                <div class="ingredients-info">
+                    <small style="color:#6c757d;">Chọn nguyên liệu và số lượng cho món này</small>
                 </div>
-
-                <!-- STOCK -->
-
-                <div class="settings-group">
-
-                    <h3>
-                        🔔 Cảnh báo tồn kho
-                    </h3>
-
-                    <label>
-
-                        Tồn kho dưới:
-
-                        <input
-                            type="number"
-                            id="settingMinStock"
-                            value="10"
-                            onchange="saveSettings()"
-                            style="width:80px;"
-                        >
-
-                    </label>
-
-                </div>
-
-                <!-- DATA -->
-
-                <div class="settings-group">
-
-                    <h3>
-                        💾 Dữ liệu
-                    </h3>
-
-                    <div class="form-actions">
-
-                        <button
-                            class="btn-danger"
-                            onclick="resetAllData()"
-                        >
-                            Reset
-                        </button>
-
-                        <button
-                            class="btn-primary"
-                            onclick="exportAllData()"
-                        >
-                            Backup
-                        </button>
-
+                <div id="ingredientsFormula" class="ingredients-formula">
+                    <div style="color:#6c757d; text-align:center; padding:20px;">
+                        Chưa có nguyên liệu nào
                     </div>
-
-                    <input
-                        type="file"
-                        id="importFile"
-                        accept=".json"
-                        style="display:none;"
-                        onchange="importAllData(this)"
-                    >
-
-                    <button
-                        class="btn-primary"
-                        style="width:100%; margin-top:12px;"
-                        onclick="document.getElementById('importFile').click()"
-                    >
-                        📂 Restore dữ liệu
-                    </button>
-
-                </div>
-
-                <!-- INFO -->
-
-                <div class="settings-group">
-
-                    <h3>
-                        ℹ️ Thông tin
-                    </h3>
-
-                    <p>
-                        Phiên bản: 2.0.0
-                    </p>
-
-                    <p>
-                        POS Cafe Mobile
-                    </p>
-
                 </div>
 
             </div>
-
-        </section>
-
-    </main>
-
-    <!-- =======================================================
-    BOTTOM NAVIGATION
-    ======================================================== -->
-
-    <nav class="bottom-nav">
-
-        <div
-            class="bottom-nav-item active"
-            data-tab="tables"
-        >
-
-            <span class="bottom-icon">
-                🍽️
-            </span>
-
-            <span>
-                Bàn
-            </span>
-
+            
+            <div class="form-actions">
+                <button class="btn-save" onclick="saveItem()">💾 Lưu món</button>
+                <button class="btn-cancel" onclick="closeModal('itemModal')">❌ Hủy</button>
+            </div>
         </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="menu"
-        >
-
-            <span class="bottom-icon">
-                📋
-            </span>
-
-            <span>
-                Menu
-            </span>
-
+    </div>
+</div>
+<!-- MODAL CHỌN/TẠO KHÁCH CHO GHI NỢ -->
+<div class="modal" id="debtCustomerModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">💰 Ghi nợ - Chọn hoặc tạo khách hàng</span>
+            <span class="modal-close">&times;</span>
         </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="ingredients"
-        >
-
-            <span class="bottom-icon">
-                🥬
-            </span>
-
-            <span>
-                Kho
-            </span>
-
+        <div class="modal-body">
+            <div id="debtCustomerSelectorList" class="debt-customer-selector">
+                <!-- Nội dung động -->
+            </div>
         </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="customers"
-        >
-
-            <span class="bottom-icon">
-                👥
-            </span>
-
-            <span>
-                KH
-            </span>
-
+    </div>
+</div>
+<!-- MODAL THÊM/SỬA NGUYÊN LIỆU -->
+<div class="modal" id="ingredientModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title" id="ingredientModalTitle">➕ Thêm nguyên liệu</span>
+            <span class="modal-close">&times;</span>
         </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="history"
-        >
-
-            <span class="bottom-icon">
-                📜
-            </span>
-
-            <span>
-                Sử
-            </span>
-
+        <div class="modal-body">
+            <input type="hidden" id="ingredientId">
+            
+            <div class="form-group">
+                <label>Tên nguyên liệu <span style="color:#dc2626;">*</span></label>
+                <input type="text" id="ingredientName" class="form-input" placeholder="VD: Cà phê hạt, Sữa đặc...">
+            </div>
+            
+            <div class="form-row-2">
+                <div class="form-group">
+                    <label>Đơn vị</label>
+                    <select id="ingredientUnit" class="form-input">
+                        <option value="kg">kg (Kilogram)</option>
+                        <option value="g">g (Gram)</option>
+                        <option value="lít">lít (Lít)</option>
+                        <option value="ml">ml (Mililít)</option>
+                        <option value="cái">cái (Cái)</option>
+                        <option value="gói">gói (Gói)</option>
+                        <option value="hộp">hộp (Hộp)</option>
+                        <option value="chai">chai (Chai)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Giá nhập (đơn vị)</label>
+                    <input type="number" id="ingredientPrice" class="form-input" value="0" step="1000" placeholder="0">
+                </div>
+            </div>
+            
+            <div class="form-row-2">
+                <div class="form-group">
+                    <label>Tồn kho hiện tại</label>
+                    <input type="number" id="ingredientStock" class="form-input" value="0" step="0.1" placeholder="0">
+                </div>
+                
+                <div class="form-group">
+                    <label>Cảnh báo tồn kho dưới</label>
+                    <input type="number" id="ingredientMinStock" class="form-input" value="10" placeholder="10">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button class="btn-save" onclick="saveIngredient()">💾 Lưu nguyên liệu</button>
+                <button class="btn-cancel" onclick="closeModal('ingredientModal')">❌ Hủy</button>
+            </div>
         </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="report"
-        >
-
-            <span class="bottom-icon">
-                📊
-            </span>
-
-            <span>
-                BC
-            </span>
-
-        </div>
-
-        <div
-            class="bottom-nav-item"
-            data-tab="settings"
-        >
-
-            <span class="bottom-icon">
-                ⚙️
-            </span>
-
-            <span>
-                Setup
-            </span>
-
-        </div>
-
-    </nav>
-
+    </div>
 </div>
 
-<!-- =======================================================
-MODALS
-GIỮ NGUYÊN MODAL CŨ CỦA BẠN
-KHÔNG CẦN SỬA JS
-======================================================= -->
+    <!-- MODAL CHI TIẾT KHÁCH HÀNG -->
+    <div class="modal" id="customerDetailModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <span class="modal-title">👤 Chi tiết khách hàng</span>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body" id="customerDetailContent"></div>
+        </div>
+    </div>
 
-<script src="menu.js"></script>
-<script src="ingredients.js"></script>
-<script src="customers.js"></script>
-<script src="report.js"></script>
-<script src="history.js"></script>
-<script src="script.js"></script>
+    <!-- MODAL THÊM/SỬA KHÁCH HÀNG -->
+    <div class="modal" id="customerFormModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="customerFormTitle">➕ Thêm khách hàng</span>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="customerFormId">
+                <div class="form-group">
+                    <label>Tên khách hàng *</label>
+                    <input type="text" id="customerFormName" class="form-input" placeholder="Nhập tên">
+                </div>
+                <div class="form-group">
+                    <label>Số điện thoại</label>
+                    <input type="tel" id="customerFormPhone" class="form-input" placeholder="Nhập số điện thoại">
+                </div>
+                <div class="form-group">
+                    <label>Địa chỉ</label>
+                    <input type="text" id="customerFormAddress" class="form-input" placeholder="Nhập địa chỉ">
+                </div>
+                <div class="form-actions">
+                    <button class="btn-save" onclick="saveCustomerForm()">💾 Lưu</button>
+                    <button class="btn-cancel" onclick="closeModal('customerFormModal')">Hủy</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
+    <!-- MODAL CHỌN KHÁCH HÀNG -->
+    <div class="modal" id="customerSelectorModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title">👥 Chọn khách hàng</span>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="customer-search-mini">
+                    <input type="text" id="customerSelectorSearch" placeholder="🔍 Tìm khách..." oninput="filterCustomerSelector()">
+                </div>
+                <div id="customerSelectorList" class="customer-selector-list"></div>
+            </div>
+        </div>
+    </div>
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- MODAL THANH TOÁN MỚI (THAY THẾ MODAL CŨ) -->
+<div class="modal" id="paymentModal">
+    <div class="modal-content payment-modal-content">
+        <div class="modal-header">
+            <span class="modal-title">💸 Thanh toán</span>
+            <span class="modal-close">&times;</span>
+        </div>
+        <div class="modal-body" id="paymentModalBody">
+            <!-- Nội dung sẽ được render bằng JS -->
+        </div>
+    </div>
+</div>
+    <script src="menu.js"></script>
+    <script src="ingredients.js"></script>
+    <script src="customers.js"></script>
+    <script src="report.js"></script>
+    <script src="history.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
