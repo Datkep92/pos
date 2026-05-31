@@ -5,10 +5,11 @@
 }
 
 body {
-    font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     background: #f5f7fb;
     height: 100vh;
     overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .app {
@@ -18,7 +19,6 @@ body {
     max-width: 1400px;
     margin: 0 auto;
     background: #f5f7fb;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
 }
 
 /* ========== HEADER ========== */
@@ -26,40 +26,30 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(135deg, #2d5016, #4a7c23);
+    background: #1e3a2f;
     color: white;
-    padding: 12px 20px;
+    padding: 12px 16px;
     flex-shrink: 0;
 }
-
 .logo {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
-
-.logo-icon {
-    font-size: 28px;
-}
-
-.logo-text {
-    font-size: 20px;
-    font-weight: bold;
-}
-
+.logo-icon { font-size: 24px; }
+.logo-text { font-size: 18px; font-weight: 600; }
 .header-right {
     display: flex;
-    gap: 15px;
-    font-size: 14px;
+    gap: 12px;
+    font-size: 13px;
 }
-
-.staff, .time {
+.time {
     background: rgba(255,255,255,0.2);
-    padding: 6px 14px;
+    padding: 6px 12px;
     border-radius: 30px;
 }
 
-/* ========== MAIN TABS ========== */
+/* ========== MAIN TABS (Desktop) ========== */
 .main-tabs {
     display: flex;
     background: white;
@@ -69,18 +59,16 @@ body {
     gap: 4px;
     padding: 8px 12px;
 }
-
 .main-tab {
-    padding: 8px 16px;
-    border-radius: 30px;
+    padding: 8px 18px;
+    border-radius: 40px;
     cursor: pointer;
     font-size: 14px;
     font-weight: 600;
     color: #6c757d;
-    transition: all 0.2s;
     white-space: nowrap;
+    transition: all 0.2s;
 }
-
 .main-tab.active {
     background: #f97316;
     color: white;
@@ -95,7 +83,6 @@ body {
     gap: 8px;
     flex-shrink: 0;
 }
-
 .bottom-nav-item {
     flex: 1;
     display: flex;
@@ -107,13 +94,8 @@ body {
     cursor: pointer;
     color: #adb5bd;
     font-size: 10px;
-    transition: all 0.2s;
 }
-
-.bottom-icon {
-    font-size: 20px;
-}
-
+.bottom-icon { font-size: 20px; }
 .bottom-nav-item.active {
     background: #fef3c7;
     color: #f97316;
@@ -125,53 +107,123 @@ body {
     overflow: hidden;
     position: relative;
 }
-
 .tab-content {
     display: none;
     height: 100%;
     overflow-y: auto;
     padding: 16px;
 }
+.tab-content.active { display: block; }
 
-.tab-content.active {
-    display: block;
-}
-
-/* ========== TAB BÀN ========== */
+/* ========== BÀN ========== */
 .tables-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 10px;
 }
-
 .sub-tabs {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     background: white;
-    padding: 6px;
+    padding: 4px;
     border-radius: 40px;
-    width: fit-content;
 }
-
 .sub-tab {
-    padding: 8px 20px;
+    padding: 6px 18px;
     border-radius: 30px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: #6c757d;
-    transition: all 0.2s;
 }
-
 .sub-tab.active {
     background: #f97316;
     color: white;
 }
-
+.btn-add-table-header {
+    background: #f97316;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
 .tables-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+    gap: 14px;
 }
+.table-card {
+    background: white;
+    border-radius: 20px;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    cursor: pointer;
+    transition: transform 0.1s;
+    border-left: 4px solid #f97316;
+}
+.table-card:active { transform: scale(0.98); }
+.table-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.table-name {
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.table-time {
+    font-size: 10px;
+    background: #f1f3f5;
+    padding: 3px 8px;
+    border-radius: 20px;
+}
+.table-customer-name {
+    font-size: 12px;
+    color: #f97316;
+    background: #fef3c7;
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+}
+.table-stats {
+    text-align: center;
+    margin: 8px 0;
+}
+.table-item-count {
+    font-size: 12px;
+    color: #6c757d;
+}
+.table-total {
+    font-size: 18px;
+    font-weight: 800;
+    color: #1e3a2f;
+}
+.table-icons {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 10px;
+    gap: 8px;
+}
+.table-icon-btn {
+    flex: 1;
+    text-align: center;
+    padding: 6px;
+    background: #f8f9fa;
+    border-radius: 30px;
+    font-size: 18px;
+    cursor: pointer;
+}
+.table-icon-btn:active { background: #e9ecef; }
 
+/* ========== FLOAT BUTTONS ========== */
 .float-buttons {
     position: fixed;
     bottom: 80px;
@@ -181,7 +233,6 @@ body {
     gap: 12px;
     z-index: 100;
 }
-
 .float-btn {
     width: 56px;
     height: 56px;
@@ -190,325 +241,15 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     cursor: pointer;
-    transition: all 0.2s;
 }
-
-.float-btn:active { transform: scale(0.92); }
 .float-takeaway { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }
 .float-newtable { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
 .float-icon { font-size: 24px; }
 .float-label { font-size: 9px; font-weight: 600; }
 
-/* ========== TAB MENU ========== */
-.menu-categories {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    margin-bottom: 20px;
-    padding-bottom: 8px;
-}
-
-.category-chip {
-    padding: 8px 18px;
-    border-radius: 40px;
-    background: white;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    transition: all 0.2s;
-}
-
-.category-chip.active {
-    background: #f97316;
-    color: white;
-}
-
-.menu-items-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.menu-item-card {
-    background: white;
-    border-radius: 16px;
-    padding: 12px;
-    text-align: center;
-    cursor: pointer;
-    transition: 0.1s;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
-
-.menu-item-card:active { transform: scale(0.96); }
-.menu-item-name { font-weight: 600; font-size: 14px; }
-.menu-item-price { color: #f97316; font-weight: 700; margin-top: 6px; }
-.menu-item-ingredients { font-size: 10px; color: #6c757d; margin-top: 6px; }
-
-.menu-actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 16px;
-}
-
-.btn-add-category, .btn-add-item, .btn-add-ingredient {
-    background: #3b82f6;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 40px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-/* ========== TAB NGUYÊN LIỆU ========== */
-.ingredients-header {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-.btn-warning {
-    background: #f59e0b;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 40px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.ingredients-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.ingredient-card {
-    background: white;
-    border-radius: 16px;
-    padding: 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.ingredient-info { flex: 1; }
-.ingredient-name { font-weight: 600; }
-.ingredient-unit { font-size: 12px; color: #6c757d; }
-.ingredient-stock { font-size: 18px; font-weight: 700; margin: 0 10px; }
-.ingredient-stock.low { color: #dc2626; }
-.ingredient-actions { display: flex; gap: 8px; }
-
-.btn-edit, .btn-delete {
-    padding: 6px 14px;
-    border: none;
-    border-radius: 20px;
-    cursor: pointer;
-}
-
-.btn-edit { background: #3b82f6; color: white; }
-.btn-delete { background: #dc2626; color: white; }
-
-/* ========== TAB KHÁCH HÀNG ========== */
-.customer-search-bar {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 16px;
-}
-
-.customer-search-bar input {
-    flex: 1;
-    padding: 12px;
-    border: 1px solid #e9ecef;
-    border-radius: 40px;
-}
-
-.debt-summary {
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
-    padding: 14px 20px;
-    border-radius: 20px;
-    display: flex;
-    justify-content: space-between;
-    font-weight: bold;
-    margin-bottom: 16px;
-}
-
-.customer-card {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    background: white;
-    padding: 14px;
-    border-radius: 20px;
-    margin-bottom: 10px;
-    cursor: pointer;
-}
-
-.customer-card:active { transform: scale(0.98); }
-.customer-avatar {
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, #f97316, #ea580c);
-    border-radius: 25px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: bold;
-    font-size: 20px;
-}
-
-.customer-info { flex: 1; }
-.customer-name { font-weight: 700; }
-.customer-contact { font-size: 12px; color: #6c757d; }
-.customer-debt.has-debt { background: #fee2e2; color: #dc2626; padding: 4px 12px; border-radius: 20px; }
-.customer-debt.no-debt { background: #d1fae5; color: #10b981; padding: 4px 12px; border-radius: 20px; }
-
-/* ========== TAB LỊCH SỬ ========== */
-.history-header {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-.history-header input, .history-header select {
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 12px;
-}
-
-.history-header button {
-    background: #3b82f6;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 12px;
-    cursor: pointer;
-}
-
-.history-list-container {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.history-item {
-    background: white;
-    border-radius: 16px;
-    padding: 14px;
-    border-left: 4px solid;
-}
-
-.history-item.takeaway { border-left-color: #f97316; }
-.history-item.dinein { border-left-color: #10b981; }
-.history-item.debt_payment { border-left-color: #3b82f6; }
-
-.history-header-row {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 13px;
-    color: #6c757d;
-}
-
-.history-amount { font-weight: 700; font-size: 16px; }
-.history-detail { font-size: 12px; color: #495057; margin-top: 8px; }
-
-/* ========== TAB BÁO CÁO ========== */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 20px;
-    padding: 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.stat-icon { font-size: 32px; }
-.stat-info { flex: 1; }
-.stat-label { font-size: 12px; color: #6c757d; }
-.stat-value { font-size: 20px; font-weight: bold; }
-.stat-amount { font-size: 14px; color: #f97316; font-weight: 600; }
-
-.summary-card {
-    background: linear-gradient(135deg, #2d5016, #4a7c23);
-    color: white;
-    border-radius: 20px;
-    padding: 18px;
-    margin-bottom: 20px;
-}
-
-.summary-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 0;
-}
-
-.summary-highlight { font-size: 20px; font-weight: 800; }
-.history-list { display: flex; flex-direction: column; gap: 10px; }
-
-/* ========== TAB CÀI ĐẶT ========== */
-.settings-container {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
-.settings-group {
-    background: white;
-    border-radius: 20px;
-    padding: 18px;
-}
-
-.settings-group h3 {
-    margin-bottom: 16px;
-    color: #1a1a2e;
-}
-
-.settings-group label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 12px 0;
-    cursor: pointer;
-}
-
-.btn-primary {
-    background: #3b82f6;
-    color: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 12px;
-    margin: 5px;
-    cursor: pointer;
-}
-
-.btn-danger {
-    background: #dc2626;
-    color: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 12px;
-    margin: 5px;
-    cursor: pointer;
-}
-
-/* ========== MODALS ========== */
+/* ========== MODALS (BOTTOM SHEET TRÊN MOBILE) ========== */
 .modal {
     display: none;
     position: fixed;
@@ -517,29 +258,20 @@ body {
     top: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0,0,0,0.6);
-    backdrop-filter: blur(3px);
-    justify-content: center;
-    align-items: center;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(2px);
+    justify-content: flex-end;
+    align-items: flex-end;
 }
-
 .modal-content {
     background: white;
-    border-radius: 28px;
-    width: 90%;
-    max-width: 500px;
+    width: 100%;
     max-height: 85vh;
+    border-radius: 28px 28px 0 0;
     overflow: hidden;
-    animation: slideUp 0.25s;
+    animation: slideUp 0.25s ease;
 }
-
-.modal-large { max-width: 700px; }
-
-@keyframes slideUp {
-    from { transform: translateY(50px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-
+.modal-large { max-width: 700px; margin: 0 auto; } /* trên desktop sẽ không dính đáy */
 .modal-header {
     display: flex;
     justify-content: space-between;
@@ -547,46 +279,56 @@ body {
     padding: 16px 20px;
     background: #f97316;
     color: white;
-    font-weight: bold;
+    font-weight: 600;
 }
-
 .modal-close {
     font-size: 28px;
     cursor: pointer;
 }
-
 .modal-body {
     padding: 20px;
     overflow-y: auto;
     max-height: calc(85vh - 60px);
 }
-
-.form-group {
-    margin-bottom: 16px;
+@keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 }
 
+/* Trên desktop > 768px, modal hiển thị giữa màn hình */
+@media (min-width: 768px) {
+    .modal {
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-content {
+        border-radius: 28px;
+        max-width: 600px;
+        max-height: 85vh;
+        margin: 0;
+    }
+}
+
+/* ========== CÁC THÀNH PHẦN KHÁC GIỮ NGUYÊN TINH GỌN ========== */
+.form-group { margin-bottom: 16px; }
 .form-group label {
     display: block;
     font-size: 13px;
     font-weight: 600;
     margin-bottom: 6px;
-    color: #1a1a2e;
 }
-
 .form-input {
     width: 100%;
     padding: 12px;
     border: 1px solid #e9ecef;
-    border-radius: 12px;
+    border-radius: 16px;
     font-size: 14px;
 }
-
 .form-actions {
     display: flex;
     gap: 12px;
     margin-top: 20px;
 }
-
 .btn-save {
     flex: 1;
     background: #10b981;
@@ -597,7 +339,6 @@ body {
     font-weight: 600;
     cursor: pointer;
 }
-
 .btn-cancel {
     flex: 1;
     background: #e9ecef;
@@ -606,7 +347,6 @@ body {
     font-weight: 600;
     cursor: pointer;
 }
-
 .btn-small {
     background: #3b82f6;
     color: white;
@@ -617,206 +357,7 @@ body {
     cursor: pointer;
 }
 
-.payment-options {
-    display: flex;
-    gap: 16px;
-    padding: 20px;
-}
-
-.payment-option {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 24px;
-    border: none;
-    border-radius: 24px;
-    font-size: 18px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.payment-option.cash { background: #10b981; color: white; }
-.payment-option.transfer { background: #3b82f6; color: white; }
-.payment-icon { font-size: 40px; }
-
-/* RESPONSIVE */
-@media (max-width: 768px) {
-    .main-tabs { display: none; }
-    .bottom-nav { display: flex; }
-    .tables-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-/* ========== Ô BÀN - TỐI ƯU ========== */
-.table-card {
-    background: white;
-    border-radius: 16px;
-    padding: 10px 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-    cursor: pointer;
-    transition: all 0.15s;
-    border-left: 4px solid;
-}
-
-.table-card:active {
-    transform: scale(0.97);
-}
-
-.table-card.empty {
-    border-left-color: #adb5bd;
-    background: #fefefe;
-}
-
-.table-card.occupied {
-    border-left-color: #f97316;
-    background: #fffaf5;
-}
-
-.table-card.debt {
-    border-left-color: #dc2626;
-    background: #fff5f5;
-}
-
-/* Hàng trên cùng: tên bàn + thời gian + nút gán tên */
-.table-top-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-}
-
-.table-name-section {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.table-name {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1a1a2e;
-}
-
-.btn-assign-customer {
-    background: none;
-    border: none;
-    font-size: 12px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 20px;
-    background: #e9ecef;
-    color: #6c757d;
-}
-
-.btn-assign-customer:active {
-    transform: scale(0.95);
-}
-
-.table-time {
-    font-size: 10px;
-    color: #868e96;
-    background: #f1f3f5;
-    padding: 2px 6px;
-    border-radius: 20px;
-}
-
-/* Tên khách hàng (nếu có) */
-.table-customer-name {
-    font-size: 11px;
-    color: #f97316;
-    background: #fef3c7;
-    padding: 2px 8px;
-    border-radius: 20px;
-    display: inline-block;
-    margin-bottom: 6px;
-    text-align: center;
-}
-
-/* Thống kê giữa */
-.table-stats {
-    text-align: center;
-    margin: 6px 0;
-}
-
-.table-item-count {
-    font-size: 11px;
-    color: #495057;
-}
-
-.table-item-count span {
-    font-weight: 700;
-    color: #f97316;
-}
-
-.table-total {
-    font-size: 16px;
-    font-weight: 800;
-    color: #2d5016;
-}
-
-.debt-badge-mini {
-    font-size: 9px;
-    color: #dc2626;
-    font-weight: 600;
-    margin-top: 2px;
-}
-
-/* 3 ICON - CHỈ ICON, KHÔNG CHỮ */
-.table-icons {
-    display: flex;
-    justify-content: space-around;
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1px solid #e9ecef;
-    gap: 8px;
-}
-
-.table-icon-btn {
-    flex: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 6px 0;
-    border-radius: 30px;
-    background: #f8f9fa;
-    cursor: pointer;
-    transition: all 0.1s;
-    font-size: 18px;
-}
-
-.table-icon-btn:active {
-    transform: scale(0.92);
-    background: #e9ecef;
-}
-
-.icon-add { color: #3b82f6; }
-.icon-pay { color: #10b981; }
-.icon-debt { color: #f59e0b; }
-
-/* Responsive cho ô bàn nhỏ hơn */
-@media (max-width: 480px) {
-    .table-card {
-        padding: 8px 6px;
-    }
-    .table-name {
-        font-size: 13px;
-    }
-    .table-total {
-        font-size: 14px;
-    }
-    .table-icon-btn {
-        font-size: 16px;
-        padding: 4px 0;
-    }
-    .btn-assign-customer {
-        font-size: 10px;
-        padding: 1px 4px;
-    }
-}
-
-/* ========== TOAST NOTIFICATION ========== */
+/* ========== TOAST ========== */
 .toast-container {
     position: fixed;
     bottom: 20px;
@@ -828,7 +369,6 @@ body {
     gap: 8px;
     pointer-events: none;
 }
-
 .toast {
     background: #1f2937;
     color: white;
@@ -837,671 +377,1632 @@ body {
     font-size: 14px;
     font-weight: 500;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease;
+}
+.toast.success { background: #10b981; }
+.toast.error { background: #ef4444; }
+.toast.warning { background: #f59e0b; }
+@keyframes slideIn {
+    from { transform: translateY(100px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* ========== RESPONSIVE MOBILE ========== */
+@media (max-width: 768px) {
+    .main-tabs { display: none; }
+    .bottom-nav { display: flex; }
+    .tables-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .table-name { font-size: 14px; }
+    .table-total { font-size: 16px; }
+    .table-icon-btn { font-size: 16px; padding: 4px; }
+    .modal-content { border-radius: 20px 20px 0 0; }
+    .modal-body { padding: 16px; }
+}
+
+/* ========== CÁC COMPONENT NHỎ ========== */
+.ingredients-list, .customer-list-container, .history-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.ingredient-card, .customer-card, .history-item {
+    background: white;
+    border-radius: 20px;
+    padding: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.debt-card {
+    background: white;
+    border-radius: 20px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border-left: 4px solid #dc2626;
+}
+.split-item-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    animation: toastSlideIn 0.3s ease;
-    pointer-events: auto;
-}
-
-.toast.success {
-    background: #10b981;
-}
-
-.toast.error {
-    background: #ef4444;
-}
-
-.toast.warning {
-    background: #f59e0b;
-}
-
-.toast.info {
-    background: #3b82f6;
-}
-
-@keyframes toastSlideIn {
-    from {
-        transform: translateY(100px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-@keyframes toastSlideOut {
-    from {
-        transform: translateY(0);
-        opacity: 1;
-    }
-    to {
-        transform: translateY(100px);
-        opacity: 0;
-    }
-}
-
-/* ========== MODAL THANH TOÁN MỚI ========== */
-.payment-modal-content {
-    max-width: 400px;
-    width: 90%;
-}
-
-.payment-info-section {
+    gap: 12px;
+    padding: 12px;
     background: #f8f9fa;
     border-radius: 16px;
-    padding: 16px;
-    margin-bottom: 20px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
 }
-
-.payment-info-row {
+.split-qty-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.split-qty-control button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #e9ecef;
+    border-radius: 50%;
+    font-weight: bold;
+    cursor: pointer;
+}
+.split-qty-input {
+    width: 70px;
+    text-align: center;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+}
+.detail-item-row {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
-    font-size: 14px;
-    border-bottom: 1px dashed #e9ecef;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
 }
 
-.payment-info-row:last-child {
-    border-bottom: none;
+/* ========== MODAL CHI TIẾT BÀN (KIỂU MỚI) ========== */
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f97316;
+    color: white;
+    padding: 16px 20px;
 }
-
-.payment-info-label {
-    color: #6c757d;
+.modal-title-group {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    align-items: center;
 }
-
-.payment-info-value {
-    font-weight: 600;
-    color: #1a1a2e;
-}
-
-.payment-info-value.total {
+.modal-title {
     font-size: 18px;
-    color: #f97316;
+    font-weight: 700;
 }
-
-.payment-items-list {
-    max-height: 200px;
+.modal-time {
+    font-size: 14px;
+    background: rgba(255,255,255,0.2);
+    padding: 4px 12px;
+    border-radius: 30px;
+}
+.detail-items-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-weight: 600;
+    font-size: 15px;
+}
+.detail-items-list {
+    max-height: 50vh;
     overflow-y: auto;
     margin-bottom: 16px;
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 4px;
 }
-
-.payment-item-row {
+.detail-item-row {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    padding: 6px 0;
-    font-size: 13px;
-    border-bottom: 1px dashed #e9ecef;
+    background: white;
+    border-radius: 16px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    gap: 8px;
+    flex-wrap: wrap;
 }
-
-.payment-item-name {
-    color: #495057;
+.detail-item-info {
+    flex: 2;
+    min-width: 100px;
 }
-
-.payment-item-price {
-    font-weight: 500;
-    color: #f97316;
+.detail-item-name {
+    font-weight: 600;
+    font-size: 14px;
 }
-
-.payment-methods {
+.detail-item-price {
+    font-size: 12px;
+    color: #6c757d;
+}
+.detail-item-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-qty {
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: #e9ecef;
+    border-radius: 50%;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 16px;
+}
+.btn-delete-item {
+    background: #dc2626;
+    color: white;
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.detail-item-total {
+    min-width: 70px;
+    text-align: right;
+    font-weight: 600;
+    color: #1e3a2f;
+}
+.detail-summary {
+    background: #e9ecef;
+    padding: 12px 16px;
+    border-radius: 20px;
+    margin: 12px 0;
+    text-align: center;
+    font-weight: 600;
+    font-size: 16px;
+}
+.detail-payment-buttons {
     display: flex;
     gap: 12px;
-    margin-top: 20px;
+    margin: 16px 0;
+}
+.payment-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px;
+    border: none;
+    border-radius: 40px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+.payment-btn:active { transform: scale(0.97); }
+.payment-btn.cash {
+    background: #10b981;
+    color: white;
+}
+.payment-btn.transfer {
+    background: #3b82f6;
+    color: white;
+}
+.detail-action-icons {
+    display: flex;
+    justify-content: space-around;
+    gap: 12px;
+    margin-top: 12px;
+}
+.action-icon {
+    flex: 1;
+    background: #f8f9fa;
+    border: none;
+    border-radius: 40px;
+    padding: 10px;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+.action-icon:active { background: #e9ecef; transform: scale(0.96); }
+
+/* ========== MODAL CHI TIẾT BÀN - TỐI ƯU MOBILE ========== */
+@media (max-width: 768px) {
+    .modal-content.modal-large {
+        max-width: 100%;
+        border-radius: 24px 24px 0 0;
+    }
+    .detail-item-row {
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 8px;
+    }
+    .detail-item-info {
+        flex: 2;
+        min-width: 100px;
+    }
+    .detail-item-controls {
+        flex: 1;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+    .btn-qty {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+    }
+    .btn-delete-item {
+        width: 36px;
+        height: 36px;
+        border-radius: 18px;
+    }
+   
+    .detail-summary {
+        font-size: 14px;
+        padding: 10px;
+    }
+    .payment-btn {
+        padding: 12px;
+        font-size: 14px;
+    }
+    .action-icon {
+        font-size: 22px;
+        padding: 8px;
+    }
+    .detail-items-header {
+        font-size: 14px;
+    }
 }
 
 .payment-method-btn {
     flex: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 16px;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 0;
     border: none;
-    border-radius: 20px;
-    font-size: 16px;
-    font-weight: 600;
+    border-radius: 60px;
+    font-size: 18px;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.1s;
 }
+.payment-method-btn.cash { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+.payment-method-btn.transfer { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
 
-.payment-method-btn:active {
-    transform: scale(0.96);
+/* ========== MODAL ORDER (CHỌN MÓN) - TỐI ƯU MOBILE ========== */
+.order-modal-content {
+    height: 80vh;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
 }
-
-.payment-method-btn.cash {
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: white;
+.order-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
 }
-
-.payment-method-btn.transfer {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
-    color: white;
-}
-
-.payment-method-icon {
-    font-size: 32px;
-}
-
-/* ========== DANH MỤC TRONG POPUP ========== */
 .order-categories {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     overflow-x: auto;
+    padding-bottom: 12px;
     margin-bottom: 16px;
-    padding-bottom: 8px;
+    border-bottom: 1px solid #e9ecef;
+    flex-shrink: 0;
 }
-
 .order-categories .category-chip {
-    padding: 6px 14px;
-    border-radius: 30px;
+    padding: 8px 20px;
     background: #f8f9fa;
-    font-size: 13px;
+    border-radius: 40px;
+    font-size: 14px;
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
-    transition: all 0.15s;
 }
-
 .order-categories .category-chip.active {
     background: #f97316;
     color: white;
 }
-
-.order-categories .category-chip:active {
+.menu-grid-simple {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 50vh;
+}
+.menu-item-simple {
+    background: white;
+    border-radius: 16px;
+    padding: 12px;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: transform 0.1s;
+}
+.menu-item-simple:active {
     transform: scale(0.96);
 }
-
-/* ========== CÔNG THỨC NGUYÊN LIỆU ========== */
-.ingredients-formula {
+.temp-cart {
     background: #f8f9fa;
-    border-radius: 12px;
+    border-radius: 20px;
     padding: 12px;
-    margin-bottom: 12px;
+    margin-top: 12px;
+    flex-shrink: 0;
+}
+.temp-cart-title {
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.temp-cart-items {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+}
+.temp-cart-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+.temp-cart-total {
+    font-weight: 700;
+    text-align: right;
+    margin: 8px 0;
+}
+.btn-confirm-add {
+    width: 100%;
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+@media (max-width: 768px) {
+    .menu-grid-simple {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    .menu-item-simple {
+        padding: 10px;
+    }
+}
+
+/* ========== POPUP SÁT ĐÁY, FULL NGANG, HỞ 20% TRÊN (MOBILE/TABLET) ========== */
+@media (max-width: 1024px) {
+    /* Điều chỉnh tất cả modal */
+    .modal {
+        justify-content: flex-end !important;
+        align-items: flex-end !important;
+    }
+    .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 28px 28px 0 0 !important;
+        margin: 0 !important;
+        max-height: 80vh !important;
+        height: 80vh !important;
+    }
+    .modal-large {
+        max-width: 100% !important;
+    }
+    .modal-body {
+        max-height: calc(80vh - 60px) !important;
+    }
+    /* Riêng cho modal order (chọn món) */
+    .order-modal-content {
+        height: 80vh !important;
+        max-height: 80vh !important;
+    }
+}
+
+/* Trên desktop (màn hình rộng) vẫn giữ modal giữa màn hình */
+@media (min-width: 1025px) {
+    .modal {
+        justify-content: center !important;
+        align-items: center !important;
+    }
+    .modal-content {
+        width: auto !important;
+        max-width: 600px !important;
+        border-radius: 28px !important;
+        height: auto !important;
+        max-height: 85vh !important;
+    }
+}
+/* ========== NÚT TẠO BÀN MỚI ========== */
+.btn-add-table {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-size: 14px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: transform 0.1s, opacity 0.2s;
+}
+.btn-add-table:active {
+    transform: scale(0.96);
+}
+.btn-add-table::before {
+    content: "+";
+    font-size: 18px;
+    font-weight: bold;
+}
+/* Responsive mobile */
+@media (max-width: 768px) {
+    .btn-add-table {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    .btn-add-table::before {
+        font-size: 16px;
+    }
+}
+
+/* ========== MODAL THANH TOÁN (BOTTOM SHEET) ========== */
+/* Đảm bảo modal thanh toán cũng áp dụng bottom sheet chung */
+@media (max-width: 1024px) {
+    #paymentModal.modal {
+        justify-content: flex-end !important;
+        align-items: flex-end !important;
+    }
+    #paymentModal .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 28px 28px 0 0 !important;
+        margin: 0 !important;
+        max-height: 80vh !important;
+        height: 80vh !important;
+    }
+}
+
+/* Nội dung bên trong */
+.payment-modal-content {
+    background: white;
+    display: flex;
+    flex-direction: column;
+}
+#paymentModal .modal-header {
+    background: #f97316;
+    color: white;
+    padding: 16px 20px;
+    border-radius: 28px 28px 0 0;
+}
+#paymentModal .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+.payment-info-section {
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+.payment-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+.payment-info-row:last-child {
+    border-bottom: none;
+}
+.payment-items-title {
+    font-weight: 700;
+    margin: 12px 0 8px;
+    font-size: 16px;
+}
+.payment-items-list {
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 12px;
     max-height: 200px;
     overflow-y: auto;
 }
-
-.formula-row {
+.payment-items-list > div {
     display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-    align-items: center;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #e9ecef;
 }
-
-.formula-row select,
-.formula-row input {
+.payment-items-list > div:last-child {
+    border-bottom: none;
+}
+.payment-methods {
+    display: flex;
+    gap: 16px;
+    margin-top: 24px;
+}
+.payment-method-btn {
     flex: 1;
-    min-width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 0;
+    border: none;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+.payment-method-btn:active {
+    transform: scale(0.96);
+}
+.payment-method-btn.cash {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+}
+.payment-method-btn.transfer {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+}
+/* Responsive cho điện thoại nhỏ */
+@media (max-width: 480px) {
+    #paymentModal .modal-content {
+        max-height: 85vh !important;
+        height: 85vh !important;
+    }
+    .payment-method-btn {
+        padding: 12px 0;
+        font-size: 14px;
+    }
 }
 
-.btn-small {
-    background: #3b82f6;
-    color: white;
-    border: none;
-    padding: 8px 16px;
+/* ========== POPUP THANH TOÁN - LÀM NỔI BẬT ========== */
+#paymentModal .modal-header .modal-title {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+#paymentModal .payment-info-row {
+    font-size: 16px;
+    font-weight: 600;
+    padding: 12px 0;
+}
+#paymentModal .payment-info-row span:first-child {
+    color: #6c757d;
+    font-weight: 500;
+}
+#paymentModal .payment-info-row span:last-child {
+    color: #1e3a2f;
+    font-weight: 700;
+    font-size: 17px;
+}
+
+/* Danh sách món */
+#paymentModal .payment-items-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin: 16px 0 12px;
+    color: #f97316;
+    border-left: 4px solid #f97316;
+    padding-left: 12px;
+}
+#paymentModal .payment-items-list {
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 12px;
+}
+#paymentModal .payment-items-list > div {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 16px;
+}
+#paymentModal .payment-items-list > div span:first-child {
+    font-weight: 700;
+    color: #1e3a2f;
+}
+#paymentModal .payment-items-list > div span:last-child {
+    font-weight: 800;
+    color: #f97316;
+    background: #fff3e0;
+    padding: 4px 12px;
     border-radius: 30px;
+}
+
+/* Tổng tiền */
+#paymentModal .payment-info-row.total-row {
+    margin-top: 16px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    border-radius: 20px;
+    padding: 14px 20px;
+    color: white;
+}
+#paymentModal .payment-info-row.total-row span:first-child {
+    color: white;
+    font-size: 18px;
+}
+#paymentModal .payment-info-row.total-row span:last-child {
+    font-size: 24px;
+    font-weight: 800;
+    color: white;
+    background: rgba(0,0,0,0.2);
+    padding: 4px 16px;
+    border-radius: 40px;
+}
+
+/* Nút thanh toán */
+#paymentModal .payment-method-btn {
+    font-size: 18px;
+    font-weight: 800;
+    padding: 16px 0;
+    border-radius: 60px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+#paymentModal .payment-method-btn:active {
+    transform: scale(0.96);
+}
+
+/* Responsive mobile */
+@media (max-width: 480px) {
+    #paymentModal .payment-info-row {
+        font-size: 14px;
+        padding: 10px 0;
+    }
+    #paymentModal .payment-info-row span:last-child {
+        font-size: 15px;
+    }
+    #paymentModal .payment-items-title {
+        font-size: 16px;
+    }
+    #paymentModal .payment-items-list > div {
+        font-size: 14px;
+    }
+    #paymentModal .payment-info-row.total-row span:last-child {
+        font-size: 0px;
+    }
+    #paymentModal .payment-method-btn {
+        font-size: 16px;
+        padding: 12px 0;
+    }
+}
+
+.payment-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #f7f7f7;
+}
+
+/* Số món */
+.payment-items-count {
+    font-size: 14px;
+    color: #444;
+}
+
+/* Tổng tiền block */
+.payment-total {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+/* label */
+.payment-total .label {
+    font-size: 13px;
+    color: #666;
+}
+
+/* số tiền nổi bật */
+.payment-total .amount {
+    font-size: 18px;
+    font-weight: 800;
+    color: #e53935; /* đỏ nổi bật */
+    letter-spacing: 0.3px;
+}
+
+.detail-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    padding: 10px 12px;
+    margin-top: 10px;
+
+    border-radius: 10px;
+    background: #f7f7f7;
+}
+
+/* bên trái: tổng số món */
+.detail-summary span#detailTotalCount {
+    font-weight: 700;
+    color: #333;
+}
+
+/* phần chữ "Tổng:" */
+.detail-summary {
+    font-size: 14px;
+    color: #444;
+}
+
+/* tổng tiền nổi bật */
+#detailTotalAmount {
+    font-size: 18px;
+    font-weight: 800;
+    color: #e53935;
+    letter-spacing: 0.3px;
+}
+
+.detail-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+/* bên trái: tên + giá */
+.detail-item-info {
+    flex: 1;
+    min-width: 0; /* chống tràn */
+}
+
+.detail-item-name {
+    font-weight: 600;
+    font-size: 14px;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detail-item-price {
     font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.1s;
+    color: #777;
 }
 
-.btn-small:active {
-    transform: scale(0.95);
+/* giữa: controls */
+.detail-item-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 6px;
 }
 
-.btn-small[style*="background:#dc2626"] {
-    background: #dc2626;
+/* nút +/- */
+.detail-item-controls .btn-qty {
+    width: 28px;
+    height: 28px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    background: #fff;
+
+    font-size: 16px;
+    font-weight: 600;
 }
 
-.btn-add-ingredient-formula {
-    background: #10b981;
+/* số lượng */
+.detail-item-controls span {
+    min-width: 28px;
+    text-align: center;
+    font-weight: 600;
+}
+
+/* bên phải: tổng tiền */
+.detail-item-total {
+    font-weight: 700;
+    color: #e53935;
+    font-size: 14px;
+
+    white-space: nowrap;
+}
+
+
+
+/* ========== TAB MENU - GỌN GÀNG, NỔI BẬT ========== */
+.menu-manager {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.menu-actions-top {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+.menu-actions-top .btn-add-category,
+.menu-actions-top .btn-add-item {
+    background: linear-gradient(135deg, #f97316, #ea580c);
     color: white;
     border: none;
-    padding: 10px 16px;
-    border-radius: 30px;
-    font-size: 13px;
-    font-weight: 500;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 700;
+    font-size: 14px;
     cursor: pointer;
-    width: 100%;
-    margin-top: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    transition: transform 0.1s;
+}
+.menu-actions-top .btn-add-category:active,
+.menu-actions-top .btn-add-item:active {
+    transform: scale(0.96);
 }
 
-.btn-add-ingredient-formula:active {
-    transform: scale(0.97);
+.menu-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
 }
-
-/* Đảm bảo select hiển thị đẹp */
-.formula-row select {
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    background: white;
+.category-chip {
+    background: #f8f9fa;
+    padding: 6px 14px;
+    border-radius: 40px;
     font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+.category-chip.active {
+    background: #f97316;
+    color: white;
+}
+.category-actions button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 4px;
 }
 
-.formula-row input {
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    text-align: center;
-}
-
-/* ========== FORM ROW 2 CỘT ========== */
-.form-row-2 {
+.menu-items-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 12px;
 }
+.menu-item-card {
+    background: white;
+    border-radius: 20px;
+    padding: 12px;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    transition: transform 0.1s;
+}
+.menu-item-card:active {
+    transform: scale(0.97);
+}
+.menu-item-name {
+    font-weight: 700;
+    font-size: 14px;
+}
+.menu-item-price {
+    color: #f97316;
+    font-weight: 700;
+    margin: 6px 0;
+}
+.menu-item-ingredients {
+    font-size: 11px;
+    color: #6c757d;
+    margin-bottom: 8px;
+}
 
-/* ========== NÚT THÊM NGUYÊN LIỆU ========== */
-.btn-add-ingredient {
-    width: 100%;
-    background: #10b981;
-    color: white;
-    border: none;
-    padding: 12px 16px;
+/* Responsive mobile */
+@media (max-width: 768px) {
+    .menu-actions-top {
+        justify-content: space-between;
+    }
+    .menu-items-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+}
+
+/* ========== DANH MỤC MENU - CUỘN NGANG ========== */
+.menu-categories {
+    display: flex;
+    flex-wrap: nowrap;           /* Không xuống dòng */
+    overflow-x: auto;            /* Cho phép cuộn ngang */
+    gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch; /* Cuộn mượt trên iOS */
+    scrollbar-width: thin;       /* Thanh cuộn mỏng trên Firefox */
+}
+/* Tuỳ chỉnh thanh cuộn trên Chrome/Safari */
+.menu-categories::-webkit-scrollbar {
+    height: 4px;
+}
+.menu-categories::-webkit-scrollbar-track {
+    background: #e9ecef;
+    border-radius: 4px;
+}
+.menu-categories::-webkit-scrollbar-thumb {
+    background: #f97316;
+    border-radius: 4px;
+}
+.category-chip {
+    flex-shrink: 0;              /* Không bị co lại */
+    white-space: nowrap;         /* Nội dung không xuống dòng */
+    background: #f8f9fa;
+    padding: 8px 18px;
     border-radius: 40px;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
-    margin-top: 12px;
-}
-
-.btn-add-ingredient:active {
-    transform: scale(0.97);
-    background: #059669;
-}
-
-/* ========== INGREDIENTS FORMULA ========== */
-.ingredients-formula {
-    background: #f8f9fa;
-    border-radius: 16px;
-    padding: 12px;
-    margin: 8px 0;
-    max-height: 250px;
-    overflow-y: auto;
-    border: 1px solid #e9ecef;
-}
-
-.ingredients-info {
-    margin-bottom: 8px;
-}
-
-.ingredients-info small {
-    font-size: 11px;
-}
-
-/* ========== FORMULA ROW ========== */
-.formula-row {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 12px;
+    display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
-    background: white;
-    padding: 8px;
-    border-radius: 12px;
-    border: 1px solid #e9ecef;
+    gap: 8px;
+    transition: all 0.2s;
 }
-
-.formula-row select {
-    flex: 2;
-    min-width: 140px;
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    font-size: 13px;
-    background: white;
-}
-
-.formula-row input {
-    flex: 1;
-    min-width: 80px;
-    padding: 10px;
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    text-align: center;
-    font-size: 13px;
-}
-
-.formula-row button {
-    background: #dc2626;
+.category-chip.active {
+    background: #f97316;
     color: white;
+}
+.category-actions button {
+    background: none;
     border: none;
-    padding: 8px 14px;
-    border-radius: 30px;
+    cursor: pointer;
     font-size: 12px;
+    padding: 0 4px;
+}
+
+/* ========== MODAL THÊM MÓN ========== */
+.category-grid, .ingredients-list-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 6px;
+}
+.category-option, .ingredient-option {
+    background: #f8f9fa;
+    padding: 8px 16px;
+    border-radius: 40px;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.1s;
 }
-
-.formula-row button:active {
-    transform: scale(0.95);
+.category-option.selected {
+    background: #f97316;
+    color: white;
+}
+.ingredient-option:active {
+    transform: scale(0.96);
+}
+.ingredients-quick-list {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e9ecef;
+}
+.quick-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #6c757d;
+}
+.ingredients-formula {
+    background: #f8f9fa;
+    border-radius: 20px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+.formula-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 20px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.formula-row .formula-ing-name {
+    flex: 2;
+    font-weight: 600;
+    font-size: 14px;
+}
+.formula-row .formula-ing-qty {
+    width: 80px;
+    padding: 8px;
+    border: 1px solid #e9ecef;
+    border-radius: 16px;
+    text-align: center;
+    font-size: 14px;
+}
+.formula-row .btn-remove-formula {
+    background: #dc2626;
+    color: white;
+    border: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-/* Responsive cho mobile */
-@media (max-width: 500px) {
-    .form-row-2 {
-        grid-template-columns: 1fr;
-        gap: 0;
-    }
-    
-    .formula-row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .formula-row select,
-    .formula-row input {
-        width: 100%;
-    }
-    
-    .formula-row button {
-        align-self: flex-end;
-    }
+/* ========== NGUYÊN LIỆU - DẠNG LƯỚI, CỰC KỲ GỌN ========== */
+.ingredients-header {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.btn-add-ingredient, .btn-warning {
+    flex: 1;
+    padding: 8px 0;
+    border-radius: 40px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    border: none;
+}
+.btn-add-ingredient { background: #10b981; color: white; }
+.btn-warning { background: #f59e0b; color: white; }
+
+.ingredients-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+.ingredient-card {
+    background: white;
+    border-radius: 14px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.ingredient-info {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.ingredient-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e3a2f;
+}
+.ingredient-unit {
+    font-size: 9px;
+    background: #e9ecef;
+    padding: 2px 5px;
+    border-radius: 20px;
+    color: #495057;
+}
+.ingredient-stock {
+    font-size: 12px;
+    font-weight: 700;
+    background: #f8f9fa;
+    padding: 2px 8px;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.ingredient-price {
+    font-size: 11px;
+    font-weight: 600;
+    color: #f97316;
+    background: #fef3c7;
+    padding: 2px 8px;
+    border-radius: 20px;
+}
+.ingredient-actions {
+    display: flex;
+    gap: 4px;
+}
+.btn-edit, .btn-delete {
+    padding: 4px 10px;
+    border-radius: 30px;
+    font-size: 11px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+}
+.btn-edit { background: #3b82f6; color: white; }
+.btn-delete { background: #dc2626; color: white; }
+
+/* Tablet ngang và desktop: 3-4 cột */
+@media (min-width: 600px) {
+    .ingredients-list { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 900px) {
+    .ingredients-list { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ========== DEBT RECORD CARD ========== */
-.debt-record-card {
+/* ========== TAB KHÁCH HÀNG - CỰC KỲ GỌN GÀNG ========== */
+.customer-search-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.customer-search-bar input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #e9ecef;
+    border-radius: 40px;
+    font-size: 14px;
+    background: white;
+}
+.customer-search-bar button {
+    background: #f97316;
+    color: white;
+    border: none;
+    padding: 0 20px;
+    border-radius: 40px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.debt-summary {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 20px;
+    display: flex;
+    justify-content: space-between;
+    font-weight: 700;
+    margin-bottom: 16px;
+    font-size: 15px;
+}
+.debt-summary span:first-child {
+    opacity: 0.9;
+}
+.debt-summary span:last-child {
+    font-size: 18px;
+    background: rgba(0,0,0,0.2);
+    padding: 4px 12px;
+    border-radius: 30px;
+}
+
+.customer-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.customer-card {
     background: white;
     border-radius: 16px;
-    padding: 14px;
-    margin-bottom: 12px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-    border-left: 4px solid;
-}
-
-.debt-record-card.unpaid {
-    border-left-color: #dc2626;
-}
-
-.debt-record-card.partial {
-    border-left-color: #f59e0b;
-}
-
-.debt-record-card.paid {
-    border-left-color: #10b981;
-    opacity: 0.8;
-}
-
-.debt-record-header {
+    padding: 12px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-    gap: 8px;
+    cursor: pointer;
+    transition: transform 0.1s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
-
-.debt-record-date {
-    font-size: 12px;
-    color: #6c757d;
+.customer-card:active {
+    transform: scale(0.98);
 }
-
-.debt-record-status {
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-weight: 600;
+.customer-name {
+    font-weight: 700;
+    font-size: 16px;
+    color: #1e3a2f;
 }
-
-.debt-record-status.unpaid {
+.customer-debt {
+    font-weight: 800;
+    font-size: 16px;
+    padding: 4px 12px;
+    border-radius: 40px;
+}
+.customer-debt.has-debt {
     background: #fee2e2;
     color: #dc2626;
 }
-
-.debt-record-status.partial {
-    background: #fef3c7;
-    color: #f59e0b;
-}
-
-.debt-record-status.paid {
+.customer-debt.no-debt {
     background: #d1fae5;
     color: #10b981;
 }
 
-.debt-record-note {
-    font-size: 13px;
-    color: #374151;
-    margin-bottom: 12px;
-    padding: 8px;
-    background: #f8f9fa;
-    border-radius: 10px;
-}
-
-.debt-record-amounts {
-    background: #f8f9fa;
-    border-radius: 12px;
-    padding: 10px;
-    margin: 10px 0;
-}
-
-.amount-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 5px 0;
-    font-size: 13px;
-}
-
-.text-danger {
-    color: #dc2626;
-    font-weight: 600;
-}
-
-.text-success {
-    color: #10b981;
-    font-weight: 600;
-}
-
-.text-warning {
-    color: #f59e0b;
-    font-weight: 600;
-}
-
-/* Payment History */
-.payment-history {
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px dashed #e9ecef;
-}
-
-.payment-history-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 8px;
-}
-
-.payment-history-item {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    font-size: 12px;
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.payment-history-item:last-child {
-    border-bottom: none;
-}
-
-/* Payment Summary */
-.payment-summary-item {
-    background: white;
-    border-radius: 12px;
-    padding: 12px;
-    margin-bottom: 8px;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-}
-
-.payment-summary-date {
-    font-size: 12px;
-    color: #6c757d;
-}
-
-.payment-summary-amount {
-    font-weight: 700;
-    color: #10b981;
-}
-
-.payment-summary-method {
-    font-size: 11px;
-    background: #e9ecef;
-    padding: 3px 8px;
-    border-radius: 20px;
-}
-
-.payment-summary-note {
-    font-size: 11px;
-    color: #6c757d;
-    width: 100%;
-}
-
-/* Payment note */
-.payment-note {
-    margin-top: 8px;
-    text-align: right;
-}
-
-.payment-note small {
-    color: #f59e0b;
-    font-weight: 500;
-}
-.table-icon-btn.disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-    pointer-events: none;
-}
-
-/* ========== DEBT CUSTOMER SELECTOR ========== */
-.debt-customer-selector {
-    padding: 8px;
-}
-
-.selector-tabs {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #e9ecef;
-    padding-bottom: 8px;
-}
-
-.selector-tab {
-    padding: 8px 20px;
-    border-radius: 30px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 14px;
-    color: #6c757d;
-    transition: all 0.2s;
-}
-
-.selector-tab.active {
-    background: #f97316;
-    color: white;
-}
-
-.debt-selector-tab {
+/* Ẩn các thông tin không cần thiết (số điện thoại, avatar, v.v.) */
+.customer-avatar, .customer-contact {
     display: none;
 }
 
-.debt-selector-tab.active {
-    display: block;
+/* ========== BÁO CÁO DOANH THU ========== */
+.report-container {
+    padding: 4px;
 }
-
-.debt-customer-list {
-    max-height: 400px;
-    overflow-y: auto;
+/* 4 ô thống kê nổi bật */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.stat-card {
+    background: white;
+    border-radius: 24px;
+    padding: 14px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: transform 0.1s;
+}
+.stat-card:active {
+    transform: scale(0.98);
+}
+.stat-icon {
+    font-size: 38px;
+}
+.stat-info {
+    flex: 1;
+}
+.stat-label {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+.stat-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #1e3a2f;
+    line-height: 1.2;
+}
+.stat-amount {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f97316;
+    margin-top: 4px;
+    background: #fef3c7;
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 30px;
+}
+/* Tóm tắt ngày */
+.summary-card {
+    background: linear-gradient(135deg, #1e3a2f, #2d5016);
+    border-radius: 28px;
+    padding: 20px;
+    color: white;
+    margin-bottom: 24px;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.1);
+}
+.summary-title {
+    font-size: 15px;
+    opacity: 0.9;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+}
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+.summary-row:last-child {
+    border-bottom: none;
+}
+.summary-highlight {
+    font-size: 30px;
+    font-weight: 800;
+    background: rgba(0,0,0,0.25);
+    padding: 4px 16px;
+    border-radius: 40px;
+}
+.summary-row.small {
+    font-size: 13px;
+    border-bottom: none;
+    padding: 8px 0;
+}
+.summary-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.2);
+    margin: 12px 0;
+}
+/* 7 ngày gần nhất */
+.history-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin: 24px 0 14px;
+    color: #1e3a2f;
+    padding-left: 12px;
+    border-left: 5px solid #f97316;
+}
+.history-list {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    margin-bottom: 24px;
 }
-
-.debt-customer-item {
+.history-item {
+    background: white;
+    border-radius: 20px;
+    padding: 14px 16px;
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 15px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 16px;
-    cursor: pointer;
-    transition: all 0.15s;
+    flex-wrap: wrap;
+    gap: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    transition: background 0.2s;
 }
-
-.debt-customer-item:active {
-    transform: scale(0.98);
-    background: #e9ecef;
-}
-
-.debt-customer-avatar {
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, #f97316, #ea580c);
-    border-radius: 25px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: bold;
-    font-size: 20px;
-}
-
-.debt-customer-info {
-    flex: 1;
-}
-
-.debt-customer-name {
+.history-date {
     font-weight: 700;
-    font-size: 16px;
-    color: #1a1a2e;
+    font-size: 15px;
+    color: #1e3a2f;
+    min-width: 80px;
 }
-
-.debt-customer-contact {
-    font-size: 12px;
-    color: #6c757d;
-    margin-top: 2px;
-}
-
-.debt-customer-debt {
-    font-size: 12px;
-    color: #dc2626;
+.history-stats {
     font-weight: 600;
-    margin-top: 4px;
 }
-
-.btn-create-debt-customer {
+.history-stats span {
+    background: #fef3c7;
+    padding: 5px 14px;
+    border-radius: 40px;
+    color: #f97316;
+    font-size: 14px;
+}
+.history-breakdown {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: #6c757d;
+}
+.history-breakdown span {
+    background: #f8f9fa;
+    padding: 4px 12px;
+    border-radius: 30px;
+}
+/* Nút xuất báo cáo */
+.export-btn {
     width: 100%;
-    background: #10b981;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
     color: white;
     border: none;
     padding: 14px;
-    border-radius: 40px;
-    font-weight: 600;
+    border-radius: 60px;
+    font-weight: 700;
     font-size: 16px;
     cursor: pointer;
-    margin-top: 16px;
+    transition: transform 0.1s;
+    margin-top: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
-
-.btn-create-debt-customer:active {
+.export-btn:active {
     transform: scale(0.97);
 }
-
-.customer-search-mini {
-    margin-bottom: 16px;
+/* Responsive mobile nhỏ */
+@media (max-width: 480px) {
+    .stats-grid {
+        gap: 8px;
+    }
+    .stat-card {
+        padding: 10px 8px;
+    }
+    .stat-icon {
+        font-size: 30px;
+    }
+    .stat-value {
+        font-size: 22px;
+    }
+    .stat-amount {
+        font-size: 12px;
+    }
+    .summary-highlight {
+        font-size: 24px;
+        padding: 2px 12px;
+    }
+    .history-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .history-breakdown {
+        justify-content: space-between;
+    }
+    .history-date {
+        margin-bottom: 4px;
+    }
+}
+/* Tablet dọc */
+@media (min-width: 481px) and (max-width: 768px) {
+    .stats-grid {
+        gap: 12px;
+    }
+    .stat-value {
+        font-size: 24px;
+    }
+    .summary-highlight {
+        font-size: 28px;
+    }
 }
 
-.customer-search-mini input {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid #e9ecef;
+/* ========== LỊCH SỬ GIAO DỊCH - HIỂN THỊ NHIỀU, NỔI BẬT ========== */
+.history-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.history-item {
+    background: white;
+    border-radius: 14px;
+    padding: 10px 12px;
+    border-left: 4px solid;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    transition: transform 0.1s;
+}
+.history-item:active {
+    transform: scale(0.98);
+}
+.history-item.takeaway { border-left-color: #f97316; }
+.history-item.dinein { border-left-color: #10b981; }
+.history-item.debt_payment { border-left-color: #3b82f6; }
+
+/* Dòng trên cùng: ngày giờ + số tiền */
+.history-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.history-amount {
+    font-size: 16px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.history-amount.text-success {
+    color: #10b981;
+}
+.history-item .history-amount:not(.text-success) {
+    color: #dc2626;
+}
+
+/* Dòng thứ hai: loại giao dịch + phương thức thanh toán */
+.history-header-row:last-child {
+    margin-bottom: 0;
+}
+.history-header-row span:last-child {
+    background: #f1f3f5;
+    padding: 3px 10px;
+    border-radius: 30px;
+    font-weight: 600;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* Chi tiết món, khách, ghi chú – cuộn ngang nếu dài */
+.history-detail {
+    font-size: 11px;
+    color: #495057;
+    margin-top: 6px;
+    white-space: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+.history-detail::-webkit-scrollbar {
+    height: 2px;
+}
+/* Responsive: trên mobile giảm padding */
+@media (max-width: 480px) {
+    .history-item {
+        padding: 8px 10px;
+    }
+    .history-amount {
+        font-size: 15px;
+    }
+    .history-header-row span:last-child {
+        font-size: 10px;
+        padding: 2px 8px;
+    }
+}
+
+/* ========== LỊCH SỬ - LỊCH & BỘ LỌC ========== */
+.history-row {
+    margin-bottom: 14px;
+}
+.history-date-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    border-radius: 60px;
+    padding: 6px 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.nav-btn {
+    background: #f8f9fa;
+    border: none;
+    width: 40px;
+    height: 40px;
     border-radius: 40px;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.nav-btn:active {
+    background: #e9ecef;
+    transform: scale(0.95);
+}
+.date-display {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e3a2f;
+    background: #fef3c7;
+    padding: 6px 20px;
+    border-radius: 40px;
+}
+.date-display span {
+    margin-left: 6px;
+}
+.history-filter-row {
+    margin-bottom: 16px;
+}
+.history-select {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 60px;
+    border: 1px solid #e9ecef;
+    background: white;
     font-size: 14px;
+    font-weight: 500;
+    color: #1a1a2e;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236c757d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+}
+.history-select:focus {
+    outline: none;
+    border-color: #f97316;
+}
+/* Responsive cho điện thoại */
+@media (max-width: 480px) {
+    .history-date-row {
+        padding: 4px 8px;
+    }
+    .nav-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 18px;
+    }
+    .date-display {
+        font-size: 14px;
+        padding: 4px 12px;
+    }
+    .history-select {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
 }

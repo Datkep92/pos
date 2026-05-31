@@ -16,7 +16,6 @@ async function initMenu() {
     }
 }
 
-// Lưu categories (đồng bộ)
 async function saveCategoriesToDB() {
     for (const cat of menuCategories) {
         await DB.create('menu_categories', cat, cat.id);
@@ -32,7 +31,6 @@ async function saveItemsToDB() {
 }
 
 function renderMenuManager() {
-
     menuItems = window.menuItems || [];
     menuCategories = window.menuCategories || [];
 
@@ -79,27 +77,53 @@ async function filterMenuByCategory(categoryId) {
 
 // Danh mục
 async function openCategoryModal() {
-    document.getElementById('categoryModalTitle').innerText = '➕ Thêm danh mục';
-    document.getElementById('categoryId').value = '';
-    document.getElementById('categoryName').value = '';
-    document.getElementById('categoryColor').value = '#f97316';
-    document.getElementById('categoryModal').style.display = 'flex';
+    const titleEl = document.getElementById('categoryModalTitle');
+    const idEl = document.getElementById('categoryId');
+    const nameEl = document.getElementById('categoryName');
+    const colorEl = document.getElementById('categoryColor');
+    const modalEl = document.getElementById('categoryModal');
+    if (!titleEl || !idEl || !nameEl || !colorEl || !modalEl) {
+        console.error('Không tìm thấy các phần tử của modal danh mục');
+        showToast('Lỗi giao diện, vui lòng reload trang', 'error');
+        return;
+    }
+    titleEl.innerText = '➕ Thêm danh mục';
+    idEl.value = '';
+    nameEl.value = '';
+    colorEl.value = '#f97316';
+    modalEl.style.display = 'flex';
 }
 
 async function editCategory(id) {
     const cat = menuCategories.find(c => c.id == id);
     if (!cat) return;
-    document.getElementById('categoryModalTitle').innerText = '✏️ Sửa danh mục';
-    document.getElementById('categoryId').value = cat.id;
-    document.getElementById('categoryName').value = cat.name;
-    document.getElementById('categoryColor').value = cat.color || '#f97316';
-    document.getElementById('categoryModal').style.display = 'flex';
+    const titleEl = document.getElementById('categoryModalTitle');
+    const idEl = document.getElementById('categoryId');
+    const nameEl = document.getElementById('categoryName');
+    const colorEl = document.getElementById('categoryColor');
+    const modalEl = document.getElementById('categoryModal');
+    if (!titleEl || !idEl || !nameEl || !colorEl || !modalEl) {
+        showToast('Lỗi giao diện', 'error');
+        return;
+    }
+    titleEl.innerText = '✏️ Sửa danh mục';
+    idEl.value = cat.id;
+    nameEl.value = cat.name;
+    colorEl.value = cat.color || '#f97316';
+    modalEl.style.display = 'flex';
 }
 
 async function saveCategory() {
-    const id = document.getElementById('categoryId').value;
-    const name = document.getElementById('categoryName').value.trim();
-    const color = document.getElementById('categoryColor').value;
+    const idEl = document.getElementById('categoryId');
+    const nameEl = document.getElementById('categoryName');
+    const colorEl = document.getElementById('categoryColor');
+    if (!idEl || !nameEl || !colorEl) {
+        showToast('Lỗi giao diện, không tìm thấy form', 'error');
+        return;
+    }
+    const id = idEl.value;
+    const name = nameEl.value.trim();
+    const color = colorEl.value;
     if (!name) { showToast('Nhập tên danh mục!', 'warning'); return; }
     if (id) {
         const index = menuCategories.findIndex(c => c.id == id);
@@ -133,20 +157,30 @@ async function deleteCategory(id) {
     }
 }
 
-// Món
 async function openItemModal() {
     if (menuCategories.length === 0) {
         showToast('Cần tạo danh mục trước!', 'warning');
         return;
     }
-    document.getElementById('itemModalTitle').innerText = '➕ Thêm món';
-    document.getElementById('itemId').value = '';
-    document.getElementById('itemName').value = '';
-    document.getElementById('itemPrice').value = '';
+    const titleEl = document.getElementById('itemModalTitle');
+    const idEl = document.getElementById('itemId');
+    const nameEl = document.getElementById('itemName');
+    const priceEl = document.getElementById('itemPrice');
+    const modalEl = document.getElementById('itemModal');
+    if (!titleEl || !idEl || !nameEl || !priceEl || !modalEl) {
+        console.error('Không tìm thấy các phần tử của modal món');
+        showToast('Lỗi giao diện, vui lòng reload trang', 'error');
+        return;
+    }
+    titleEl.innerText = '➕ Thêm món';
+    idEl.value = '';
+    nameEl.value = '';
+    priceEl.value = '';
     populateCategorySelect();
     tempFormula = [];
     renderIngredientsFormula();
-    document.getElementById('itemModal').style.display = 'flex';
+    renderIngredientsGrid(); // nếu có
+    modalEl.style.display = 'flex';
 }
 
 async function editItem(id) {
@@ -156,12 +190,27 @@ async function editItem(id) {
     document.getElementById('itemId').value = item.id;
     document.getElementById('itemName').value = item.name;
     document.getElementById('itemPrice').value = item.price;
-    populateCategorySelect(item.categoryId);
+    document.getElementById('itemCategory').value = item.categoryId;
     tempFormula = item.ingredients ? [...item.ingredients] : [];
     renderIngredientsFormula();
+    renderCategoryGrid(item.categoryId);
+    renderIngredientsGrid();
     document.getElementById('itemModal').style.display = 'flex';
 }
 
+document.getElementById('addIngredientFormulaBtn')?.addEventListener('click', () => {
+    addIngredientToFormula();
+});
+document.getElementById('ingredientsListGrid')?.addEventListener('click', (e) => {
+    const opt = e.target.closest('.ingredient-option');
+    if (opt) {
+        const ingId = opt.dataset.id;
+        const ingName = opt.dataset.name;
+        // Thêm vào công thức với số lượng 1 mặc định
+        tempFormula.push({ ingredientId: ingId, quantity: 1 });
+        renderIngredientsFormula();
+    }
+});
 function populateCategorySelect(selectedId = null) {
     const select = document.getElementById('itemCategory');
     if (!select) return;
@@ -172,31 +221,51 @@ function populateCategorySelect(selectedId = null) {
 function renderIngredientsFormula() {
     const container = document.getElementById('ingredientsFormula');
     if (!container) return;
+    if (!tempFormula || tempFormula.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding:20px;">📭 Chưa có nguyên liệu trong công thức</div>';
+        return;
+    }
     const ings = window.ingredients || [];
-    if (ings.length === 0) {
-        container.innerHTML = `<div style="padding:10px; text-align:center;">Chưa có nguyên liệu. <button class="btn-small" onclick="openIngredientModal()">Thêm</button></div>`;
-        return;
-    }
-    if (tempFormula.length === 0) {
-        container.innerHTML = `<div style="padding:10px;">Chưa có nguyên liệu</div><button class="btn-add-ingredient-formula" onclick="addIngredientToFormula()">➕ Thêm</button>`;
-        return;
-    }
     let html = '';
-    tempFormula.forEach((ing, idx) => {
-        const ingObj = ings.find(i => i.id == ing.ingredientId);
+    tempFormula.forEach((item, idx) => {
+        const ing = ings.find(i => i.id == item.ingredientId);
+        const ingName = ing ? `${ing.name} (${ing.unit})` : '???';
         html += `
-            <div class="formula-row">
-                <select class="form-input" onchange="updateFormulaIngredient(${idx}, this.value)">
-                    <option value="">-- Chọn --</option>
-                    ${ings.map(i => `<option value="${i.id}" ${i.id == ing.ingredientId ? 'selected' : ''}>${i.name} (${i.unit})</option>`).join('')}
-                </select>
-                <input type="number" class="form-input" placeholder="SL" value="${ing.quantity || 0}" step="0.1" onchange="updateFormulaQuantity(${idx}, this.value)">
-                <button class="btn-small" style="background:#dc2626;" onclick="removeFormulaIngredient(${idx})">X</button>
+            <div class="formula-row" data-idx="${idx}">
+                <div class="formula-ing-name">${escapeHtml(ingName)}</div>
+                <input type="number" class="formula-ing-qty" value="${item.quantity}" step="0.1" onchange="updateFormulaQuantity(${idx}, this.value)">
+                <button class="btn-remove-formula" onclick="removeFormulaIngredient(${idx})">🗑️</button>
             </div>
         `;
     });
-    html += `<button class="btn-add-ingredient-formula" onclick="addIngredientToFormula()">➕ Thêm</button>`;
     container.innerHTML = html;
+}
+
+function renderIngredientsGrid() {
+    const container = document.getElementById('ingredientsGrid');
+    if (!container) return;
+    const ings = window.ingredients || [];
+    if (ings.length === 0) {
+        container.innerHTML = '<div style="padding:20px;">Chưa có nguyên liệu. <button class="btn-small" onclick="openIngredientModal()">Thêm</button></div>';
+        return;
+    }
+    container.innerHTML = ings.map(ing => `
+        <div class="ingredient-option" data-id="${ing.id}" onclick="addIngredientToFormulaFromGrid('${ing.id}')">
+            ${escapeHtml(ing.name)} (${ing.unit})
+        </div>
+    `).join('');
+}
+
+function addIngredientToFormulaFromGrid(ingredientId) {
+    const ing = (window.ingredients || []).find(i => i.id == ingredientId);
+    if (!ing) return;
+    const existing = tempFormula.find(i => i.ingredientId == ingredientId);
+    if (existing) {
+        existing.quantity = (existing.quantity || 0) + 1;
+    } else {
+        tempFormula.push({ ingredientId: ingredientId, quantity: 1 });
+    }
+    renderIngredientsFormula();
 }
 
 function addIngredientToFormula() { tempFormula.push({ ingredientId: null, quantity: 0 }); renderIngredientsFormula(); }
@@ -205,13 +274,21 @@ function updateFormulaQuantity(idx, quantity) { if (tempFormula[idx]) tempFormul
 function removeFormulaIngredient(idx) { tempFormula.splice(idx, 1); renderIngredientsFormula(); }
 
 async function saveItem() {
-    const id = document.getElementById('itemId').value;
-    const name = document.getElementById('itemName').value.trim();
-    let categoryId = document.getElementById('itemCategory').value;
-    const price = parseInt(document.getElementById('itemPrice').value);
+    const idEl = document.getElementById('itemId');
+    const nameEl = document.getElementById('itemName');
+    const categorySelect = document.getElementById('itemCategory');
+    const priceEl = document.getElementById('itemPrice');
+    if (!idEl || !nameEl || !categorySelect || !priceEl) {
+        showToast('Lỗi giao diện', 'error');
+        return;
+    }
+    const id = idEl.value;
+    const name = nameEl.value.trim();
+    let categoryId = categorySelect.value;
+    const price = parseInt(priceEl.value);
     const ingredients = tempFormula.filter(ing => ing.ingredientId && ing.quantity > 0);
     if (!name || !price || !categoryId) { showToast('Nhập đủ thông tin!', 'warning'); return; }
-    categoryId = String(categoryId); // Ép về string để đồng bộ Firebase
+    categoryId = String(categoryId);
     if (id) {
         const index = menuItems.findIndex(i => i.id == id);
         if (index !== -1) {
@@ -241,7 +318,7 @@ async function deleteItem(id) {
     }
 }
 
-// Các hàm render popup (giữ nguyên)
+// Các hàm render popup
 function renderOrderCategories() {
     const container = document.getElementById('orderCategories');
     if (!container) return;
@@ -277,6 +354,30 @@ function openOrderModalWithMenu() {
     const searchInput = document.getElementById('menuSearchInput2');
     if (searchInput) searchInput.oninput = (e) => renderOrderMenuByCategory(window.currentOrderCategory || 'all', e.target.value);
 }
+function renderCategoryGrid(selectedId) {
+    const container = document.getElementById('categoryGrid');
+    if (!container) return;
+    let categories = window.menuCategories || [];
+    if (categories.length === 0) {
+        container.innerHTML = '<div class="empty-state">Chưa có danh mục</div>';
+        return;
+    }
+    container.innerHTML = categories.map(cat => `
+        <div class="category-option ${selectedId == cat.id ? 'active' : ''}" data-id="${cat.id}">
+            ${cat.icon || '📌'} ${cat.name}
+        </div>
+    `).join('');
+    // Gắn sự kiện click
+    document.querySelectorAll('.category-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            document.querySelectorAll('.category-option').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            document.getElementById('itemCategory').value = opt.dataset.id;
+        });
+    });
+}
+
+
 
 // Xuất global
 window.initMenu = initMenu;
@@ -297,3 +398,5 @@ window.renderOrderCategories = renderOrderCategories;
 window.renderOrderMenuByCategory = renderOrderMenuByCategory;
 window.filterOrderMenuByCategory = filterOrderMenuByCategory;
 window.openOrderModalWithMenu = openOrderModalWithMenu;
+window.renderCategoryGrid = renderCategoryGrid;
+window.renderIngredientsGrid = renderIngredientsGrid;

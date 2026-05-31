@@ -239,33 +239,112 @@ async function deleteCustomer(id) {
     }
 }
 
-// ========== CHỌN KHÁCH (CHO NÚT + TRÊN BÀN) ==========
+
+// ========== CHỌN KHÁCH (VỚI INPUT TÌM KIẾM VÀ TẠO MỚI) ==========
+let pendingCustomerCallback = null;
+
 function showCustomerSelector(callback) {
-    window.customerSelectCallback = callback;
+    pendingCustomerCallback = callback;
     const container = document.getElementById('customerSelectorList');
+    const searchInput = document.getElementById('customerSelectorSearch');
     if (!container) return;
-    const customerList = window.customers || [];
-    if (customerList.length === 0) {
-        container.innerHTML = `<div class="empty-state">📭 Chưa có khách</div><div class="add-new" onclick="openAddCustomerModalFromSelector()">➕ Thêm mới</div>`;
-    } else {
-        container.innerHTML = customerList.map(c => `
-            <div class="customer-select-item" onclick="selectCustomer('${c.id}')">
-                <div class="customer-select-avatar">${c.name.charAt(0).toUpperCase()}</div>
-                <div class="customer-select-info">
-                    <div class="customer-select-name">${escapeHtml(c.name)}</div>
-                    <div class="customer-select-debt">${c.totalDebt > 0 ? `🔴 Nợ ${formatMoney(c.totalDebt)}` : '✅ Hết nợ'}</div>
-                </div>
-            </div>
-        `).join('');
-        container.innerHTML += `<div class="add-new" onclick="openAddCustomerModalFromSelector()">➕ Thêm khách hàng mới</div>`;
+    
+    // Reset ô tìm kiếm
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
     }
+    
+    // Hiển thị danh sách khách hàng ban đầu
+    renderCustomerSelectorList('');
+    
+    // Tạo nút "Tạo khách mới" nếu chưa tồn tại
+    let actionBtn = document.getElementById('customerSelectorCreateBtn');
+    if (!actionBtn) {
+        actionBtn = document.createElement('button');
+        actionBtn.id = 'customerSelectorCreateBtn';
+        actionBtn.className = 'btn-create-customer';
+        actionBtn.innerText = '💾 Lưu (tạo khách mới)';
+        actionBtn.onclick = () => createCustomerFromInput();
+        const modalBody = document.querySelector('#customerSelectorModal .modal-body');
+        if (modalBody && !modalBody.querySelector('#customerSelectorCreateBtn')) {
+            modalBody.appendChild(actionBtn);
+        }
+    } else {
+        actionBtn.style.display = 'block';
+    }
+    
     document.getElementById('customerSelectorModal').style.display = 'flex';
 }
 
+function renderCustomerSelectorList(searchTerm) {
+    const container = document.getElementById('customerSelectorList');
+    if (!container) return;
+    let customers = window.customers || [];
+    if (searchTerm) {
+        const lowerTerm = searchTerm.toLowerCase();
+        customers = customers.filter(c => 
+            c.name.toLowerCase().includes(lowerTerm) || 
+            (c.phone && c.phone.includes(searchTerm))
+        );
+    }
+    if (customers.length === 0) {
+        container.innerHTML = `<div class="empty-state">📭 Không tìm thấy khách.<br>Nhập tên ở trên và bấm "Lưu" để tạo mới.</div>`;
+        return;
+    }
+    container.innerHTML = customers.map(c => `
+        <div class="customer-select-item" onclick="selectCustomer('${c.id}')">
+            <div class="customer-select-avatar">${c.name.charAt(0).toUpperCase()}</div>
+            <div class="customer-select-info">
+                <div class="customer-select-name">${escapeHtml(c.name)}</div>
+                <div class="customer-select-debt">${c.totalDebt > 0 ? `🔴 Nợ ${formatMoney(c.totalDebt)}` : '✅ Hết nợ'}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterCustomerSelector() {
+    const searchInput = document.getElementById('customerSelectorSearch');
+    if (searchInput) {
+        renderCustomerSelectorList(searchInput.value);
+    }
+}
+
+async function createCustomerFromInput() {
+    const searchInput = document.getElementById('customerSelectorSearch');
+    let name = searchInput ? searchInput.value.trim() : '';
+    if (!name) {
+        showToast('Vui lòng nhập tên khách hàng!', 'warning');
+        return;
+    }
+    
+    // Kiểm tra trùng tên (không phân biệt hoa thường)
+    const existing = window.customers?.find(c => c.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+        // Nếu trùng, hỏi có muốn chọn khách đó không
+        if (confirm(`Khách "${existing.name}" đã tồn tại. Bạn có muốn chọn khách này không?`)) {
+            selectCustomer(existing.id);
+        }
+        return;
+    }
+    
+    // Tạo khách mới
+    if (typeof addCustomer === 'function') {
+        const newCustomer = await addCustomer(name, '', '');
+        if (newCustomer && pendingCustomerCallback) {
+            pendingCustomerCallback(newCustomer);
+            pendingCustomerCallback = null;
+        }
+        closeModal('customerSelectorModal');
+        showToast(`✅ Đã tạo khách hàng "${name}"`, 'success');
+    }
+}
+
 function selectCustomer(customerId) {
-    const customer = window.customers.find(c => c.id === customerId);
-    if (customer && window.customerSelectCallback) {
-        window.customerSelectCallback(customer);
+    const customer = window.customers?.find(c => c.id === customerId);
+    if (customer && pendingCustomerCallback) {
+        pendingCustomerCallback(customer);
+        pendingCustomerCallback = null;
     }
     closeModal('customerSelectorModal');
 }
@@ -273,10 +352,6 @@ function selectCustomer(customerId) {
 function openAddCustomerModalFromSelector() {
     closeModal('customerSelectorModal');
     openAddCustomerModal();
-}
-
-function filterCustomerSelector() {
-    // Tạm thời bỏ qua
 }
 
 function searchCustomerList() {
