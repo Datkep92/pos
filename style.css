@@ -2195,3 +2195,34 @@ body {
 .tab-content {
     transition: opacity 0.2s ease;
 }
+
+/* Cố định header và bottom nav trên mobile */
+.header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+}
+
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: white;
+}
+
+/* Đẩy nội dung chính xuống dưới header và lên trên bottom nav */
+.main-content {
+    margin-top: 60px;      /* chiều cao header (tuỳ chỉnh) */
+    margin-bottom: 65px;   /* chiều cao bottom nav (tuỳ chỉnh) */
+    overflow-y: auto;
+    height: calc(100vh - 60px - 65px);
+}
+
+/* Nếu có thêm float buttons, điều chỉnh vị trí */
+.float-buttons {
+    bottom: 80px; /* tránh bị bottom nav che */
+}
