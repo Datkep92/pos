@@ -2190,3 +2190,8 @@ body {
     background: #f59e0b;
     color: white;
 }
+
+/* (Tùy chọn) Hiệu ứng chuyển tab mượt */
+.tab-content {
+    transition: opacity 0.2s ease;
+}

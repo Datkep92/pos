@@ -1624,6 +1624,57 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+// ========== VUỐT NGANG CHUYỂN TAB (CHỈ MOBILE) ==========
+(function initSwipeTabs() {
+    let touchStartX = 0;
+    let touchEndX = 0;
+    const minSwipeDistance = 60; // độ dài tối thiểu để kích hoạt (px)
+
+    // Chỉ hoạt động trên màn hình <= 768px (mobile)
+    const isMobile = window.innerWidth <= 768;
+    if (!isMobile) return;
+
+    const tabOrder = ['tables', 'menu', 'ingredients', 'customers', 'history', 'report', 'settings'];
+
+    function getCurrentTabIndex() {
+        for (let i = 0; i < tabOrder.length; i++) {
+            const view = document.getElementById(`${tabOrder[i]}View`);
+            if (view && view.classList.contains('active')) return i;
+        }
+        return -1;
+    }
+
+    function switchToTab(index) {
+        if (index < 0 || index >= tabOrder.length) return;
+        const tabId = tabOrder[index];
+        // Tìm và click vào nút tab tương ứng (main-tab hoặc bottom-nav)
+        const mainTab = document.querySelector(`.main-tab[data-tab="${tabId}"]`);
+        if (mainTab) mainTab.click();
+        const bottomNav = document.querySelector(`.bottom-nav-item[data-tab="${tabId}"]`);
+        if (bottomNav) bottomNav.click();
+    }
+
+    document.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        const deltaX = touchEndX - touchStartX;
+        if (Math.abs(deltaX) < minSwipeDistance) return;
+
+        const currentIndex = getCurrentTabIndex();
+        if (currentIndex === -1) return;
+
+        let newIndex = currentIndex;
+        if (deltaX > 0) {
+            newIndex = currentIndex - 1; // vuốt phải -> tab trái
+        } else {
+            newIndex = currentIndex + 1; // vuốt trái -> tab phải
+        }
+        switchToTab(newIndex);
+    });
+})();
 // Xuất các hàm toàn cục
 window.renderTables = renderTables;
 window.showPaymentMethod = showPaymentMethod;
