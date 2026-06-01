@@ -204,7 +204,7 @@ async function syncToFirebase(queueItem) {
 
 function subscribeToCollection(collection, callback) {
     const ref = db.ref(`${CURRENT_SHOP_ID}/${collection}`);
-    let lastDataStr = ''; // 👈 THÊM DÒNG NÀY
+    let lastDataStr = '';
     const listener = ref.on('value', async (snapshot) => {
         const data = snapshot.val();
         const remoteIds = new Set();
@@ -212,14 +212,16 @@ function subscribeToCollection(collection, callback) {
         if (data) {
             for (const key of Object.keys(data)) {
                 remoteIds.add(key);
-                remoteItems.push({ id: key, ...data[key] });
+                // ✅ QUAN TRỌNG: Lấy key Firebase làm id, bỏ qua trường id cũ trong data
+                const { id: _, ...rest } = data[key] || {};
+                remoteItems.push({ id: key, ...rest });
             }
         }
 
         const localItems = await loadFromLocal(collection);
         const now = Date.now();
 
-        // Xóa local những cái không có trên remote (bỏ qua vừa tạo trong 5s)
+        // Xóa local items không còn trên remote
         for (const localItem of localItems) {
             if (!remoteIds.has(String(localItem.id))) {
                 const createdAt = localItem.createdAt || 0;
@@ -232,7 +234,7 @@ function subscribeToCollection(collection, callback) {
             }
         }
 
-        // Cập nhật remote items (nếu mới hơn)
+        // Cập nhật hoặc thêm mới từ remote
         for (const remoteItem of remoteItems) {
             const localItem = await loadFromLocal(collection, remoteItem.id);
             if (!localItem || (remoteItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
@@ -259,15 +261,26 @@ function generateId() {
 }
 
 async function create(collection, data, customId = null) {
-    const id = customId || generateId();
+    // Nếu không có customId nhưng data có trường id thì dùng nó
+    let id = customId;
+    if (!id && data.id) {
+        id = String(data.id);
+    }
+    if (!id) {
+        id = generateId();
+    }
     const newData = {
-        id: String(id),
+        id: id,   // dùng id đã xác định
         ...data,
         createdAt: Date.now(),
         createdBy: CURRENT_DEVICE_ID,
         updatedAt: Date.now(),
         _version: 1
     };
+    // Loại bỏ trường id cũ trong data (nếu có) để tránh trùng
+    delete newData.id; // dòng này thừa? Thực tế newData đã có id, không cần xóa
+    // Nhưng cần đảm bảo newData.id = id
+    newData.id = id;
     await saveToLocal(collection, newData);
     addToSyncQueue('create', collection, newData, id);
     if (isOnline) await processSyncQueue();
@@ -423,6 +436,19 @@ async function initDatabase() {
 
     console.log('✅ Database initialized, device:', CURRENT_DEVICE_ID);
     return { isOnline, deviceId: CURRENT_DEVICE_ID };
+}
+async function deleteItem(tableName, id) {
+    try {
+        const db = firebase.database();
+
+        // Xóa trên Firebase (QUAN TRỌNG)
+        await db.ref(`${tableName}/${id}`).remove();
+
+        console.log(`🗑️ Deleted ${tableName}/${id}`);
+
+    } catch (err) {
+        console.error("❌ deleteItem lỗi:", err);
+    }
 }
 // ========== STAFF (bỏ password khỏi code mẫu - dùng Firebase Auth thực tế) ==========
 function initStaffList() {

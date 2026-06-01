@@ -1,112 +1,227 @@
-// ========== BÁO CÁO DOANH THU (TÍNH TOÁN TỪ TRANSACTIONS) ==========
-let reportData = null;
+// ========== BÁO CÁO DOANH THU & THỐNG KÊ NÂNG CAO (CÓ LỊCH NGÀY) ==========
+
+let currentReportDate = new Date();
 
 async function initReport() {
-    // Không cần lưu riêng, chỉ để đồng bộ
+    await renderReport();
+    attachReportDateControls();
+}
+
+function attachReportDateControls() {
+    const prevBtn = document.getElementById('reportPrevDay');
+    const nextBtn = document.getElementById('reportNextDay');
+    if (prevBtn) prevBtn.onclick = () => changeReportDate(-1);
+    if (nextBtn) nextBtn.onclick = () => changeReportDate(1);
+}
+
+async function changeReportDate(delta) {
+    const newDate = new Date(currentReportDate);
+    newDate.setDate(newDate.getDate() + delta);
+    currentReportDate = newDate;
     await renderReport();
 }
 
 async function renderReport() {
     const container = document.getElementById('reportContent');
     if (!container) return;
-    
-    // Lấy tất cả transactions (đã được đồng bộ real-time)
+
+    // Lấy dữ liệu
     const transactions = await DB.getAll('transactions');
-    const today = new Date().toISOString().slice(0,10);
-    
-    // Tính báo cáo hôm nay
-    const todayTransactions = transactions.filter(t => t.date?.slice(0,10) === today);
-    const takeaway = { count: 0, total: 0, cash: 0, transfer: 0 };
-    const dinein = { count: 0, total: 0, cash: 0, transfer: 0 };
-    
-    for (const tx of todayTransactions) {
-        const type = tx.type;
-        if (type === 'takeaway') {
-            takeaway.count++;
-            takeaway.total += tx.amount;
-            if (tx.paymentMethod === 'cash') takeaway.cash += tx.amount;
-            else if (tx.paymentMethod === 'transfer') takeaway.transfer += tx.amount;
-        } else if (type === 'dinein') {
-            dinein.count++;
-            dinein.total += tx.amount;
-            if (tx.paymentMethod === 'cash') dinein.cash += tx.amount;
-            else if (tx.paymentMethod === 'transfer') dinein.transfer += tx.amount;
+    const tables = await DB.getAll('tables');
+    const customers = await DB.getAll('customers');
+
+    const selectedDateStr = currentReportDate.toISOString().slice(0, 10);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isToday = (selectedDateStr === todayStr);
+    const dateTitle = formatDateDisplay(selectedDateStr);
+    const dateDisplay = isToday ? `Hôm nay - ${dateTitle}` : dateTitle;
+
+    // 1. Đã thanh toán (transactions trong ngày)
+    const selectedTxs = transactions.filter(tx => tx.date?.slice(0, 10) === selectedDateStr);
+    let paidOrders = 0, paidRevenue = 0;
+    let cashAmount = 0, cashCount = 0;
+    let transferAmount = 0, transferCount = 0;
+    let takeawayCount = 0, takeawayTotal = 0;
+    let dineinCount = 0, dineinTotal = 0;
+
+    for (const tx of selectedTxs) {
+        const amount = tx.amount;
+        paidOrders++;
+        paidRevenue += amount;
+        if (tx.paymentMethod === 'cash') {
+            cashAmount += amount;
+            cashCount++;
+        } else if (tx.paymentMethod === 'transfer') {
+            transferAmount += amount;
+            transferCount++;
+        }
+        if (tx.type === 'takeaway') {
+            takeawayCount++;
+            takeawayTotal += amount;
+        } else if (tx.type === 'dinein') {
+            dineinCount++;
+            dineinTotal += amount;
         }
     }
-    
-    const totalCash = takeaway.cash + dinein.cash;
-    const totalTransfer = takeaway.transfer + dinein.transfer;
-    const totalOrders = takeaway.count + dinein.count;
-    const totalRevenue = takeaway.total + dinein.total;
-    
-    // Tính 7 ngày gần nhất
-    const last7Days = [];
-    for (let i = 0; i < 7; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().slice(0,10);
-        const dayTx = transactions.filter(t => t.date?.slice(0,10) === dateStr);
-        const dayTakeaway = dayTx.filter(t => t.type === 'takeaway').reduce((sum, t) => sum + t.amount, 0);
-        const dayDinein = dayTx.filter(t => t.type === 'dinein').reduce((sum, t) => sum + t.amount, 0);
-        last7Days.push({ date: dateStr, takeaway: dayTakeaway, dinein: dayDinein, total: dayTakeaway + dayDinein });
+
+    // 2. Chưa thanh toán (bàn đang phục vụ)
+    const pendingTables = tables.filter(t => t.status === 'occupied' && t.items?.length > 0 && (t.total || 0) > 0);
+    const pendingCount = pendingTables.length;
+    const pendingAmount = pendingTables.reduce((sum, t) => sum + (t.total || 0), 0);
+
+    // 3. Khách nợ hôm nay
+    let debtTodayCount = 0, debtTodayAmount = 0;
+    for (const cust of customers) {
+        const debtHistory = cust.debtHistory || [];
+        const todayDebts = debtHistory.filter(d => d.date?.slice(0, 10) === selectedDateStr);
+        if (todayDebts.length > 0) {
+            debtTodayCount++;
+            const totalToday = todayDebts.reduce((s, d) => s + (d.amount || 0), 0);
+            debtTodayAmount += totalToday;
+        }
     }
-    
+
+    // 4. Tổng nợ toàn bộ
+    let totalDebtCustomers = 0, totalDebtAmount = 0;
+    for (const cust of customers) {
+        const debt = cust.totalDebt || 0;
+        if (debt > 0) {
+            totalDebtCustomers++;
+            totalDebtAmount += debt;
+        }
+    }
+
+    // 5. Top món bán chạy
+    const itemSales = {};
+    for (const tx of selectedTxs) {
+        const items = tx.items || [];
+        for (const item of items) {
+            const name = item.name;
+            const qty = item.qty || 0;
+            const price = item.price || 0;
+            if (!itemSales[name]) itemSales[name] = { qty: 0, revenue: 0 };
+            itemSales[name].qty += qty;
+            itemSales[name].revenue += price * qty;
+        }
+    }
+    const topItems = Object.entries(itemSales)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 10);
+
+    // 6. Render HTML (4 ô thống kê chính)
     container.innerHTML = `
-        <div class="stats-grid">
-            <div class="stat-card"><div class="stat-icon">🛵</div><div class="stat-info"><div class="stat-label">Mang đi</div><div class="stat-value">${takeaway.count}</div><div class="stat-amount">${formatMoney(takeaway.total)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon">🍽️</div><div class="stat-info"><div class="stat-label">Tại chỗ</div><div class="stat-value">${dinein.count}</div><div class="stat-amount">${formatMoney(dinein.total)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon">💰</div><div class="stat-info"><div class="stat-label">Tiền mặt</div><div class="stat-amount">${formatMoney(totalCash)}</div></div></div>
-            <div class="stat-card"><div class="stat-icon">💳</div><div class="stat-info"><div class="stat-label">Chuyển khoản</div><div class="stat-amount">${formatMoney(totalTransfer)}</div></div></div>
+        <div class="report-date-bar">
+            <button id="reportPrevDay" class="nav-btn">‹</button>
+            <div class="report-date-display">📅 ${dateDisplay}</div>
+            <button id="reportNextDay" class="nav-btn">›</button>
         </div>
+
+       <div class="stats-grid">
+    <!-- Chưa thanh toán -->
+    <div class="stat-card">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-info">
+            <div class="stat-value">${pendingCount} Bàn chưa TT</div>
+            <div class="stat-amount">${formatMoney(pendingAmount)}</div>
+        </div>
+    </div>
+    <!-- Đã thanh toán -->
+    <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+            <div class="stat-value">${paidOrders} Đã thanh toán</div>
+            <div class="stat-amount">${formatMoney(paidRevenue)}</div>
+        </div>
+    </div>
+    <!-- Tiền mặt -->
+    <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div class="stat-info">
+            <div class="stat-label">Tiền mặt</div>
+            <div class="stat-value">${cashCount} giao dịch</div>
+            <div class="stat-amount">${formatMoney(cashAmount)}</div>
+        </div>
+    </div>
+    <!-- Chuyển khoản -->
+    <div class="stat-card">
+        <div class="stat-icon">💳</div>
+        <div class="stat-info">
+            <div class="stat-label">Chuyển khoản</div>
+            <div class="stat-value">${transferCount} giao dịch</div>
+            <div class="stat-amount">${formatMoney(transferAmount)}</div>
+        </div>
+    </div>
+</div>
+
+        <!-- Chi tiết Mang đi / Tại chỗ -->
         <div class="summary-card">
-            <div class="summary-title">📅 Hôm nay - ${new Date(today).toLocaleDateString('vi-VN')}</div>
-            <div class="summary-row"><span>Tổng đơn:</span><span class="summary-highlight">${totalOrders}</span></div>
-            <div class="summary-row"><span>Doanh thu:</span><span class="summary-highlight">${formatMoney(totalRevenue)}</span></div>
-            <div class="summary-divider"></div>
-            <div class="summary-row small"><span>🛵 Mang đi: ${takeaway.count} đơn</span><span>${formatMoney(takeaway.total)}</span></div>
-            <div class="summary-row small"><span>🍽️ Tại chỗ: ${dinein.count} đơn</span><span>${formatMoney(dinein.total)}</span></div>
-            <div class="summary-row small"><span>💰 Tiền mặt</span><span>${formatMoney(totalCash)}</span></div>
-            <div class="summary-row small"><span>💳 Chuyển khoản</span><span>${formatMoney(totalTransfer)}</span></div>
+            <div class="summary-title">📊 Chi tiết đã thanh toán</div>
+            <div class="summary-row small"><span>🛵 Mang đi: ${takeawayCount} đơn</span><span>${formatMoney(takeawayTotal)}</span></div>
+            <div class="summary-row small"><span>🍽️ Tại chỗ: ${dineinCount} đơn</span><span>${formatMoney(dineinTotal)}</span></div>
         </div>
-        <div class="history-title">📊 7 ngày gần nhất</div>
+
+        <!-- Khách nợ -->
+        <div class="summary-card" style=">
+            <div class="summary-title">💢 Khách nợ</div>
+            <div class="summary-row"><span>Nợ phát sinh trong ngày</span><span class="summary-highlight">${debtTodayCount} khách - ${formatMoney(debtTodayAmount)}</span></div>
+            <div class="summary-row"><span>Tổng nợ toàn bộ (tới nay)</span><span class="summary-highlight">${totalDebtCustomers} khách - ${formatMoney(totalDebtAmount)}</span></div>
+        </div>
+
+        <!-- Top món bán chạy -->
+        <div class="history-title">🔥 Top món bán chạy (ngày ${dateTitle})</div>
         <div class="history-list">
-            ${last7Days.map(day => `
-                <div class="history-item">
-                    <div class="history-date">${formatDateShort(day.date)}</div>
-                    <div class="history-stats"><span>📦 Tổng: ${formatMoney(day.total)}</span></div>
-                    <div class="history-breakdown"><span>🛵 ${formatMoney(day.takeaway)}</span><span>🍽️ ${formatMoney(day.dinein)}</span></div>
+            ${topItems.length === 0 ? '<div class="empty-state">Chưa có dữ liệu</div>' : topItems.map((item, idx) => `
+                <div class="history-item" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div><strong>${idx+1}. ${escapeHtml(item.name)}</strong></div>
+                    <div>📦 ${item.qty} món &nbsp;💰 ${formatMoney(item.revenue)}</div>
                 </div>
             `).join('')}
         </div>
-        <button class="export-btn" onclick="exportReportFromTransactions()">📎 Xuất báo cáo</button>
+
+        <button class="export-btn" onclick="exportReportByDate()">📎 Xuất báo cáo (ngày đang xem)</button>
     `;
+
+    attachReportDateControls();
 }
 
-function formatDateShort(dateStr) {
+function formatDateDisplay(dateStr) {
     const d = new Date(dateStr);
-    const today = new Date().toISOString().slice(0,10);
-    if (dateStr === today) return 'Hôm nay';
-    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-    if (dateStr === yesterday.toISOString().slice(0,10)) return 'Hôm qua';
-    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-async function exportReportFromTransactions() {
+async function exportReportByDate() {
+    const dateStr = currentReportDate.toISOString().slice(0, 10);
     const transactions = await DB.getAll('transactions');
-    const today = new Date().toISOString().slice(0,10);
-    const todayTx = transactions.filter(t => t.date?.slice(0,10) === today);
-    const takeawayTotal = todayTx.filter(t => t.type === 'takeaway').reduce((s,t)=>s+t.amount,0);
-    const dineinTotal = todayTx.filter(t => t.type === 'dinein').reduce((s,t)=>s+t.amount,0);
-    const content = `Báo cáo ngày ${today}\nMang đi: ${formatMoney(takeawayTotal)}\nTại chỗ: ${formatMoney(dineinTotal)}\nTổng: ${formatMoney(takeawayTotal+dineinTotal)}`;
-    const blob = new Blob([content], {type:'text/plain'});
+    const txs = transactions.filter(tx => tx.date?.slice(0, 10) === dateStr);
+    let takeawayTotal = 0, dineinTotal = 0, cashTotal = 0, transferTotal = 0;
+    let cashCount = 0, transferCount = 0;
+    for (const tx of txs) {
+        if (tx.type === 'takeaway') takeawayTotal += tx.amount;
+        else if (tx.type === 'dinein') dineinTotal += tx.amount;
+        if (tx.paymentMethod === 'cash') {
+            cashTotal += tx.amount;
+            cashCount++;
+        } else if (tx.paymentMethod === 'transfer') {
+            transferTotal += tx.amount;
+            transferCount++;
+        }
+    }
+    const content = `Báo cáo ngày ${dateStr}
+Mang đi: ${formatMoney(takeawayTotal)} (${txs.filter(t=>t.type==='takeaway').length} đơn)
+Tại chỗ: ${formatMoney(dineinTotal)} (${txs.filter(t=>t.type==='dinein').length} đơn)
+Tiền mặt: ${formatMoney(cashTotal)} (${cashCount} giao dịch)
+Chuyển khoản: ${formatMoney(transferTotal)} (${transferCount} giao dịch)
+Tổng: ${formatMoney(takeawayTotal + dineinTotal)}`;
+    const blob = new Blob([content], { type: 'text/plain' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `baocao_${today}.txt`;
+    link.download = `baocao_${dateStr}.txt`;
     link.click();
     showToast('Đã xuất báo cáo', 'success');
 }
 
-// Xuất global
 window.initReport = initReport;
 window.renderReport = renderReport;
-window.exportReport = exportReportFromTransactions;
+window.changeReportDate = changeReportDate;
+window.exportReportByDate = exportReportByDate;

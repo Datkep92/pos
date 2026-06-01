@@ -185,40 +185,47 @@ async function deleteItemFromTable(tableId, itemIndex) {
 
 async function showTransferTableModal(tableId) {
     const tid = String(tableId);
-    const sourceTable = await DB.get('tables', tid);
-    if (!sourceTable || !sourceTable.items || sourceTable.items.length === 0) {
+    let sourceTable = await DB.get('tables', tid);
+    if (!sourceTable) {
+        showToast('Bàn nguồn không tồn tại!', 'error');
+        return;
+    }
+    if (!sourceTable.items || sourceTable.items.length === 0) {
         showToast('Bàn không có món để chuyển', 'warning');
         return;
     }
 
-    // Lấy danh sách tất cả bàn để xác định số thứ tự mới
-    let allTables = await DB.getAll('tables');
-    let maxNumber = 0;
-    allTables.forEach(t => {
-        let match = t.name.match(/Bàn (\d+)/);
-        if (match) maxNumber = Math.max(maxNumber, parseInt(match[1]));
-    });
-    let newNumber = maxNumber + 1;
-    let newTableName = `Bàn ${newNumber.toString().padStart(2, '0')}`;
-
-    // Tạo bàn mới
+    // Tạo bàn mới với tên ngẫu nhiên
     const newTableId = Date.now().toString();
+    const shortId = newTableId.slice(-4);
+    const newTableName = `Bàn tách ${shortId}`;
+
     const now = new Date();
     const newTable = {
         id: newTableId,
         name: newTableName,
         status: 'occupied',
-        time: now.toLocaleTimeString('vi-VN', { hour:'2-digit', minute:'2-digit' }),
+        time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
         startTime: now.toISOString(),
         items: [],
         total: 0,
         customerId: null,
         customerName: null
     };
-    await DB.create('tables', newTable);
-    showToast(`Đã tạo bàn mới: ${newTableName}`, 'info');
 
-    // Hiển thị danh sách món với input số lượng + nút +/-
+    try {
+        await DB.create('tables', newTable, newTableId);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const checkTable = await DB.get('tables', newTableId);
+        if (!checkTable) throw new Error('Tạo bàn mới thất bại');
+        showToast(`Đã tạo bàn mới: ${newTableName}`, 'info');
+    } catch (err) {
+        console.error(err);
+        showToast('Lỗi tạo bàn mới!', 'error');
+        return;
+    }
+
+    // Hiển thị danh sách món để chọn chuyển
     const transferItemsDiv = document.getElementById('transferItemsList');
     transferItemsDiv.innerHTML = sourceTable.items.map((item, idx) => {
         const maxQty = item.qty;
@@ -241,9 +248,7 @@ async function showTransferTableModal(tableId) {
     attachTransferQtyEvents();
     document.getElementById('transferTableModal').style.display = 'flex';
 
-    const modalSourceTable = sourceTable;
-    const targetId = newTableId;
-
+    // Xử lý xác nhận chuyển
     const confirmBtn = document.getElementById('confirmTransferBtn');
     confirmBtn.replaceWith(confirmBtn.cloneNode(true));
     const newConfirmBtn = document.getElementById('confirmTransferBtn');
@@ -254,7 +259,7 @@ async function showTransferTableModal(tableId) {
             let qty = parseInt(input.value);
             if (qty > 0) {
                 const idx = parseInt(input.dataset.idx);
-                const item = modalSourceTable.items[idx];
+                const item = sourceTable.items[idx];
                 if (qty > item.qty) qty = item.qty;
                 selectedItems.push({ name: item.name, price: item.price, qty: qty });
             }
@@ -264,8 +269,8 @@ async function showTransferTableModal(tableId) {
             return;
         }
 
-        // 1. Cập nhật bàn nguồn (trừ món)
-        let remainingItems = modalSourceTable.items.map(i => ({ ...i }));
+        // Cập nhật bàn nguồn (trừ món)
+        let remainingItems = sourceTable.items.map(i => ({ ...i }));
         for (let sel of selectedItems) {
             const existing = remainingItems.find(i => i.name === sel.name);
             if (existing) existing.qty -= sel.qty;
@@ -274,32 +279,16 @@ async function showTransferTableModal(tableId) {
         const newSourceTotal = remainingItems.reduce((s, i) => s + i.price * i.qty, 0);
         await DB.update('tables', tid, { items: remainingItems, total: newSourceTotal });
 
-        // 2. Thêm vào bàn mới
+        // Thêm vào bàn mới
         const newTargetTotal = selectedItems.reduce((s, i) => s + i.price * i.qty, 0);
-        await DB.update('tables', targetId, { items: selectedItems, total: newTargetTotal });
-
-        // 3. Xử lý công nợ (giảm nợ bàn nguồn nếu có)
-        const transferredAmount = newTargetTotal;
-        if (transferredAmount > 0) {
-            const sourceCustomer = modalSourceTable.customerId ? window.customers?.find(c => c.id == modalSourceTable.customerId) : null;
-            if (sourceCustomer && typeof updateCustomerDebt === 'function') {
-                await updateCustomerDebt(sourceCustomer.id, transferredAmount, 'pay_debt', `Tách bàn: chuyển ${formatMoney(transferredAmount)} sang bàn mới ${newTableName}`);
-                showToast(`✅ Đã giảm nợ ${formatMoney(transferredAmount)} cho khách ${sourceCustomer.name}`, 'success');
-            }
-            // Hỏi gán khách cho bàn mới
-            const targetCustomerName = prompt(`Bàn mới "${newTableName}" có số tiền ${formatMoney(transferredAmount)}.\nNhập tên khách để ghi nợ (hoặc để trống):`);
-            if (targetCustomerName) {
-                let targetCustomer = window.customers?.find(c => c.name === targetCustomerName);
-                if (!targetCustomer && typeof addCustomer === 'function') {
-                    targetCustomer = await addCustomer(targetCustomerName, '', '');
-                }
-                if (targetCustomer && typeof addCustomerDebt === 'function') {
-                    await addCustomerDebt(targetCustomer.id, transferredAmount, `Tách bàn từ ${modalSourceTable.name} - ${selectedItems.map(i => `${i.name}x${i.qty}`).join(', ')}`);
-                    await DB.update('tables', targetId, { customerId: targetCustomer.id, customerName: targetCustomer.name });
-                    showToast(`✅ Đã ghi nợ ${formatMoney(transferredAmount)} cho khách ${targetCustomer.name}`, 'success');
-                }
-            }
+        const targetTableExists = await DB.get('tables', newTableId);
+        if (!targetTableExists) {
+            showToast('Bàn đích không còn tồn tại!', 'error');
+            return;
         }
+        await DB.update('tables', newTableId, { items: selectedItems, total: newTargetTotal });
+
+        // KHÔNG xử lý công nợ
 
         closeModal('transferTableModal');
         await renderTables();
@@ -405,7 +394,7 @@ async function mergeTables(sourceTable, targetId) {
         return;
     }
 
-    // 1. Cộng dồn món từ bàn nguồn vào bàn đích
+    // Cộng dồn món từ bàn nguồn vào bàn đích
     let targetItems = targetTable.items ? [...targetTable.items] : [];
     let sourceItems = sourceTable.items ? [...sourceTable.items] : [];
     for (let srcItem of sourceItems) {
@@ -416,97 +405,9 @@ async function mergeTables(sourceTable, targetId) {
     const newTotal = targetItems.reduce((sum, i) => sum + (i.price * i.qty), 0);
     await DB.update('tables', targetId, { items: targetItems, total: newTotal, status: 'occupied' });
 
-    // 2. Xử lý công nợ: chuyển số tiền của bàn nguồn sang bàn đích
-    const sourceAmount = sourceTable.total || 0;
-    if (sourceAmount > 0) {
-        let targetCustomer = targetTable.customerId ? window.customers?.find(c => c.id == targetTable.customerId) : null;
-        let sourceCustomer = sourceTable.customerId ? window.customers?.find(c => c.id == sourceTable.customerId) : null;
-
-        // Hàm cộng nợ
-        const addDebt = async (customerId, customerName, amount, note) => {
-            if (typeof addCustomerDebt === 'function') {
-                await addCustomerDebt(customerId, amount, note);
-                showToast(`✅ Đã cộng ${formatMoney(amount)} vào nợ của khách ${customerName}`, 'success');
-            }
-        };
-        // Hàm trừ nợ
-        const subDebt = async (customerId, customerName, amount, note) => {
-            if (typeof updateCustomerDebt === 'function') {
-                await updateCustomerDebt(customerId, amount, 'pay_debt', note);
-                showToast(`✅ Đã trừ ${formatMoney(amount)} khỏi nợ của khách ${customerName}`, 'success');
-            }
-        };
-
-        // Xác định khách cuối cùng cho bàn đích (sau khi gộp)
-        let finalCustomer = targetCustomer;
-        let removedCustomer = sourceCustomer;
-
-        // Nếu cả hai bàn đều có khách và khác nhau, hỏi người dùng chọn giữ khách nào
-        if (targetCustomer && sourceCustomer && targetCustomer.id !== sourceCustomer.id) {
-            const keepTarget = confirm(
-                `⚠️ Gộp bàn: Bàn nguồn (${sourceTable.name}) có khách "${sourceCustomer.name}"\n` +
-                `Bàn đích (${targetTable.name}) có khách "${targetCustomer.name}"\n\n` +
-                `Bạn muốn GIỮ LẠI khách của bàn nào để nhận chuyển nợ?\n` +
-                `👉 Bấm OK   → Giữ khách đích (${targetCustomer.name})\n` +
-                `👉 Bấm Cancel → Giữ khách nguồn (${sourceCustomer.name})`
-            );
-            if (!keepTarget) {
-                // Giữ khách nguồn, cập nhật bàn đích sang khách nguồn
-                finalCustomer = sourceCustomer;
-                removedCustomer = targetCustomer;
-                await DB.update('tables', targetId, { customerId: sourceCustomer.id, customerName: sourceCustomer.name });
-            }
-        }
-
-        // Nếu bàn đích chưa có khách, xử lý lấy khách từ nguồn hoặc tạo mới
-        if (!finalCustomer) {
-            if (sourceCustomer) {
-                if (confirm(`Bàn đích chưa có khách. Gán khách "${sourceCustomer.name}" cho bàn đích?`)) {
-                    finalCustomer = sourceCustomer;
-                    removedCustomer = null; // không cần trừ nợ nguồn vì cùng khách
-                    await DB.update('tables', targetId, { customerId: sourceCustomer.id, customerName: sourceCustomer.name });
-                } else {
-                    const newName = prompt(`Nhập tên khách mới cho bàn đích để nhận nợ ${formatMoney(sourceAmount)}:`, targetTable.name);
-                    if (newName) {
-                        const newCustomer = await addCustomer(newName, '', '');
-                        if (newCustomer) {
-                            finalCustomer = newCustomer;
-                            removedCustomer = sourceCustomer;
-                            await DB.update('tables', targetId, { customerId: newCustomer.id, customerName: newCustomer.name });
-                        }
-                    }
-                }
-            } else {
-                const newName = prompt(`Bàn đích chưa có khách. Nhập tên khách để nhận nợ ${formatMoney(sourceAmount)}:`, targetTable.name);
-                if (newName) {
-                    const newCustomer = await addCustomer(newName, '', '');
-                    if (newCustomer) {
-                        finalCustomer = newCustomer;
-                        await DB.update('tables', targetId, { customerId: newCustomer.id, customerName: newCustomer.name });
-                    }
-                }
-            }
-        }
-
-        // Cộng sourceAmount vào khách cuối cùng (nếu có)
-        if (finalCustomer) {
-            const note = `Gộp bàn: chuyển ${formatMoney(sourceAmount)} từ bàn ${sourceTable.name} sang bàn ${targetTable.name}`;
-            await addDebt(finalCustomer.id, finalCustomer.name, sourceAmount, note);
-        } else {
-            showToast(`Không thể cộng nợ ${formatMoney(sourceAmount)}!`, 'warning');
-        }
-
-        // Trừ nợ cho khách bị loại bỏ (nếu có và khác với finalCustomer)
-        if (removedCustomer && removedCustomer.id !== finalCustomer?.id) {
-            const note = `Gộp bàn: xóa nợ ${formatMoney(sourceAmount)} của bàn ${sourceTable.name}`;
-            await subDebt(removedCustomer.id, removedCustomer.name, sourceAmount, note);
-        }
-    }
-
-    // 3. Xóa bàn nguồn
+    // Xóa bàn nguồn
     await DB.remove('tables', sourceId);
 
-    // 4. Làm mới giao diện
     await renderTables();
     closeModal('tableDetailModal');
     closeModal('mergeTableModal');
@@ -667,15 +568,9 @@ async function confirmSplitPayment() {
         total: newTotal
     });
 
-    // Xử lý công nợ nếu bàn có khách và số tiền thanh toán > 0
-    const table = await DB.get('tables', tableId);
-    const customerId = table?.customerId;
-    if (customerId && splitTotal > 0 && typeof updateCustomerDebt === 'function') {
-        await updateCustomerDebt(customerId, splitTotal, 'pay_debt', `Thanh toán một phần món (chia hóa đơn) tại bàn ${table.name}`);
-        showToast(`✅ Đã trừ ${formatMoney(splitTotal)} vào nợ của khách`, 'success');
-    }
+    // KHÔNG xử lý công nợ
 
-    // Ghi nhận thanh toán
+    // Ghi nhận thanh toán phần đã chọn
     await processPaymentDirect('dinein', tableId, splitTotal, 'cash', splitItems);
 
     closeModal('splitBillModal');
@@ -686,7 +581,6 @@ async function confirmSplitPayment() {
 
     showToast(`✅ Đã chia và thanh toán ${formatMoney(splitTotal)}`, 'success');
 
-    // Dọn dẹp
     window._currentSplitTable = null;
     window._currentSplitTableId = null;
 }
@@ -997,7 +891,13 @@ function openAddMenuForTable(tableId) {
 function renderTempCartOrder() {
     const container = document.getElementById('tempCartOrderItems');
     const totalSpan = document.getElementById('tempCartOrderTotal');
-    if (tempOrder.length === 0) { container.innerHTML = 'Chưa có món'; totalSpan.innerText = '0'; return; }
+    const actionDiv = document.getElementById('tempCartActions');
+    if (tempOrder.length === 0) {
+        container.innerHTML = 'Chưa có món';
+        totalSpan.innerText = '0';
+        if (actionDiv) actionDiv.innerHTML = '';
+        return;
+    }
     let total = 0;
     container.innerHTML = tempOrder.map(item => {
         const itemTotal = (item.price || 0) * (item.qty || 0);
@@ -1005,7 +905,138 @@ function renderTempCartOrder() {
         return `<div class="temp-cart-item"><span>${item.name} x${item.qty}</span><span>${formatMoney(itemTotal)} <button onclick="removeFromTempOrder('${item.name}')">X</button></span></div>`;
     }).join('');
     totalSpan.innerText = total.toLocaleString('vi-VN');
+
+    // Tạo nút hành động dựa trên context
+    if (actionDiv) {
+        if (currentContext?.type === 'takeaway') {
+            actionDiv.innerHTML = `
+                <div class="temp-cart-actions">
+                    <button class="cart-action-btn cash" onclick="processTakeawayPayment('cash')">💰 Tiền mặt</button>
+                    <button class="cart-action-btn transfer" onclick="processTakeawayPayment('transfer')">💳 Chuyển khoản</button>
+                    <button class="cart-action-btn debt" onclick="processTakeawayDebt()">💢 Ghi nợ</button>
+                </div>
+            `;
+        } else {
+            actionDiv.innerHTML = `<button class="btn-confirm-add" id="confirmOrderBtn">✅ Xác nhận</button>`;
+            // Gắn lại sự kiện cho nút xác nhận (vì innerHTML làm mất event cũ)
+            document.getElementById('confirmOrderBtn')?.addEventListener('click', async () => {
+                // logic xác nhận hiện tại (giữ nguyên)
+                if (tempOrder.length === 0) { showToast('Vui lòng chọn món!', 'warning'); return; }
+                if (typeof checkStockForItems === 'function') {
+                    const enough = await checkStockForItems(tempOrder);
+                    if (!enough) return;
+                }
+                const total = tempOrder.reduce((s, i) => s + ((i.price || 0) * (i.qty || 0)), 0);
+                if (currentContext?.type === 'addToTable' && currentContext.tableId) {
+                    // thêm vào bàn
+                    const table = await DB.get('tables', String(currentContext.tableId));
+                    if (table) {
+                        const existingItems = table.items || [];
+                        tempOrder.forEach(newItem => {
+                            const ex = existingItems.find(i => i.name === newItem.name);
+                            if (ex) ex.qty += newItem.qty;
+                            else existingItems.push({ ...newItem });
+                        });
+                        const newTotal = existingItems.reduce((s, i) => s + ((i.price || 0) * (i.qty || 0)), 0);
+                        await DB.update('tables', String(currentContext.tableId), { items: existingItems, total: newTotal });
+                        if (table.status === 'empty') {
+                            const now = new Date();
+                            await DB.update('tables', String(currentContext.tableId), { status: 'occupied', startTime: now.toISOString(), time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) });
+                        }
+                        await renderTables();
+                        showToast(`✅ Đã thêm món vào bàn`, 'success');
+                    }
+                } else if (currentContext?.type === 'newtable' && currentContext.tableId) {
+                    // tạo đơn bàn mới
+                    const table = await DB.get('tables', String(currentContext.tableId));
+                    if (table) {
+                        const existingItems = table.items || [];
+                        tempOrder.forEach(newItem => {
+                            const ex = existingItems.find(i => i.name === newItem.name);
+                            if (ex) ex.qty += newItem.qty;
+                            else existingItems.push({ ...newItem });
+                        });
+                        const newTotal = existingItems.reduce((s, i) => s + ((i.price || 0) * (i.qty || 0)), 0);
+                        const now = new Date();
+                        await DB.update('tables', String(currentContext.tableId), { items: existingItems, total: newTotal, status: 'occupied', startTime: now.toISOString(), time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) });
+                        if (currentSelectedCustomer) {
+                            await DB.update('tables', String(currentContext.tableId), { customerId: currentSelectedCustomer.id, customerName: currentSelectedCustomer.name });
+                        }
+                        await renderTables();
+                        showToast(`✅ Đã tạo đơn tại bàn ${table.name}`, 'success');
+                    }
+                }
+                document.getElementById('orderModal').style.display = 'none';
+                tempOrder = [];
+                currentSelectedCustomer = null;
+                currentContext = null;
+            });
+        }
+    }
 }
+async function processTakeawayPayment(method) {
+    if (tempOrder.length === 0) {
+        showToast('Chưa có món nào để thanh toán', 'warning');
+        return;
+    }
+    const total = tempOrder.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    // Kiểm tra tồn kho
+    if (typeof checkStockForItems === 'function') {
+        const enough = await checkStockForItems(tempOrder);
+        if (!enough) return;
+    }
+    // Trừ nguyên liệu
+    if (typeof deductIngredients === 'function') {
+        await deductIngredients(tempOrder);
+    }
+    // Ghi nhận giao dịch
+    if (typeof addHistory === 'function') {
+        await addHistory({
+            type: 'takeaway',
+            amount: total,
+            paymentMethod: method,
+            items: [...tempOrder],
+            customer: currentSelectedCustomer ? { id: currentSelectedCustomer.id, name: currentSelectedCustomer.name } : null,
+            note: `Bán mang đi - ${method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}`
+        });
+    }
+    showToast(`✅ Thanh toán thành công ${formatMoney(total)}`, 'success');
+    // Đóng modal và reset
+    document.getElementById('orderModal').style.display = 'none';
+    tempOrder = [];
+    currentSelectedCustomer = null;
+    currentContext = null;
+    // Cập nhật báo cáo, kho, v.v.
+    if (typeof renderReport === 'function') renderReport();
+    if (typeof renderIngredients === 'function') renderIngredients();
+}
+
+async function processTakeawayDebt() {
+    if (tempOrder.length === 0) {
+        showToast('Chưa có món để ghi nợ', 'warning');
+        return;
+    }
+    const total = tempOrder.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    // Chọn hoặc tạo khách hàng
+    if (typeof showCustomerSelector === 'function') {
+        showCustomerSelector(async (customer) => {
+            // Ghi nợ cho khách
+            if (typeof addCustomerDebt === 'function') {
+                await addCustomerDebt(customer.id, total, `Mang đi - ${tempOrder.map(i => `${i.name}x${i.qty}`).join(', ')}`);
+                showToast(`💰 Đã ghi nợ ${formatMoney(total)} cho khách ${customer.name}`, 'success');
+            }
+            // Đóng modal và reset
+            document.getElementById('orderModal').style.display = 'none';
+            tempOrder = [];
+            currentSelectedCustomer = null;
+            currentContext = null;
+            if (typeof renderCustomerList === 'function') renderCustomerList();
+        });
+    } else {
+        showToast('Chức năng chọn khách chưa sẵn sàng', 'error');
+    }
+}
+
 
 function removeFromTempOrder(name) {
     tempOrder = tempOrder.filter(i => i.name !== name);
@@ -1079,44 +1110,20 @@ document.getElementById('confirmOrderBtn')?.addEventListener('click', async () =
     }
 });
 
-// ========== NÚT NỔI ==========
 document.getElementById('floatTakeawayBtn')?.addEventListener('click', () => {
     currentContext = { type: 'takeaway' };
     currentSelectedCustomer = null;
     tempOrder = [];
-    if (typeof renderOrderMenuForModal === 'function') renderOrderMenuForModal('');
-    renderTempCartOrder();
+    // Hiển thị danh mục và món
+    if (typeof renderOrderCategories === 'function') renderOrderCategories();
+    window.currentOrderCategory = 'all';
+    if (typeof renderOrderMenuByCategory === 'function') renderOrderMenuByCategory('all', '');
+    renderTempCartOrder(); // hàm này sẽ hiển thị nút phù hợp
     document.getElementById('orderModalTitle').innerHTML = '🛵 Bán mang đi';
-    // Đã xóa dòng document.getElementById('selectedCustomerDisplay')...
-    // Đã xóa dòng document.getElementById('clearCustomerBtn')...
     document.getElementById('orderModal').style.display = 'flex';
 });
 
-document.getElementById('floatNewtableBtn')?.addEventListener('click', async () => {
-    let tables = await DB.getAll('tables');
-    let emptyTable = tables.find(t => (!t.items || t.items.length === 0) && t.status !== 'debt');
-    if (!emptyTable) {
-        const newId = Date.now().toString();
-        const newNumber = tables.length + 1;
-        const newTable = { id: newId, name: `Bàn ${newNumber.toString().padStart(2, '0')}`, status: 'empty', time: '--:--', startTime: null, items: [], total: 0, debt: 0, customerId: null };
-        await DB.create('tables', newTable);
-        showToast(`✅ Đã tạo bàn mới: ${newTable.name}`, 'success');
-        emptyTable = newTable;
-    }
-    currentContext = { type: 'newtable', tableId: emptyTable.id };
-    currentSelectedCustomer = null;
-    tempOrder = [];
-    if (typeof renderOrderCategories === 'function') {
-        renderOrderCategories();
-    }
-    window.currentOrderCategory = 'all';
-    if (typeof renderOrderMenuByCategory === 'function') {
-        renderOrderMenuByCategory('all', '');
-    }
-    renderTempCartOrder();
-    document.getElementById('orderModalTitle').innerHTML = `🍽️ Tạo đơn - ${emptyTable.name}`;
-    document.getElementById('orderModal').style.display = 'flex';
-});
+
 
 // ========== CHỌN/GÁN KHÁCH ==========
 function showCustomerSelectorForOrder() {
@@ -1136,30 +1143,7 @@ async function showCustomerSelectorForTable(tableId) {
 
     if (typeof showCustomerSelector === 'function') {
         showCustomerSelector(async (newCustomer) => {
-            const oldCustomerId = table.customerId;
-            const totalAmount = table.total || 0;
-            const orderDetail = (table.items || []).map(i => `${i.name} x${i.qty}`).join(', ');
-            const note = `Mua tại ${table.name} - ${orderDetail}`;
-
-            let shouldTransferDebt = false;
-            if (totalAmount > 0) {
-                shouldTransferDebt = confirm(`Bàn đang có số tiền ${formatMoney(totalAmount)}.\nBạn có muốn GHI NỢ số tiền này cho khách "${newCustomer.name}" không?\n(Nếu không, bạn có thể ghi nợ sau bằng nút 💢)`);
-            }
-
-            if (oldCustomerId && totalAmount > 0 && shouldTransferDebt) {
-                const removeOldDebt = confirm(`Bàn trước đó thuộc khách khác.\nCó nên HỦY khoản nợ ${formatMoney(totalAmount)} cho khách cũ (nếu có) không?`);
-                if (removeOldDebt && typeof updateCustomerDebt === 'function') {
-                    await updateCustomerDebt(oldCustomerId, totalAmount, 'pay_debt', `Chuyển nợ từ bàn ${table.name} sang khách ${newCustomer.name}`);
-                    showToast(`✅ Đã hủy nợ ${formatMoney(totalAmount)} cho khách cũ`, 'info');
-                }
-            }
-
-            if (totalAmount > 0 && shouldTransferDebt && typeof addCustomerDebt === 'function') {
-                await addCustomerDebt(newCustomer.id, totalAmount, note);
-                showToast(`💰 Đã ghi nợ ${formatMoney(totalAmount)} cho khách ${newCustomer.name}`, 'success');
-            }
-
-            // Cập nhật bàn: chỉ lưu customerId và customerName, KHÔNG ghi đè tên bàn
+            // Chỉ cập nhật thông tin khách, không ghi nợ
             const updateData = { 
                 customerId: newCustomer.id, 
                 customerName: newCustomer.name
@@ -1406,38 +1390,17 @@ function importAllData(input) {
     window.menuItems = await DB.getAll('menu');
     window.menuCategories = await DB.getAll('menu_categories');
     // Nếu menu rỗng, tạo dữ liệu mẫu (tạm thời)
-    if (window.menuItems.length === 0 && window.menuCategories.length === 0) {
-        await DB.create('menu_categories', { id: 'cat1', name: 'Cà phê', color: '#f97316', icon: '☕' });
-        await DB.create('menu', { id: 'item1', name: 'Cà phê đen', price: 25000, categoryId: 'cat1', ingredients: [] });
-        await DB.create('menu', { id: 'item2', name: 'Cà phê sữa', price: 30000, categoryId: 'cat1', ingredients: [] });
-        window.menuItems = await DB.getAll('menu');
-        window.menuCategories = await DB.getAll('menu_categories');
-        console.log('✅ Đã tạo menu mẫu');
-    }
+    
 
     window.customers = await DB.getAll('customers');
     window.ingredients = await DB.getAll('ingredients');
 
+    // KHÔNG TẠO BÀN MẶC ĐỊNH
     let tables = await DB.getAll('tables');
-if (tables.length === 0) {
-    console.log('📌 Chưa có bàn nào, tạo 8 bàn mặc định...');
-    for (let i = 1; i <= 8; i++) {
-        const newId = Date.now().toString() + i;
-        await DB.create('tables', {
-            id: newId,
-            name: `Bàn ${i.toString().padStart(2, '0')}`,
-            status: 'empty',
-            time: '--:--',
-            startTime: null,
-            items: [],
-            total: 0,
-            debt: 0,
-            customerId: null
-        });
+    console.log(`📌 Số bàn hiện có: ${tables.length}`);
+    if (tables.length === 0) {
+        console.log('📌 Chưa có bàn nào. Hãy dùng nút "Tạo bàn mới".');
     }
-} else {
-    console.log(`📌 Đã có ${tables.length} bàn, không tạo mới.`);
-}
 
     await renderTables();
     if (typeof renderCustomerList === 'function') renderCustomerList();
@@ -1454,7 +1417,6 @@ if (tables.length === 0) {
         if (document.querySelector('.tab-content.active')?.id === 'tablesView') renderTables();
     }, 60000);
 })();
-
 
 window.addEventListener('db_update', async (e) => {
     const { collection, data } = e.detail;
@@ -1568,6 +1530,100 @@ async function payDebtTable(tableId) {
     // Hiển thị modal thanh toán với type = 'debt_table'
     showPaymentMethod('debt_table', tableId, table.total);
 }
+// ========== ĐÓNG POPUP KHI CLICK RA NGOÀI HOẶC KÉO XUỐNG (SỬA LỖI TOUCHMOVE) ==========
+function initModalCloseFeatures() {
+    const modals = document.querySelectorAll('.modal');
+    
+    modals.forEach(modal => {
+        // 1. Đóng khi click vào backdrop
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+                tempOrder = [];
+                currentSelectedCustomer = null;
+            }
+        });
+
+        // 2. Đóng khi kéo xuống (swipe down) trên modal-content - chỉ mobile
+        const modalContent = modal.querySelector('.modal-content');
+        if (modalContent) {
+            let touchStartY = 0;
+            let isSwipingDown = false;
+            
+            const handleTouchStart = (e) => {
+                touchStartY = e.touches[0].clientY;
+                isSwipingDown = false;
+            };
+            
+            const handleTouchMove = (e) => {
+                const currentY = e.touches[0].clientY;
+                const deltaY = currentY - touchStartY;
+                // Nếu kéo xuống > 40px và nội dung chưa cuộn lên đầu
+                if (deltaY > 40 && modalContent.scrollTop === 0) {
+                    isSwipingDown = true;
+                    // Chỉ preventDefault khi sự kiện có thể hủy (tránh lỗi)
+                    if (e.cancelable) {
+                        e.preventDefault();
+                    }
+                    modal.style.display = 'none';
+                    tempOrder = [];
+                    currentSelectedCustomer = null;
+                }
+            };
+            
+            const handleTouchEnd = () => {
+                // Không cần xử lý thêm
+                isSwipingDown = false;
+            };
+            
+            modalContent.addEventListener('touchstart', handleTouchStart, { passive: false });
+            modalContent.addEventListener('touchmove', handleTouchMove, { passive: false });
+            modalContent.addEventListener('touchend', handleTouchEnd);
+        }
+    });
+}
+
+// Khởi tạo khi DOM sẵn sàng
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initModalCloseFeatures);
+} else {
+    initModalCloseFeatures();
+}
+// Gắn sự kiện cho nút tạo bàn mới (đảm bảo DOM đã tải)
+document.addEventListener('DOMContentLoaded', () => {
+    const newTableBtn = document.getElementById('floatNewtableBtn');
+    if (newTableBtn) {
+        newTableBtn.addEventListener('click', async () => {
+            const newId = Date.now().toString();
+            const shortId = newId.slice(-4);
+            const newTable = {
+                id: newId,
+                name: `Bàn ${shortId}`,
+                status: 'empty',
+                time: '--:--',
+                startTime: null,
+                items: [],
+                total: 0,
+                debt: 0,
+                customerId: null,
+                customerName: null
+            };
+            await DB.create('tables', newTable, newTable.id);
+
+            showToast(`✅ Đã tạo bàn mới: ${newTable.name}`, 'success');
+            
+            currentContext = { type: 'newtable', tableId: newId };
+            currentSelectedCustomer = null;
+            tempOrder = [];
+            if (typeof renderOrderCategories === 'function') renderOrderCategories();
+            window.currentOrderCategory = 'all';
+            if (typeof renderOrderMenuByCategory === 'function') renderOrderMenuByCategory('all', '');
+            renderTempCartOrder();
+            document.getElementById('orderModalTitle').innerHTML = `🍽️ Tạo đơn - ${newTable.name}`;
+            document.getElementById('orderModal').style.display = 'flex';
+        });
+    }
+});
 // Xuất các hàm toàn cục
 window.renderTables = renderTables;
 window.showPaymentMethod = showPaymentMethod;

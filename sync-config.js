@@ -39,7 +39,48 @@ const SYNC_CONFIG = {
         needsAuth: false
     }
 };
+async function addItem(item) {
+    const db = firebase.database();
 
+    const newRef = db.ref('menu').push(); // 👈 tạo ID thật
+
+    const id = newRef.key;
+
+    const newItem = {
+        id: id, // 👈 LƯU ID CHUẨN
+        ...item
+    };
+
+    await newRef.set(newItem);
+
+    return newItem;
+}
+async function deleteItem(firebaseId) {
+    if (!confirm('Xóa món?')) return;
+
+    try {
+        await firebase.database().ref('menu/' + firebaseId).remove();
+
+        console.log("🗑️ Deleted:", firebaseId);
+
+    } catch (err) {
+        console.error(err);
+    }
+}
+function setupRealtimeSync() {
+    const db = firebase.database();
+
+    db.ref('menu').on('value', snapshot => {
+        const data = snapshot.val() || {};
+
+        window.menuItems = Object.keys(data).map(key => ({
+            firebaseId: key,   // ✅ ID thật
+            ...data[key]
+        }));
+
+        renderMenuManager();
+    });
+}
 // Hàm tiện ích để gọi render an toàn
 function safeRender(renderFuncName, ...args) {
     if (typeof window[renderFuncName] === 'function') {
@@ -48,3 +89,8 @@ function safeRender(renderFuncName, ...args) {
         console.warn(`⚠️ Hàm render ${renderFuncName} chưa được định nghĩa`);
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    initMenu();
+    setupRealtimeSync(); // ⚠️ bắt buộc
+});
