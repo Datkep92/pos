@@ -63,7 +63,16 @@ function renderMenuManager() {
     }
     filterMenuByCategory('all');
 }
-
+function showItemMenu(itemId) {
+    const actions = [
+        { label: '✏️ Sửa món', action: () => editItem(itemId) },
+        { label: '🗑️ Xóa món', action: () => deleteItem(itemId) }
+    ];
+    // Sử dụng confirm đơn giản (hoặc có thể dùng action sheet đẹp hơn)
+    const choice = confirm('Chọn thao tác:\nOK → Sửa\nCancel → Xóa');
+    if (choice) editItem(itemId);
+    else deleteItem(itemId);
+}
 async function filterMenuByCategory(categoryId) {
     const container = document.getElementById('menuItemsGrid');
     if (!container) return;
@@ -74,29 +83,20 @@ async function filterMenuByCategory(categoryId) {
         return;
     }
     container.innerHTML = items.map(item => {
-        let sizeInfo = '';
+        let sizeHtml = '';
         if (item.hasVariants && item.variants && item.variants.length) {
-            sizeInfo = `<div class="menu-item-sizes">📏 ${item.variants.length} size</div>`;
+            sizeHtml = `<span class="menu-item-sizes">📏 ${item.variants.length} size</span>`;
         }
         return `
-           <div class="menu-item-card" onclick="showItemDetail('${item.id}')">
-    <div class="menu-item-name">${escapeHtml(item.name)}</div>
-    <div class="menu-item-price">
-        ${formatMoney(item.hasVariants ? (item.variants[0]?.price || 0) : item.price)}
-    </div>
-
-    <div class="menu-item-meta">
-        <div class="menu-item-ingredients">
-            🧂 ${(item.ingredients || []).length} NL
-        </div>
-
-        ${item.hasVariants ? `
-            <div class="menu-item-sizes">
-                📏 ${item.variants.length} size
+            <div class="menu-item-card">
+                <div class="menu-item-name">${escapeHtml(item.name)}</div>
+                <div class="menu-item-price">${formatMoney(item.hasVariants ? (item.variants[0]?.price || 0) : item.price)}</div>
+                <div class="menu-item-info-row">
+                    <span class="menu-item-ingredients">🧂 ${(item.ingredients || []).length} NL</span>
+                    ${sizeHtml}
+                </div>
+                <div class="menu-item-more" onclick="event.stopPropagation(); showItemMenu('${item.id}')">⋮</div>
             </div>
-        ` : ''}
-    </div>
-</div>
         `;
     }).join('');
 }
@@ -526,27 +526,22 @@ function renderOrderMenuByCategory(categoryId = 'all', searchTerm = '') {
     if (categoryId !== 'all') items = items.filter(i => i.categoryId == categoryId);
     if (searchTerm) items = items.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
     if (items.length === 0) { container.innerHTML = '<div style="padding:40px;">📭 Không có món</div>'; return; }
-    container.innerHTML = items.map(item => {
-        if (item.hasVariants && item.variants && item.variants.length) {
-            const variantBtns = item.variants.map(v => 
-                `<button class="variant-order-btn" onclick="addToTempOrderWithVariant('${item.id}', '${v.name}', ${v.price})">${v.name} ${formatMoney(v.price)}</button>`
-            ).join('');
-            return `
-                <div class="menu-item-card-variant">
-                    <div class="menu-item-name">${escapeHtml(item.name)}</div>
-                    <div class="variant-buttons">${variantBtns}</div>
-                </div>
-            `;
-        } else {
-            const price = item.price || 0;
-            return `
-                <div class="menu-item-simple" onclick="addToTempOrder('${item.name}', ${price})">
-                    ${escapeHtml(item.name)}<br>
-                    <span>${formatMoney(price)}</span>
-                </div>
-            `;
-        }
-    }).join('');
+   container.innerHTML = items.map(item => {
+    let sizeInfo = '';
+    if (item.hasVariants && item.variants && item.variants.length) {
+        sizeInfo = `<span class="menu-item-sizes">📏 ${item.variants.length} size</span>`;
+    }
+    return `
+        <div class="menu-item-card" onclick="showItemDetail('${item.id}')">
+            <div class="menu-item-name">${escapeHtml(item.name)}</div>
+            <div class="menu-item-price">${formatMoney(item.hasVariants ? (item.variants[0]?.price || 0) : item.price)}</div>
+            <div class="menu-item-info-row">
+                <span class="menu-item-ingredients">🧂 ${(item.ingredients || []).length} NL</span>
+                ${sizeInfo}
+            </div>
+        </div>
+    `;
+}).join('');
 }
 
 function filterOrderMenuByCategory(categoryId) {

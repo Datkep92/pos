@@ -66,10 +66,10 @@
 
             <div id="menuView" class="tab-content">
     <div class="menu-manager">
-        <div class="menu-actions-top">
-            <button class="btn-add-category" onclick="openCategoryModal()">+ Danh mục</button>
-            <button class="btn-add-item" onclick="openItemModal()">+ Món</button>
-        </div>
+       <div class="menu-actions-top">
+    <button class="btn-add-item" onclick="openItemModal()">+ Món</button>
+    <button class="btn-manage-category" onclick="openManageCategoryModal()"> Danh mục</button>
+</div>
         <div class="menu-categories" id="menuCategories"></div>
         <div class="menu-items-grid" id="menuItemsGrid"></div>
     </div>
@@ -85,17 +85,17 @@
             </div>
 
             <!-- TAB KHÁCH HÀNG -->
-            <div id="customersView" class="tab-content">
-                <div class="customer-search-bar">
-                    <input type="text" id="customerSearchInput" placeholder="🔍 Tìm tên, SĐT..." oninput="searchCustomerList()">
-                    <button onclick="openAddCustomerModal()">+ Thêm</button>
-                </div>
-                <div class="debt-summary">
-                    <span>💰 Tổng công nợ</span>
-                    <span id="totalDebtAmount">0đ</span>
-                </div>
-                <div id="customerListContainer" class="customer-list-container"></div>
-            </div>
+           <div id="customersView" class="tab-content">
+    <div class="customer-search-bar">
+        <input type="text" id="customerSearchInput" placeholder="🔍 Tìm theo tên hoặc SĐT..." oninput="searchCustomerList()">
+        <button id="quickAddCustomerBtn" class="btn-add-customer">+ Thêm</button>
+    </div>
+    <div class="debt-summary">
+        <span>💰 Tổng công nợ</span>
+        <span id="totalDebtAmount">0đ</span>
+    </div>
+    <div id="customerListContainer" class="customer-list-container"></div>
+</div>
 
             <div id="historyView" class="tab-content">
 
@@ -131,7 +131,19 @@
     <div id="historyList" class="history-list-container"></div>
 
 </div>
-
+<!-- MODAL QUẢN LÝ DANH MỤC -->
+<div class="modal" id="manageCategoryModal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <span class="modal-title">⚙️ Quản lý danh mục</span>
+            <span class="modal-close" onclick="closeModal('manageCategoryModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <button class="btn-add-category-inline" onclick="openCategoryModal(); closeModal('manageCategoryModal')">+ Thêm danh mục mới</button>
+            <div id="manageCategoryList" class="manage-category-list"></div>
+        </div>
+    </div>
+</div>
             <!-- TAB BÁO CÁO -->
             <div id="reportView" class="tab-content">
                 <div id="reportContent" class="report-container"></div>
@@ -344,10 +356,21 @@
         </div>
     </div>
 </div>
-
-    <!-- MODAL MÓN -->
-    <!-- MODAL THÊM / SỬA MÓN -->
-<div class="modal" id="itemModal">
+<!-- MODAL CHI TIẾT MÓN -->
+<div class="modal" id="itemDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">📋 Chi tiết món</span>
+            <span class="modal-close" onclick="closeModal('itemDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="itemDetailContent"></div>
+        <div class="modal-footer" style="display: flex; gap: 10px; padding: 16px;">
+            <button class="btn-save" id="detailEditItemBtn">✏️ Sửa món</button>
+            <button class="btn-danger" id="detailDeleteItemBtn" style="background:#dc2626;">🗑️ Xóa món</button>
+        </div>
+    </div>
+</div>
+    <div class="modal" id="itemModal">
     <div class="modal-content modal-large">
         <div class="modal-header">
             <span class="modal-title" id="itemModalTitle">➕ Thêm món</span>
@@ -364,17 +387,33 @@
                 <select id="itemCategory" class="form-input"></select>
             </div>
             <div class="form-group">
-                <label>Giá bán *</label>
-                <input type="number" id="itemPrice" class="form-input" placeholder="0" step="1000">
+                <label><input type="checkbox" id="itemHasVariants" onchange="toggleVariantsSection()"> Có nhiều size</label>
             </div>
-            <div class="form-group">
-                <label>📋 Công thức</label>
-                <div id="ingredientsFormula" class="ingredients-formula"></div>
-                <div class="ingredients-quick-list">
-                    <div class="quick-title">📦 Nguyên liệu có sẵn (click để thêm)</div>
-                    <div id="ingredientsGrid" class="ingredients-list-grid"></div>
+            <div id="variantsSection" style="display: none;">
+                <div class="form-group">
+                    <label>Danh sách size</label>
+                    <div id="variantsList"></div>
+                    <button type="button" class="btn-small" onclick="addVariant()">+ Thêm size</button>
                 </div>
             </div>
+            <div id="normalSection">
+                <div class="form-group">
+                    <label>Giá bán *</label>
+                    <input type="number" id="itemPrice" class="form-input" placeholder="0" step="1000">
+                </div>
+                <div class="form-group">
+                    <label>📋 Công thức</label>
+                    <div id="ingredientsFormula" class="ingredients-formula"></div>
+                    <div class="ingredients-quick-list">
+                        <div class="quick-title">📦 Nguyên liệu có sẵn</div>
+                        <div id="ingredientsGrid" class="ingredients-list-grid"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+    <label>📝 Công thức pha chế (cách làm)</label>
+    <textarea id="itemRecipe" class="form-input" rows="3" placeholder="VD: Pha 20g bột cà phê với 30ml nước sôi..."></textarea>
+</div>
             <div class="form-actions">
                 <button class="btn-save" onclick="saveItem()">💾 Lưu</button>
                 <button class="btn-cancel" onclick="closeModal('itemModal')">Hủy</button>
@@ -383,25 +422,53 @@
     </div>
 </div>
 
-    <!-- MODAL NGUYÊN LIỆU -->
-    <div class="modal" id="ingredientModal">
-        <div class="modal-content">
-            <div class="modal-header"><span class="modal-title" id="ingredientModalTitle">➕ Nguyên liệu</span><span class="modal-close">&times;</span></div>
-            <div class="modal-body">
-                <input type="hidden" id="ingredientId">
-                <div class="form-group"><label>Tên *</label><input type="text" id="ingredientName" class="form-input" placeholder="VD: Cà phê hạt"></div>
-                <div class="form-row-2">
-                    <div class="form-group"><label>Đơn vị</label><select id="ingredientUnit" class="form-input"><option value="kg">kg</option><option value="g">g</option><option value="lít">lít</option><option value="ml">ml</option><option value="cái">cái</option><option value="gói">gói</option></select></div>
-                    <div class="form-group"><label>Giá nhập</label><input type="number" id="ingredientPrice" class="form-input" value="0"></div>
+    <!-- MODAL CHI TIẾT NGUYÊN LIỆU -->
+<div class="modal" id="ingredientDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">📦 Chi tiết nguyên liệu</span>
+            <span class="modal-close" onclick="closeModal('ingredientDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="ingredientDetailId">
+            <div class="form-group">
+                <label>Tên nguyên liệu</label>
+                <input type="text" id="ingredientDetailName" class="form-input" placeholder="VD: Cà phê hạt">
+            </div>
+            <div class="form-row-2">
+                <div class="form-group">
+                    <label>Đơn vị</label>
+                    <select id="ingredientDetailUnit" class="form-input">
+                        <option value="kg">kg</option>
+                        <option value="g">g</option>
+                        <option value="lít">lít</option>
+                        <option value="ml">ml</option>
+                        <option value="cái">cái</option>
+                        <option value="gói">gói</option>
+                    </select>
                 </div>
-                <div class="form-row-2">
-                    <div class="form-group"><label>Tồn kho</label><input type="number" id="ingredientStock" class="form-input" value="0" step="0.1"></div>
-                    <div class="form-group"><label>Cảnh báo dưới</label><input type="number" id="ingredientMinStock" class="form-input" value="10"></div>
+                <div class="form-group">
+                    <label>Giá nhập</label>
+                    <input type="number" id="ingredientDetailPrice" class="form-input" value="0">
                 </div>
-                <div class="form-actions"><button class="btn-save" onclick="saveIngredient()">💾 Lưu</button><button class="btn-cancel" onclick="closeModal('ingredientModal')">Hủy</button></div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group">
+                    <label>Tồn kho</label>
+                    <input type="number" id="ingredientDetailStock" class="form-input" value="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label>Cảnh báo dưới</label>
+                    <input type="number" id="ingredientDetailMinStock" class="form-input" value="10">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn-save" onclick="saveIngredientDetail()">💾 Lưu</button>
+                <button class="btn-danger" onclick="deleteIngredientDetail()" style="background:#dc2626;">🗑️ Xóa</button>
             </div>
         </div>
     </div>
+</div>
 
     <!-- MODAL KHÁCH HÀNG - CHI TIẾT -->
     <div class="modal" id="customerDetailModal">
@@ -411,19 +478,7 @@
         </div>
     </div>
 
-    <!-- MODAL KHÁCH HÀNG - FORM -->
-    <div class="modal" id="customerFormModal">
-        <div class="modal-content">
-            <div class="modal-header"><span class="modal-title" id="customerFormTitle">➕ Khách hàng</span><span class="modal-close">&times;</span></div>
-            <div class="modal-body">
-                <input type="hidden" id="customerFormId">
-                <div class="form-group"><label>Tên *</label><input type="text" id="customerFormName" class="form-input" placeholder="Nhập tên"></div>
-                <div class="form-group"><label>SĐT</label><input type="tel" id="customerFormPhone" class="form-input" placeholder="Số điện thoại"></div>
-                <div class="form-group"><label>Địa chỉ</label><input type="text" id="customerFormAddress" class="form-input" placeholder="Địa chỉ"></div>
-                <div class="form-actions"><button class="btn-save" onclick="saveCustomerForm()">💾 Lưu</button><button class="btn-cancel" onclick="closeModal('customerFormModal')">Hủy</button></div>
-            </div>
-        </div>
-    </div>
+    
 
     <!-- MODAL CHỌN KHÁCH -->
     <div class="modal" id="customerSelectorModal">
@@ -464,7 +519,7 @@
 
     <!-- Core Database -->
     <script src="db.js"></script>
-     <script src="sync-config.js"></script>
+     
 
     <!-- Modules -->
     <script src="menu.js"></script>

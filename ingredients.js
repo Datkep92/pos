@@ -1,7 +1,6 @@
 // ========== QUẢN LÝ NGUYÊN LIỆU (ĐỒNG BỘ FIREBASE) ==========
 let ingredients = [];
 
-// Khởi tạo: load từ DB
 async function initIngredients() {
     ingredients = await DB.getAll('ingredients') || [];
     window.ingredients = ingredients;
@@ -9,13 +8,6 @@ async function initIngredients() {
     console.log(`✅ Đã tải ${ingredients.length} nguyên liệu`);
 }
 
-// Lưu danh sách ingredients (hàm này không cần thiết vì mỗi thao tác đã gọi DB)
-// nhưng giữ để tương thích
-async function saveIngredients() {
-    // Không cần, vì mỗi item đã được lưu riêng qua DB.create/update
-}
-
-// Render danh sách nguyên liệu
 function renderIngredients() {
     ingredients = window.ingredients || [];
     const container = document.getElementById('ingredientsList');
@@ -28,23 +20,67 @@ function renderIngredients() {
     container.innerHTML = ingredients.map(ing => {
         const isLow = ing.stock <= (ing.minStock || minStock);
         return `
-            <div class="ingredient-card">
+            <div class="ingredient-card" onclick="showIngredientDetail('${ing.id}')">
                 <div class="ingredient-info">
-                    <div class="ingredient-name">${ing.name}</div>
-                    <div class="ingredient-unit">Đơn vị: ${ing.unit}</div>
+                    <div class="ingredient-name">${escapeHtml(ing.name)}</div>
                 </div>
                 <div class="ingredient-stock ${isLow ? 'low' : ''}">📦 ${ing.stock.toLocaleString()} ${ing.unit}</div>
                 <div class="ingredient-price">💰 ${formatMoney(ing.price)} / ${ing.unit}</div>
-                <div class="ingredient-actions">
-                    <button class="btn-edit" onclick="editIngredient('${ing.id}')">✏️</button>
-                    <button class="btn-delete" onclick="deleteIngredient('${ing.id}')">🗑️</button>
-                </div>
             </div>
         `;
     }).join('');
 }
 
-// Mở modal thêm nguyên liệu
+// Hiển thị chi tiết nguyên liệu (popup)
+async function showIngredientDetail(id) {
+    const ing = ingredients.find(i => i.id === id);
+    if (!ing) return;
+    document.getElementById('ingredientDetailId').value = ing.id;
+    document.getElementById('ingredientDetailName').value = ing.name;
+    document.getElementById('ingredientDetailUnit').value = ing.unit;
+    document.getElementById('ingredientDetailStock').value = ing.stock;
+    document.getElementById('ingredientDetailPrice').value = ing.price;
+    document.getElementById('ingredientDetailMinStock').value = ing.minStock || 10;
+    document.getElementById('ingredientDetailModal').style.display = 'flex';
+}
+
+// Lưu nguyên liệu từ popup chi tiết
+async function saveIngredientDetail() {
+    const id = document.getElementById('ingredientDetailId').value;
+    const name = document.getElementById('ingredientDetailName').value.trim();
+    const unit = document.getElementById('ingredientDetailUnit').value;
+    const stock = parseFloat(document.getElementById('ingredientDetailStock').value) || 0;
+    const price = parseFloat(document.getElementById('ingredientDetailPrice').value) || 0;
+    const minStock = parseFloat(document.getElementById('ingredientDetailMinStock').value) || 10;
+    if (!name) {
+        showToast('Vui lòng nhập tên nguyên liệu!', 'warning');
+        return;
+    }
+    const index = ingredients.findIndex(i => i.id === id);
+    if (index !== -1) {
+        const updatedIng = { ...ingredients[index], name, unit, stock, price, minStock };
+        await DB.update('ingredients', id, updatedIng);
+        ingredients[index] = updatedIng;
+        window.ingredients = ingredients;
+        renderIngredients();
+        closeModal('ingredientDetailModal');
+        showToast(`Đã cập nhật "${name}"`, 'success');
+    }
+}
+
+// Xóa nguyên liệu từ popup chi tiết
+async function deleteIngredientDetail() {
+    const id = document.getElementById('ingredientDetailId').value;
+    if (!confirm('Xóa nguyên liệu này?')) return;
+    await DB.remove('ingredients', id);
+    ingredients = ingredients.filter(i => i.id !== id);
+    window.ingredients = ingredients;
+    renderIngredients();
+    closeModal('ingredientDetailModal');
+    showToast('Đã xóa nguyên liệu', 'success');
+}
+
+// Mở modal thêm mới nguyên liệu (giữ nguyên)
 function openIngredientModal() {
     document.getElementById('ingredientModalTitle').innerText = '➕ Thêm nguyên liệu';
     document.getElementById('ingredientId').value = '';
@@ -56,21 +92,6 @@ function openIngredientModal() {
     document.getElementById('ingredientModal').style.display = 'flex';
 }
 
-// Sửa nguyên liệu
-async function editIngredient(id) {
-    const ing = ingredients.find(i => i.id === id);
-    if (!ing) return;
-    document.getElementById('ingredientModalTitle').innerText = '✏️ Sửa nguyên liệu';
-    document.getElementById('ingredientId').value = ing.id;
-    document.getElementById('ingredientName').value = ing.name;
-    document.getElementById('ingredientUnit').value = ing.unit;
-    document.getElementById('ingredientStock').value = ing.stock;
-    document.getElementById('ingredientPrice').value = ing.price;
-    document.getElementById('ingredientMinStock').value = ing.minStock || 10;
-    document.getElementById('ingredientModal').style.display = 'flex';
-}
-
-// Lưu nguyên liệu (tạo mới hoặc cập nhật)
 async function saveIngredient() {
     const id = document.getElementById('ingredientId').value;
     const name = document.getElementById('ingredientName').value.trim();
@@ -78,14 +99,11 @@ async function saveIngredient() {
     const stock = parseFloat(document.getElementById('ingredientStock').value) || 0;
     const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
     const minStock = parseFloat(document.getElementById('ingredientMinStock').value) || 10;
-    
     if (!name) {
         showToast('Vui lòng nhập tên nguyên liệu!', 'warning');
         return;
     }
-    
     if (id) {
-        // Cập nhật
         const index = ingredients.findIndex(i => i.id === id);
         if (index !== -1) {
             const updatedIng = { ...ingredients[index], name, unit, stock, price, minStock };
@@ -93,15 +111,9 @@ async function saveIngredient() {
             ingredients[index] = updatedIng;
         }
     } else {
-        // Thêm mới
         const newId = Date.now().toString();
         const newIng = {
-            id: newId,
-            name,
-            unit,
-            stock,
-            price,
-            minStock,
+            id: newId, name, unit, stock, price, minStock,
             createdAt: Date.now()
         };
         await DB.create('ingredients', newIng);
@@ -113,7 +125,7 @@ async function saveIngredient() {
     showToast(`Đã lưu nguyên liệu "${name}"`, 'success');
 }
 
-// Xóa nguyên liệu
+// Xóa nguyên liệu (cũ, có thể giữ nhưng không dùng)
 async function deleteIngredient(id) {
     if (confirm('Xóa nguyên liệu này?')) {
         await DB.remove('ingredients', id);
@@ -138,7 +150,6 @@ function checkLowStock() {
 // Trừ nguyên liệu khi bán hàng
 async function deductIngredients(orderItems) {
     if (!orderItems || orderItems.length === 0) return;
-    // Lấy danh sách món hiện tại
     const menuItems = window.menuItems || [];
     for (const orderItem of orderItems) {
         const menuItem = menuItems.find(m => m.name === orderItem.name);
@@ -153,21 +164,16 @@ async function deductIngredients(orderItems) {
             }
         }
     }
-    // Cập nhật ingredients array và UI
     window.ingredients = ingredients;
     renderIngredients();
 }
-// Kiểm tra tồn kho cho danh sách món trong orderItems
-// orderItems: [{ name, qty, price }]
-// Trả về true nếu đủ, false nếu thiếu (đã hiển thị toast)
+
 async function checkStockForItems(orderItems) {
     const menuItems = window.menuItems || [];
     const ingredients = window.ingredients || [];
-    
     for (const orderItem of orderItems) {
         const menuItem = menuItems.find(m => m.name === orderItem.name);
         if (!menuItem) continue;
-        
         const formula = menuItem.ingredients || [];
         for (const req of formula) {
             const ing = ingredients.find(i => i.id === req.ingredientId);
@@ -185,15 +191,16 @@ async function checkStockForItems(orderItems) {
     return true;
 }
 
-// Export hàm kiểm tra
-window.checkStockForItems = checkStockForItems;
 // Xuất global
 window.ingredients = ingredients;
 window.initIngredients = initIngredients;
 window.renderIngredients = renderIngredients;
 window.openIngredientModal = openIngredientModal;
-window.editIngredient = editIngredient;
 window.saveIngredient = saveIngredient;
 window.deleteIngredient = deleteIngredient;
 window.checkLowStock = checkLowStock;
 window.deductIngredients = deductIngredients;
+window.checkStockForItems = checkStockForItems;
+window.showIngredientDetail = showIngredientDetail;
+window.saveIngredientDetail = saveIngredientDetail;
+window.deleteIngredientDetail = deleteIngredientDetail;

@@ -73,32 +73,13 @@ async function filterMenuByCategory(categoryId) {
         container.innerHTML = '<div style="text-align:center; padding:40px;">📭 Không có món</div>';
         return;
     }
-    container.innerHTML = items.map(item => {
-        let sizeInfo = '';
-        if (item.hasVariants && item.variants && item.variants.length) {
-            sizeInfo = `<div class="menu-item-sizes">📏 ${item.variants.length} size</div>`;
-        }
-        return `
-           <div class="menu-item-card" onclick="showItemDetail('${item.id}')">
-    <div class="menu-item-name">${escapeHtml(item.name)}</div>
-    <div class="menu-item-price">
-        ${formatMoney(item.hasVariants ? (item.variants[0]?.price || 0) : item.price)}
-    </div>
-
-    <div class="menu-item-meta">
-        <div class="menu-item-ingredients">
-            🧂 ${(item.ingredients || []).length} NL
+    container.innerHTML = items.map(item => `
+        <div class="menu-item-card" onclick="showItemDetail('${item.id}')">
+            <div class="menu-item-name">${escapeHtml(item.name)}</div>
+            <div class="menu-item-price">${formatMoney(item.hasVariants ? (item.variants[0]?.price || 0) : item.price)}</div>
+            <div class="menu-item-ingredients">🧂 ${(item.ingredients || []).length} NL</div>
         </div>
-
-        ${item.hasVariants ? `
-            <div class="menu-item-sizes">
-                📏 ${item.variants.length} size
-            </div>
-        ` : ''}
-    </div>
-</div>
-        `;
-    }).join('');
+    `).join('');
 }
 
 // ========== CHI TIẾT MÓN (POPUP) ==========

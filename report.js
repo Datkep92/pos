@@ -36,16 +36,18 @@ async function renderReport() {
     const dateTitle = formatDateDisplay(selectedDateStr);
     const dateDisplay = isToday ? `Hôm nay - ${dateTitle}` : dateTitle;
 
-    // 1. Đã thanh toán (transactions trong ngày)
+    // 1. Đã thanh toán (transactions trong ngày) - bao gồm cả thanh toán nợ
     const selectedTxs = transactions.filter(tx => tx.date?.slice(0, 10) === selectedDateStr);
     let paidOrders = 0, paidRevenue = 0;
     let cashAmount = 0, cashCount = 0;
     let transferAmount = 0, transferCount = 0;
     let takeawayCount = 0, takeawayTotal = 0;
     let dineinCount = 0, dineinTotal = 0;
+    let debtPaymentCount = 0, debtPaymentTotal = 0;
 
     for (const tx of selectedTxs) {
         const amount = tx.amount;
+        // Tất cả các giao dịch đều đóng góp vào doanh thu và số đơn
         paidOrders++;
         paidRevenue += amount;
         if (tx.paymentMethod === 'cash') {
@@ -55,12 +57,16 @@ async function renderReport() {
             transferAmount += amount;
             transferCount++;
         }
+        // Phân loại theo loại hình (chỉ dành cho bán hàng)
         if (tx.type === 'takeaway') {
             takeawayCount++;
             takeawayTotal += amount;
         } else if (tx.type === 'dinein') {
             dineinCount++;
             dineinTotal += amount;
+        } else if (tx.type === 'debt_payment') {
+            debtPaymentCount++;
+            debtPaymentTotal += amount;
         }
     }
 
@@ -69,7 +75,7 @@ async function renderReport() {
     const pendingCount = pendingTables.length;
     const pendingAmount = pendingTables.reduce((sum, t) => sum + (t.total || 0), 0);
 
-    // 3. Khách nợ hôm nay
+    // 3. Khách nợ hôm nay (phát sinh nợ mới, không phải thanh toán)
     let debtTodayCount = 0, debtTodayAmount = 0;
     for (const cust of customers) {
         const debtHistory = cust.debtHistory || [];
@@ -81,19 +87,20 @@ async function renderReport() {
         }
     }
 
-    // 4. Tổng nợ toàn bộ
-    let totalDebtCustomers = 0, totalDebtAmount = 0;
-    for (const cust of customers) {
-        const debt = cust.totalDebt || 0;
-        if (debt > 0) {
-            totalDebtCustomers++;
-            totalDebtAmount += debt;
-        }
+  let totalDebtCustomers = 0, totalDebtAmount = 0;
+  
+for (const cust of customers) {
+    const debt = cust.totalDebt || 0;
+    if (debt > 0) {          // chỉ tính khách đang nợ (dương)
+        totalDebtCustomers++;
+        totalDebtAmount += debt;
     }
+}
 
-    // 5. Top món bán chạy
+    // 5. Top món bán chạy (chỉ tính từ giao dịch bán hàng takeaway/dinein, không tính debt_payment vì không có món)
     const itemSales = {};
     for (const tx of selectedTxs) {
+        if (tx.type === 'debt_payment') continue; // bỏ qua thanh toán nợ vì không có món
         const items = tx.items || [];
         for (const item of items) {
             const name = item.name;
@@ -109,7 +116,7 @@ async function renderReport() {
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 10);
 
-    // 6. Render HTML (4 ô thống kê chính)
+    // 6. Render HTML (có thêm dòng thu nợ nếu cần)
     container.innerHTML = `
         <div class="report-date-bar">
             <button id="reportPrevDay" class="nav-btn">‹</button>
@@ -117,52 +124,53 @@ async function renderReport() {
             <button id="reportNextDay" class="nav-btn">›</button>
         </div>
 
-       <div class="stats-grid">
-    <!-- Chưa thanh toán -->
-    <div class="stat-card">
-        <div class="stat-icon">⏳</div>
-        <div class="stat-info">
-            <div class="stat-value">${pendingCount} Bàn chưa TT</div>
-            <div class="stat-amount">${formatMoney(pendingAmount)}</div>
+        <div class="stats-grid">
+            <!-- Chưa thanh toán -->
+            <div class="stat-card">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-info">
+                    <div class="stat-value">${pendingCount} Bàn chưa TT</div>
+                    <div class="stat-amount">${formatMoney(pendingAmount)}</div>
+                </div>
+            </div>
+            <!-- Đã thanh toán -->
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-info">
+                    <div class="stat-value">${paidOrders} Đã thanh toán</div>
+                    <div class="stat-amount">${formatMoney(paidRevenue)}</div>
+                </div>
+            </div>
+            <!-- Tiền mặt -->
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-info">
+                    <div class="stat-label">Tiền mặt</div>
+                    <div class="stat-value">${cashCount} giao dịch</div>
+                    <div class="stat-amount">${formatMoney(cashAmount)}</div>
+                </div>
+            </div>
+            <!-- Chuyển khoản -->
+            <div class="stat-card">
+                <div class="stat-icon">💳</div>
+                <div class="stat-info">
+                    <div class="stat-label">Chuyển khoản</div>
+                    <div class="stat-value">${transferCount} giao dịch</div>
+                    <div class="stat-amount">${formatMoney(transferAmount)}</div>
+                </div>
+            </div>
         </div>
-    </div>
-    <!-- Đã thanh toán -->
-    <div class="stat-card">
-        <div class="stat-icon">✅</div>
-        <div class="stat-info">
-            <div class="stat-value">${paidOrders} Đã thanh toán</div>
-            <div class="stat-amount">${formatMoney(paidRevenue)}</div>
-        </div>
-    </div>
-    <!-- Tiền mặt -->
-    <div class="stat-card">
-        <div class="stat-icon">💰</div>
-        <div class="stat-info">
-            <div class="stat-label">Tiền mặt</div>
-            <div class="stat-value">${cashCount} giao dịch</div>
-            <div class="stat-amount">${formatMoney(cashAmount)}</div>
-        </div>
-    </div>
-    <!-- Chuyển khoản -->
-    <div class="stat-card">
-        <div class="stat-icon">💳</div>
-        <div class="stat-info">
-            <div class="stat-label">Chuyển khoản</div>
-            <div class="stat-value">${transferCount} giao dịch</div>
-            <div class="stat-amount">${formatMoney(transferAmount)}</div>
-        </div>
-    </div>
-</div>
 
-        <!-- Chi tiết Mang đi / Tại chỗ -->
+        <!-- Chi tiết theo loại hình bán hàng -->
         <div class="summary-card">
-            <div class="summary-title">📊 Chi tiết đã thanh toán</div>
+            <div class="summary-title">📊 Chi tiết doanh thu</div>
             <div class="summary-row small"><span>🛵 Mang đi: ${takeawayCount} đơn</span><span>${formatMoney(takeawayTotal)}</span></div>
             <div class="summary-row small"><span>🍽️ Tại chỗ: ${dineinCount} đơn</span><span>${formatMoney(dineinTotal)}</span></div>
+            <div class="summary-row small"><span>💸 Thu nợ: ${debtPaymentCount} giao dịch</span><span>${formatMoney(debtPaymentTotal)}</span></div>
         </div>
 
         <!-- Khách nợ -->
-        <div class="summary-card" style=">
+        <div class="summary-card" style="background: linear-gradient;">
             <div class="summary-title">💢 Khách nợ</div>
             <div class="summary-row"><span>Nợ phát sinh trong ngày</span><span class="summary-highlight">${debtTodayCount} khách - ${formatMoney(debtTodayAmount)}</span></div>
             <div class="summary-row"><span>Tổng nợ toàn bộ (tới nay)</span><span class="summary-highlight">${totalDebtCustomers} khách - ${formatMoney(totalDebtAmount)}</span></div>
