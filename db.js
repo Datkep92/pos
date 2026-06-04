@@ -389,7 +389,7 @@
     function initLocalDB() {
         if (dbReady) return dbReady;
         dbReady = new Promise(function(resolve, reject) {
-            var request = indexedDB.open(STORE_NAME, 9);
+            var request = indexedDB.open(STORE_NAME, 10);
             request.onerror = function(e) { reject(e.target.error); };
             request.onsuccess = function(e) {
                 localDB = e.target.result;
@@ -397,13 +397,26 @@
                 resolve(localDB);
             };
             request.onupgradeneeded = function(e) {
+    var db = e.target.result;
+    var stores = [
+        'tables', 'customers', 'menu', 'menu_categories',
+        'ingredients', 'transactions', 'reports', 'sync_queue', 'staffs',
+        'cost_categories', 'cost_transactions', 'cost_transactions_admin',
+        'admin_cost_categories', 'daily_balances'   // ← thêm dòng này
+    ];
+    for (var i = 0; i < stores.length; i++) {
+        if (!db.objectStoreNames.contains(stores[i])) {
+            db.createObjectStore(stores[i], { keyPath: 'id' });
+            console.log('Created store:', stores[i]);
+        }
+    }
                 var db = e.target.result;
                 var stores = [
-                    'tables', 'customers', 'menu', 'menu_categories',
-                    'ingredients', 'transactions', 'reports', 'sync_queue', 'staffs',
-                    'cost_categories', 'cost_transactions', 'cost_transactions_admin',
-                    'admin_cost_categories'
-                ];
+    'tables', 'customers', 'menu', 'menu_categories',
+    'ingredients', 'transactions', 'reports', 'sync_queue', 'staffs',
+    'cost_categories', 'cost_transactions', 'cost_transactions_admin',
+    'admin_cost_categories', 'daily_balances'   // ← thêm dòng này
+];
                 for (var i = 0; i < stores.length; i++) {
                     if (!db.objectStoreNames.contains(stores[i])) {
                         db.createObjectStore(stores[i], { keyPath: 'id' });
@@ -446,6 +459,7 @@
             subscribeToCollection('admin_cost_categories');
             subscribeToCollection('transactions');
             subscribeToCollection('reports');
+            subscribeToCollection('daily_balances');
             console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
             return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
         });

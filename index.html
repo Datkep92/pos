@@ -46,18 +46,29 @@
                         <option value="takeaway">🛵 Mang đi</option><option value="grab">🚕 Grab</option>
                         <option value="cash">💰 Tiền mặt</option><option value="transfer">💳 Chuyển khoản</option>
                         <option value="debt_payment">💢 Thanh toán nợ</option>
+                        <option value="cancelled">❌ Đã hủy</option>
                     </select>
                 </div>
                 <div class="history-list" id="historyList"></div>
             </div>
-            <div id="reportView" class="tab-content">
-                <div class="report-controls">
-                    <button class="nav-btn" id="reportPrevDayBtn">◀</button>
-                    <div class="date-display">📅 <span id="reportDate">--/--/----</span></div>
-                    <button class="nav-btn" id="reportNextDayBtn">▶</button>
-                </div>
-                <div class="report-stats" id="reportStats"></div>
-            </div>
+           <div id="reportView" class="tab-content">
+    <div class="report-controls">
+        <button class="nav-btn" id="reportPrevDayBtn">◀</button>
+        <div class="date-display">📅 <span id="reportDate">--/--/----</span></div>
+        <button class="nav-btn" id="reportNextDayBtn">▶</button>
+    </div>
+    <div class="report-stats" id="reportStats"></div>
+    <!-- Form nhập số dư cuối ngày nằm ngay dưới -->
+    <div class="daily-balance-form">
+    <div class="balance-row">
+    <label>💵 Tiền mặt thực nhận:</label>
+    <input type="number" id="actualCashInput" class="balance-input" placeholder="0đ" step="1000" value="0">
+    <button id="submitActualCashBtn" class="btn-submit-balance">📤 Gửi báo cáo</button>
+</div>
+<div class="actual-cash-preview" id="actualCashPreview" style="display: none;"></div>
+    <div class="balance-note">* Nhập số tiền mặt thực tế bàn giao cuối ca, hệ thống sẽ tự tính số dư để lại quán.</div>
+</div>
+</div>
         </div>
 
         <div class="float-buttons">
@@ -75,11 +86,14 @@
                 <div class="order-main-layout">
                     <div class="menu-grid" id="menuGrid"></div>
                     <div class="cart-panel">
-                        <div class="cart-title">🛒 Giỏ hàng</div>
-                        <div class="cart-items" id="cartItems">Chưa có món</div>
-                        <div class="cart-total" id="cartTotal">Tổng: 0đ</div>
-                        <div class="cart-actions" id="cartActions"></div>
-                    </div>
+    <div class="cart-title">🛒 Giỏ hàng</div>
+    <div class="cart-items" id="cartItems">Chưa có món</div>
+    <div class="cart-total-row">
+        <div class="cart-total" id="cartTotal">Tổng: 0đ</div>
+        <div id="cartCreateBtn"></div>
+    </div>
+    <div class="cart-actions" id="cartActions"></div>
+</div>
                 </div>
             </div>
         </div>
@@ -157,17 +171,83 @@
     </div>
 
     <!-- MODAL CHI PHÍ -->
-    <div class="modal" id="costModal">
-        <div class="modal-content"><div class="modal-header"><span class="modal-title">📊 Thêm chi phí</span><span class="modal-close" onclick="closeModal('costModal')">&times;</span></div>
-        <div class="modal-body"><input type="text" id="costName" class="form-input" placeholder="Tên chi phí"><div class="cost-categories" id="costCategoriesList"></div>
-        <div class="quick-money"><button class="quick-money-btn" data-amount="35000">35k</button><button class="quick-money-btn" data-amount="50000">50k</button><button class="quick-money-btn" data-amount="100000">100k</button><button class="quick-money-btn" data-amount="200000">200k</button></div>
-        <input type="number" id="costAmount" class="form-input" placeholder="Số tiền" step="1000"><button class="btn-save" id="saveCostBtn">💾 Lưu chi phí</button>
-        <div class="cost-history-title">📋 Chi phí hôm nay</div><div id="todayCostList" class="cost-list"></div>
-        <div class="cost-history-title">📜 Tổng chi phí tháng này</div><div id="monthCostTotal" class="cost-total">0đ</div></div></div>
-    </div>
+    <div class="quick-money">
+    <button class="quick-money-btn" data-amount="35000">35k</button>
+    <button class="quick-money-btn" data-amount="40000">40k</button>
+    <button class="quick-money-btn" data-amount="50000">50k</button>
+    <button class="quick-money-btn" data-amount="55000">55k</button>
+    <button class="quick-money-btn" data-amount="60000">60k</button>
+</div>
 
     <div class="toast-container" id="toastContainer"></div>
-
+<!-- MODAL CHI TIẾT GIAO DỊCH -->
+<div class="modal" id="transactionDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">🧾 Chi tiết giao dịch</span>
+            <span class="modal-close" onclick="closeModal('transactionDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="transactionDetailBody">
+            <!-- Nội dung sẽ được render bằng JS -->
+        </div>
+    </div>
+</div>
+<!-- MODAL NHẬP SỐ DƯ CUỐI NGÀY -->
+<div class="modal" id="dailyBalanceModal">
+    <div class="modal-content" style="max-width: 350px;">
+        <div class="modal-header">
+            <span class="modal-title">🏦 Nhập số dư cuối ngày</span>
+            <span class="modal-close" onclick="closeModal('dailyBalanceModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>💰 Số dư cuối ngày (tiền mặt để lại quán)</label>
+                <input type="number" id="cashKeptInput" class="form-input" placeholder="0đ" step="1000" value="0">
+                <small style="font-size: 11px; color: #64748b;">Số tiền này sẽ là số dư đầu ngày hôm sau</small>
+            </div>
+            <div class="form-actions">
+                <button class="btn-save" id="saveDailyBalanceBtn">💾 Lưu</button>
+                <button class="btn-cancel" onclick="closeModal('dailyBalanceModal')">Hủy</button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- MODAL CHI PHÍ -->
+<div class="modal" id="costModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">📊 Thêm chi phí</span>
+            <span class="modal-close" onclick="closeModal('costModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="costName" class="form-input" placeholder="Tên chi phí">
+            <div class="cost-categories" id="costCategoriesList"></div>
+            <div class="quick-money">
+                <button type="button" class="quick-money-btn" data-amount="35000">35k</button>
+                <button type="button" class="quick-money-btn" data-amount="40000">40k</button>
+                <button type="button" class="quick-money-btn" data-amount="50000">50k</button>
+                <button type="button" class="quick-money-btn" data-amount="55000">55k</button>
+                <button type="button" class="quick-money-btn" data-amount="60000">60k</button>
+            </div>
+            <input type="number" id="costAmount" class="form-input" placeholder="Số tiền" step="1000">
+            <button class="btn-save" id="saveCostBtn">💾 Lưu chi phí</button>
+            <div class="cost-history-title">📋 Chi phí hôm nay</div>
+            <div id="todayCostList" class="cost-list"></div>
+            <div class="cost-history-title">📜 Tổng chi phí tháng này</div>
+            <div id="monthCostTotal" class="cost-total">0đ</div>
+        </div>
+    </div>
+</div>
+<!-- MODAL CHI TIẾT CHI PHÍ -->
+<div class="modal" id="costDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">📋 Danh sách chi phí</span>
+            <span class="modal-close" onclick="closeModal('costDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="costDetailList"></div>
+    </div>
+</div>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>

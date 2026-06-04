@@ -884,3 +884,997 @@ body.modal-open {
     transform: scale(0.94);
 }
 
+/* Đưa tổng tiền và nút tạo bàn lên cùng hàng */
+.cart-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Bỏ border-top cũ của cart-total (vì đã có ở hàng trên) */
+.cart-total {
+    border-top: none;
+    padding-top: 0;
+}
+
+/* Các nút còn lại (thanh toán) nằm dưới, cách một khoảng */
+.cart-actions {
+    margin-top: 12px;
+}
+
+/* Modal chi tiết bàn: phân cách 2 hàng nút */
+#detailActions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.edit-actions, .payment-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+/* Giữ nguyên style nút thanh toán */
+.payment-actions .cart-action-btn.cash {
+    background: var(--success);
+    color: white;
+}
+.payment-actions .cart-action-btn.transfer {
+    background: var(--info);
+    color: white;
+}
+.payment-actions .cart-action-btn.debt {
+    background: var(--warning);
+    color: white;
+}
+
+/* ========== MODAL CHIA HÓA ĐƠN ========== */
+#splitBillModal .split-items-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.split-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 8px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.split-item-row > span:first-child {
+    flex: 2;
+    font-weight: 500;
+}
+
+.split-qty-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    padding: 4px 8px;
+    border-radius: 30px;
+}
+
+.split-qty-control button {
+    width: 28px;
+    height: 28px;
+    border-radius: 28px;
+    border: none;
+    background: var(--primary);
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.split-qty-control input {
+    width: 50px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px;
+    font-size: 14px;
+}
+
+.split-item-price {
+    min-width: 70px;
+    text-align: right;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.split-total {
+    text-align: right;
+    font-size: 18px;
+    font-weight: 800;
+    padding: 12px 0;
+    border-top: 2px dashed var(--border);
+    margin: 12px 0;
+}
+
+#splitBillModal .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 16px;
+}
+
+#splitBillModal .form-actions .cart-action-btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 12px;
+    font-size: 14px;
+    border-radius: 40px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#splitBillModal .form-actions .cart-action-btn.cash {
+    background: var(--success);
+    color: white;
+}
+
+#splitBillModal .form-actions .cart-action-btn.transfer {
+    background: var(--info);
+    color: white;
+}
+
+#splitBillModal .form-actions .cart-action-btn.debt {
+    background: var(--warning);
+    color: white;
+}
+
+#splitBillModal .form-actions .btn-cancel {
+    background: #e2e8f0;
+    color: var(--text);
+    border: none;
+    padding: 12px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Responsive cho màn nhỏ */
+@media (max-width: 480px) {
+    .split-item-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .split-qty-control {
+        align-self: flex-end;
+    }
+    #splitBillModal .form-actions .cart-action-btn {
+        min-width: 80px;
+        font-size: 12px;
+        padding: 8px;
+    }
+}
+
+/* ========== MODAL CHUYỂN MÓN ========== */
+#transferItemsModal .transfer-items-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.transfer-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 8px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.transfer-item-row > span:first-child {
+    flex: 2;
+    font-weight: 500;
+}
+
+.transfer-qty-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    padding: 4px 8px;
+    border-radius: 30px;
+}
+
+.transfer-qty-control button {
+    width: 28px;
+    height: 28px;
+    border-radius: 28px;
+    border: none;
+    background: var(--primary);
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.transfer-qty-control input {
+    width: 50px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px;
+    font-size: 14px;
+}
+
+#transferTargetTable {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    margin-top: 12px;
+    background: var(--surface);
+}
+
+#transferItemsModal .form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+#transferItemsModal .btn-save {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#transferItemsModal .btn-cancel {
+    background: #e2e8f0;
+    color: var(--text);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 480px) {
+    .transfer-item-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .transfer-qty-control {
+        align-self: flex-end;
+    }
+    #transferItemsModal .form-actions {
+        justify-content: center;
+    }
+}
+
+/* ========== MODAL GỘP BÀN ========== */
+#mergeTableModal .merge-tables-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.merge-table-item {
+    display: flex;
+    align-items: center;
+    padding: 14px 12px;
+    margin-bottom: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.merge-table-item:hover {
+    background: #f1f5f9;
+    transform: scale(0.99);
+}
+
+.merge-table-item:active {
+    background: #e2e8f0;
+    transform: scale(0.98);
+}
+
+.merge-table-item strong {
+    color: var(--primary);
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+#mergeTableModal .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+#mergeTableModal .btn-cancel {
+    background: #e2e8f0;
+    color: var(--text);
+    border: none;
+    padding: 10px 24px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 480px) {
+    .merge-table-item {
+        padding: 12px 10px;
+        font-size: 13px;
+    }
+    #mergeTableModal .form-actions {
+        justify-content: center;
+    }
+}
+
+/* ========== MODAL CHỌN KHÁCH HÀNG ========== */
+#customerSelectorModal .modal-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#customerSelectorSearch {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#customerSelectorSearch:focus {
+    border-color: var(--primary);
+}
+
+.customer-selector-list {
+    max-height: 45vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.customer-select-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.customer-select-item:active {
+    background: #f1f5f9;
+    transform: scale(0.99);
+}
+
+.customer-select-item .customer-avatar {
+    width: 44px;
+    height: 44px;
+    background: #fff7ed;
+    border-radius: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.customer-select-item > div:last-child {
+    flex: 1;
+}
+
+.customer-select-item > div:last-child > div:first-child {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 2px;
+}
+
+.customer-select-item > div:last-child > div:last-child {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.btn-create-customer {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 40px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 4px;
+    transition: background 0.1s;
+}
+
+.btn-create-customer:active {
+    background: var(--primary-dark);
+    transform: scale(0.98);
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 480px) {
+    .customer-select-item {
+        padding: 8px 10px;
+    }
+    .customer-select-item .customer-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 16px;
+    }
+}
+
+/* ========== THU GỌN TAB KHÁCH, LỊCH SỬ, BÁO CÁO (GIỮ TAB BÀN FULL NGANG) ========== */
+@media (min-width: 768px) {
+    /* Chỉ áp dụng cho 3 tab này */
+    #customersView,
+    #historyView,
+    #reportView {
+        max-width: 550px;
+        margin-left: auto;
+        margin-right: auto;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    /* (Tùy chọn) Giữ header và thanh tab full ngang để đồng bộ với tab Bàn */
+    .header, .main-tabs {
+        max-width: 100%;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    /* Đảm bảo các thành phần bên trong 3 tab không bị tràn */
+    #customersView .customer-list,
+    #historyView .history-list,
+    #reportView .report-stats {
+        width: 100%;
+    }
+}
+
+/* Nếu màn hình quá rộng, có thể tăng nhẹ max-width cho 3 tab */
+@media (min-width: 1024px) {
+    #customersView,
+    #historyView,
+    #reportView {
+        max-width: 600px;
+    }
+}
+
+    /* ========== MODAL CHI PHÍ – GỌN GÀNG, 1 TAY ========== */
+#costModal .modal-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#costModal .form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#costModal .form-input:focus {
+    border-color: var(--primary);
+}
+
+/* Danh mục nhanh – hiển thị hàng ngang, tự động xuống dòng */
+.cost-categories .quick-money,
+#costModal .quick-money {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.quick-money-btn {
+    background: #f1f5f9;
+    border: none;
+    border-radius: 40px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;      /* Không xuống dòng trong nút */
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.quick-money-btn:active {
+    background: #e2e8f0;
+    transform: scale(0.97);
+}
+
+/* Nút lưu chi phí */
+.btn-save {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 40px;
+    padding: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.btn-save:active {
+    background: var(--primary-dark);
+    transform: scale(0.98);
+}
+
+/* Tiêu đề danh sách */
+.cost-history-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin: 8px 0 4px 0;
+    color: var(--text);
+}
+
+/* Danh sách chi phí hôm nay */
+.cost-list {
+    background: #f8fafc;
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cost-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.cost-item:last-child {
+    border-bottom: none;
+}
+
+.cost-total {
+    font-weight: 700;
+    text-align: right;
+    font-size: 16px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+/* Responsive: trên màn hình nhỏ hơn 400px, chuyển danh mục nhanh sang 1 cột (nếu muốn) */
+@media (max-width: 400px) {
+    .cost-categories .quick-money,
+    #costModal .quick-money {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========== LỊCH SỬ GIAO DỊCH - CẢI TIẾN ========== */
+.history-item {
+    cursor: pointer;
+    transition: background 0.1s;
+    margin-bottom: 10px;
+}
+.history-item:active {
+    background: #f8fafc;
+    transform: scale(0.99);
+}
+
+.history-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 12px;
+}
+
+.payment-method {
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+}
+
+.refund-badge {
+    background: #e2e8f0;
+    color: var(--success);
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+}
+
+.history-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.history-expand {
+    text-align: right;
+    font-size: 10px;
+    color: var(--primary);
+    margin-top: 6px;
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+}
+
+/* Modal chi tiết giao dịch */
+.detail-section {
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+}
+.detail-section:last-child {
+    border-bottom: none;
+}
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+}
+.detail-row span:first-child {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+.detail-amount {
+    font-weight: 700;
+    color: var(--primary);
+}
+.detail-items-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+.detail-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+}
+.refund-info {
+    background: #fee2e2;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    margin-top: 8px;
+    color: var(--danger);
+}
+
+/* ========== HISTORY 2-LINE LAYOUT ========== */
+.history-item {
+    padding: 14px 16px;
+    border-left: 4px solid var(--primary);
+    margin-bottom: 10px;
+}
+
+.history-line1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.history-time {
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 48px;
+}
+
+.history-location {
+    color: var(--text);
+}
+
+.history-method {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: #f1f5f9;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.history-line2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-refund {
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.history-expand {
+    font-size: 12px;
+    color: var(--primary);
+    cursor: pointer;
+}
+
+.history-amount {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--success);
+}
+
+.refunded-amount {
+    color: var(--danger);
+    text-decoration: line-through;
+}
+
+.history-item.refunded {
+    border-left-color: #ef4444;
+    opacity: 0.9;
+}
+
+/* Daily balance modal */
+.form-group {
+    margin-bottom: 16px;
+}
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+}
+.btn-add-staff-expense {
+    background: #f1f5f9;
+    border: none;
+    border-radius: 30px;
+    padding: 8px 12px;
+    font-size: 12px;
+    margin-top: 8px;
+    width: 100%;
+    cursor: pointer;
+}
+.cost-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background: #f8fafc;
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.cost-summary-row:active {
+    background: #e2e8f0;
+}
+.cost-detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+/* Form nhập số dư cuối ngày */
+.daily-balance-form {
+    margin-top: 20px;
+    padding: 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.balance-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.balance-row label {
+    font-weight: 500;
+    font-size: 14px;
+    flex: 1;
+    min-width: 180px;
+}
+
+.balance-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    min-width: 120px;
+}
+
+.btn-submit-balance {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.1s;
+}
+
+.btn-submit-balance:active {
+    transform: scale(0.96);
+    background: var(--primary-dark);
+}
+
+.balance-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-style: italic;
+}
+
+@media (max-width: 480px) {
+    .balance-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .btn-submit-balance {
+        text-align: center;
+    }
+}
+
+.daily-balance-form {
+    margin-top: 20px;
+    padding: 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+.balance-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.balance-row label {
+    font-weight: 500;
+    font-size: 14px;
+    flex: 1;
+    min-width: 180px;
+}
+.balance-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    min-width: 120px;
+}
+.btn-submit-balance {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.balance-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-style: italic;
+}
+
+/* ========== NÚT SỬA/XÓA CHI PHÍ ========== */
+.cost-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.cost-item:last-child {
+    border-bottom: none;
+}
+
+.cost-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.cost-edit-btn,
+.cost-delete-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cost-edit-btn {
+    background: #3b82f6;
+    color: white;
+}
+
+.cost-delete-btn {
+    background: #ef4444;
+    color: white;
+}
+
+.cost-edit-btn:active,
+.cost-delete-btn:active {
+    transform: scale(0.9);
+}
+
+/* Làm đậm số tiền của Số dư cuối ngày */
+#reportStats .stat-card:last-child .stat-row:last-child span:last-child {
+    font-weight: 800;
+    font-size: 1.1em;
+    color: rgb(20, 1, 1);
+}
+
+#actualCashInput {
+    font-weight: bold;
+    font-size: 18px;
+    color: #f97316;
+    background: #fff7ed;
+}
