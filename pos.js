@@ -1,5 +1,4 @@
-// POS.JS - Tương thích Android 6, không dùng arrow function, async/await, const/let
-
+// POS.JS - BẢN SỬA LỖI CHI TIẾT BÀN, THÊM MÓN, TẠO BÀN
 var currentTab = 'tables';
 var tempOrder = [];
 var selectedCustomer = null;
@@ -16,8 +15,12 @@ var currentMenuCategory = 'all';
 var pendingPaymentTableId = null;
 var pendingCustomerCallback = null;
 var pendingDebtCustomerId = null;
+var pendingSplitTableId = null;
+var pendingTransferSourceTable = null;
+var pendingMergeSourceId = null;
+var pendingDeleteTableId = null;
+var currentAddToTableId = null;
 
-// ========== KHỞI TẠO ==========
 document.addEventListener('DOMContentLoaded', function() {
     DB.init().then(function() {
         return loadData();
@@ -103,6 +106,13 @@ function initEventListeners() {
     document.getElementById('paymentCashBtn').onclick = function() { if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'cash'); closeModal('paymentMethodModal'); };
     document.getElementById('paymentTransferBtn').onclick = function() { if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'transfer'); closeModal('paymentMethodModal'); };
     document.getElementById('paymentDebtBtn').onclick = function() { if (pendingPaymentTableId) { closeModal('paymentMethodModal'); debtAtTable(pendingPaymentTableId); } };
+    // Các nút confirm trong modal
+    var confirmSplit = document.getElementById('confirmSplitBtn');
+    if (confirmSplit) confirmSplit.onclick = confirmSplitPayment;
+    var confirmTransfer = document.getElementById('confirmTransferBtn');
+    if (confirmTransfer) confirmTransfer.onclick = confirmTransferItems;
+    var confirmDelete = document.getElementById('confirmDeleteTableBtn');
+    if (confirmDelete) confirmDelete.onclick = confirmDeleteTable;
 }
 
 function switchTab(tabId) {
@@ -178,7 +188,15 @@ function showTableDetail(tableId) {
         } else itemsHtml = '<div class="empty-state">✨ Chưa có món</div>';
         document.getElementById('detailItems').innerHTML = itemsHtml;
         document.getElementById('detailSummary').innerHTML = '<div class="cart-total">Tổng: ' + formatMoney(totalAmount) + '</div>';
-        document.getElementById('detailActions').innerHTML = '<div class="cart-actions"><button class="cart-action-btn cash" onclick="showPaymentForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">💰 Thanh toán</button><button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button></div>';
+        document.getElementById('detailActions').innerHTML = 
+            '<div class="cart-actions">' +
+                '<button class="cart-action-btn cash" onclick="showPaymentForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">💰 Thanh toán</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showSplitBillModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🧾 Chia hóa đơn</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showTransferItemsModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔄 Chuyển món</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showMergeTableModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔗 Gộp bàn</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showDeleteTableConfirm(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🗑️ Xóa bàn</button>' +
+            '</div>';
         document.getElementById('tableDetailModal').style.display = 'flex';
     });
 }
@@ -235,27 +253,31 @@ function showCustomerSelectorForTable(tableId) {
     });
 }
 
+// ========== THÊM MÓN & TẠO ĐƠN ==========
 function openAddMenuForTable(tableId) {
-    window.currentAddToTableId = tableId;
+    currentAddToTableId = tableId;
     tempOrder = [];
     selectedCustomer = null;
-    document.getElementById('orderModalTitle').innerHTML = '➕ Thêm món vào bàn';
+    var titleEl = document.getElementById('orderModalTitle');
+    if (titleEl) titleEl.innerHTML = '➕ Thêm món vào bàn';
     renderOrderCategories();
     renderMenuByCategory('all');
     renderCart();
-    document.getElementById('orderModal').style.display = 'flex';
+    var modal = document.getElementById('orderModal');
+    if (modal) modal.style.display = 'flex';
 }
 
-// ========== TẠO ĐƠN / GIỎ HÀNG ==========
 function openCreateOrderModal() {
-    window.currentAddToTableId = null;
+    currentAddToTableId = null;
     tempOrder = [];
     selectedCustomer = null;
-    document.getElementById('orderModalTitle').innerHTML = '🛒 Tạo đơn hàng';
+    var titleEl = document.getElementById('orderModalTitle');
+    if (titleEl) titleEl.innerHTML = '🛒 Tạo đơn hàng';
     renderOrderCategories();
     renderMenuByCategory('all');
     renderCart();
-    document.getElementById('orderModal').style.display = 'flex';
+    var modal = document.getElementById('orderModal');
+    if (modal) modal.style.display = 'flex';
 }
 
 function renderOrderCategories() {
@@ -342,7 +364,7 @@ function renderCart() {
     }
     container.innerHTML = html;
     totalSpan.innerText = 'Tổng: ' + formatMoney(total);
-    if (window.currentAddToTableId) {
+    if (currentAddToTableId) {
         actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleAddToExistingTable()">🍽️ Thêm vào bàn</button>';
     } else {
         actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button><button class="cart-action-btn cash" onclick="handleTakeawayPayment(\'cash\')">💰 TM mặt</button><button class="cart-action-btn transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 CK khoản</button><button class="cart-action-btn grab" onclick="handleGrabOrder()">🚕 Grab</button><button class="cart-action-btn debt" onclick="handleDebtOrder()">💢 Ghi nợ</button>';
@@ -350,12 +372,12 @@ function renderCart() {
 }
 
 function handleAddToExistingTable() {
-    if (!window.currentAddToTableId) { showToast('Lỗi: không xác định bàn', 'error'); return; }
+    if (!currentAddToTableId) { showToast('Lỗi: không xác định bàn', 'error'); return; }
     if (tempOrder.length === 0) { showToast('Chưa chọn món!', 'warning'); return; }
     checkStock(tempOrder).then(function(ok) {
         if (!ok) return;
         deductIngredients(tempOrder).then(function() {
-            DB.get('tables', String(window.currentAddToTableId)).then(function(table) {
+            DB.get('tables', String(currentAddToTableId)).then(function(table) {
                 if (!table) return;
                 var existingItems = table.items || [];
                 for (var i = 0; i < tempOrder.length; i++) {
@@ -372,9 +394,9 @@ function handleAddToExistingTable() {
                 }
                 var newTotal = 0;
                 for (var i = 0; i < existingItems.length; i++) newTotal += existingItems[i].price * existingItems[i].qty;
-                DB.update('tables', String(window.currentAddToTableId), { items: existingItems, total: newTotal }).then(function() {
+                DB.update('tables', String(currentAddToTableId), { items: existingItems, total: newTotal }).then(function() {
                     renderTables();
-                    if (currentTableDetailId === window.currentAddToTableId) showTableDetail(window.currentAddToTableId);
+                    if (currentTableDetailId === currentAddToTableId) showTableDetail(currentAddToTableId);
                     showToast('✅ Đã thêm món vào bàn', 'success');
                     closeModal('orderModal');
                     tempOrder = [];
@@ -477,6 +499,341 @@ function handleDebtOrder() {
     });
 }
 
+// ========== CHIA HÓA ĐƠN ==========
+function showSplitBillModal(tableId) {
+    pendingSplitTableId = tableId;
+    DB.get('tables', String(tableId)).then(function(table) {
+        if (!table || !table.items || !table.items.length) { showToast('Không có món để chia!', 'warning'); return; }
+        var container = document.getElementById('splitItemsList');
+        if (!container) return;
+        var html = '';
+        for (var i = 0; i < table.items.length; i++) {
+            var item = table.items[i];
+            html += '<div class="split-item-row" data-idx="' + i + '" data-price="' + item.price + '" data-max="' + item.qty + '">' +
+                '<span>' + escapeHtml(item.name) + '</span>' +
+                '<div class="split-qty-control">' +
+                    '<button class="split-qty-minus" data-idx="' + i + '">-</button>' +
+                    '<input type="number" class="split-qty-input" id="split-qty-' + i + '" value="0" min="0" max="' + item.qty + '" step="1" style="width:60px;text-align:center;">' +
+                    '<button class="split-qty-plus" data-idx="' + i + '">+</button>' +
+                    '<span>/ ' + item.qty + '</span>' +
+                '</div>' +
+                '<span id="split-price-' + i + '" class="split-item-price">0đ</span>' +
+            '</div>';
+        }
+        container.innerHTML = html;
+        attachSplitQtyEvents();
+        updateSplitTotal();
+        var modal = document.getElementById('splitBillModal');
+        if (modal) modal.style.display = 'flex';
+    });
+}
+function attachSplitQtyEvents() {
+    var minusBtns = document.querySelectorAll('.split-qty-minus');
+    var plusBtns = document.querySelectorAll('.split-qty-plus');
+    for (var i = 0; i < minusBtns.length; i++) {
+        minusBtns[i].onclick = (function(btn) {
+            return function() {
+                var idx = btn.getAttribute('data-idx');
+                var input = document.getElementById('split-qty-' + idx);
+                if (input) {
+                    var val = parseInt(input.value) || 0;
+                    if (val > 0) input.value = val - 1;
+                    updateSplitTotal();
+                }
+            };
+        })(minusBtns[i]);
+    }
+    for (var i = 0; i < plusBtns.length; i++) {
+        plusBtns[i].onclick = (function(btn) {
+            return function() {
+                var idx = btn.getAttribute('data-idx');
+                var input = document.getElementById('split-qty-' + idx);
+                if (input) {
+                    var val = parseInt(input.value) || 0;
+                    var max = parseInt(input.getAttribute('max')) || 0;
+                    if (val < max) input.value = val + 1;
+                    updateSplitTotal();
+                }
+            };
+        })(plusBtns[i]);
+    }
+}
+function updateSplitTotal() {
+    var total = 0;
+    var rows = document.querySelectorAll('.split-item-row');
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var idx = row.getAttribute('data-idx');
+        var price = parseInt(row.getAttribute('data-price'));
+        var input = document.getElementById('split-qty-' + idx);
+        var qty = input ? parseInt(input.value) : 0;
+        var itemTotal = price * qty;
+        total += itemTotal;
+        var priceSpan = document.getElementById('split-price-' + idx);
+        if (priceSpan) priceSpan.innerText = formatMoney(itemTotal);
+    }
+    var totalSpan = document.getElementById('splitTotalAmount');
+    if (totalSpan) totalSpan.innerText = formatMoney(total);
+    window._splitTotal = total;
+}
+function confirmSplitPayment() {
+    var tableId = pendingSplitTableId;
+    if (!tableId) return;
+    DB.get('tables', String(tableId)).then(function(table) {
+        if (!table) return;
+        var splitItems = [];
+        var remainingItems = [];
+        for (var i = 0; i < table.items.length; i++) remainingItems.push({ name: table.items[i].name, price: table.items[i].price, qty: table.items[i].qty });
+        var rows = document.querySelectorAll('.split-item-row');
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var idx = parseInt(row.getAttribute('data-idx'));
+            var input = document.getElementById('split-qty-' + idx);
+            var qty = input ? parseInt(input.value) : 0;
+            if (qty > 0) {
+                var item = remainingItems[idx];
+                if (qty > item.qty) qty = item.qty;
+                splitItems.push({ name: item.name, price: item.price, qty: qty });
+                item.qty -= qty;
+            }
+        }
+        if (splitItems.length === 0) { showToast('Chưa chọn món để thanh toán!', 'warning'); return; }
+        var splitTotal = splitItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        var finalItems = remainingItems.filter(function(i) { return i.qty > 0; });
+        var newTotal = finalItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        DB.update('tables', String(tableId), { items: finalItems, total: newTotal }).then(function() {
+            checkStock(splitItems).then(function(ok) {
+                if (!ok) return;
+                deductIngredients(splitItems).then(function() {
+                    addHistory({ type: 'dinein', amount: splitTotal, paymentMethod: 'cash', items: splitItems, customer: null, tableName: table.name, note: 'Chia hóa đơn' }).then(function() {
+                        renderTables();
+                        if (currentTableDetailId === tableId) showTableDetail(tableId);
+                        closeModal('splitBillModal');
+                        showToast('✅ Đã thanh toán phần chia ' + formatMoney(splitTotal), 'success');
+                    });
+                });
+            });
+        });
+    });
+}
+
+// ========== CHUYỂN MÓN ==========
+function showTransferItemsModal(sourceId) {
+    DB.get('tables', String(sourceId)).then(function(table) {
+        if (!table || !table.items || !table.items.length) { showToast('Không có món để chuyển!', 'warning'); return; }
+        pendingTransferSourceTable = table;
+        var container = document.getElementById('transferItemsList');
+        if (!container) return;
+        var html = '';
+        for (var i = 0; i < table.items.length; i++) {
+            var item = table.items[i];
+            html += '<div class="transfer-item-row" data-idx="' + i + '" data-price="' + item.price + '" data-max="' + item.qty + '">' +
+                '<span>' + escapeHtml(item.name) + '</span>' +
+                '<div class="transfer-qty-control">' +
+                    '<button class="transfer-qty-minus" data-idx="' + i + '">-</button>' +
+                    '<input type="number" class="transfer-qty-input" id="transfer-qty-' + i + '" value="0" min="0" max="' + item.qty + '" step="1" style="width:60px;text-align:center;">' +
+                    '<button class="transfer-qty-plus" data-idx="' + i + '">+</button>' +
+                    '<span>/ ' + item.qty + '</span>' +
+                '</div>' +
+            '</div>';
+        }
+        container.innerHTML = html;
+        attachTransferQtyEvents();
+        var targetInput = document.getElementById('transferTargetTable');
+        if (targetInput) targetInput.value = '';
+        var modal = document.getElementById('transferItemsModal');
+        if (modal) modal.style.display = 'flex';
+    });
+}
+function attachTransferQtyEvents() {
+    var minusBtns = document.querySelectorAll('.transfer-qty-minus');
+    var plusBtns = document.querySelectorAll('.transfer-qty-plus');
+    for (var i = 0; i < minusBtns.length; i++) {
+        minusBtns[i].onclick = (function(btn) {
+            return function() {
+                var idx = btn.getAttribute('data-idx');
+                var input = document.getElementById('transfer-qty-' + idx);
+                if (input) {
+                    var val = parseInt(input.value) || 0;
+                    if (val > 0) input.value = val - 1;
+                }
+            };
+        })(minusBtns[i]);
+    }
+    for (var i = 0; i < plusBtns.length; i++) {
+        plusBtns[i].onclick = (function(btn) {
+            return function() {
+                var idx = btn.getAttribute('data-idx');
+                var input = document.getElementById('transfer-qty-' + idx);
+                if (input) {
+                    var val = parseInt(input.value) || 0;
+                    var max = parseInt(input.getAttribute('max')) || 0;
+                    if (val < max) input.value = val + 1;
+                }
+            };
+        })(plusBtns[i]);
+    }
+}
+function confirmTransferItems() {
+    if (!pendingTransferSourceTable) return;
+    var selectedItems = [];
+    var remainingItems = [];
+    for (var i = 0; i < pendingTransferSourceTable.items.length; i++) {
+        remainingItems.push({ name: pendingTransferSourceTable.items[i].name, price: pendingTransferSourceTable.items[i].price, qty: pendingTransferSourceTable.items[i].qty });
+    }
+    var rows = document.querySelectorAll('.transfer-item-row');
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var idx = parseInt(row.getAttribute('data-idx'));
+        var input = document.getElementById('transfer-qty-' + idx);
+        var qty = input ? parseInt(input.value) : 0;
+        if (qty > 0) {
+            var item = remainingItems[idx];
+            if (qty > item.qty) qty = item.qty;
+            selectedItems.push({ name: item.name, price: item.price, qty: qty });
+            item.qty -= qty;
+        }
+    }
+    if (selectedItems.length === 0) { showToast('Chưa chọn món để chuyển!', 'warning'); return; }
+    var targetName = document.getElementById('transferTargetTable').value.trim();
+    if (!targetName) { showToast('Nhập tên bàn đích!', 'warning'); return; }
+    DB.getAll('tables').then(function(allTables) {
+        var targetTable = null;
+        for (var i = 0; i < allTables.length; i++) {
+            if (allTables[i].name === targetName) { targetTable = allTables[i]; break; }
+        }
+        var createNew = false;
+        if (!targetTable) {
+            createNew = true;
+            var maxNum = 0;
+            for (var i = 0; i < allTables.length; i++) {
+                var match = allTables[i].name.match(/Ban (\d+)/);
+                if (match && parseInt(match[1]) > maxNum) maxNum = parseInt(match[1]);
+            }
+            var newNumber = maxNum + 1;
+            if (newNumber > 99) { showToast('Đã đạt giới hạn 99 bàn!', 'warning'); return; }
+            var newId = Date.now().toString();
+            var now = new Date();
+            targetTable = {
+                id: newId, name: targetName, status: 'occupied',
+                time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                startTime: now.toISOString(),
+                items: [], total: 0, customerId: null, customerName: null
+            };
+        }
+        var targetItems = targetTable.items || [];
+        for (var i = 0; i < selectedItems.length; i++) {
+            var sel = selectedItems[i];
+            var found = false;
+            for (var j = 0; j < targetItems.length; j++) {
+                if (targetItems[j].name === sel.name) {
+                    targetItems[j].qty += sel.qty;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) targetItems.push({ name: sel.name, price: sel.price, qty: sel.qty, addedTime: new Date().toISOString() });
+        }
+        var newTargetTotal = targetItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        var finalSourceItems = remainingItems.filter(function(i) { return i.qty > 0; });
+        var newSourceTotal = finalSourceItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        var promise = createNew ? DB.create('tables', targetTable, targetTable.id) : Promise.resolve();
+        promise.then(function() {
+            return DB.update('tables', targetTable.id, { items: targetItems, total: newTargetTotal });
+        }).then(function() {
+            return DB.update('tables', pendingTransferSourceTable.id, { items: finalSourceItems, total: newSourceTotal });
+        }).then(function() {
+            renderTables();
+            if (currentTableDetailId === pendingTransferSourceTable.id) showTableDetail(pendingTransferSourceTable.id);
+            closeModal('transferItemsModal');
+            showToast('Đã chuyển ' + selectedItems.reduce(function(s, i) { return s + i.qty; }, 0) + ' món sang ' + targetName, 'success');
+        });
+    });
+}
+
+// ========== GỘP BÀN ==========
+function showMergeTableModal(sourceId) {
+    pendingMergeSourceId = sourceId;
+    DB.get('tables', String(sourceId)).then(function(source) {
+        if (!source || !source.items || !source.items.length) { showToast('Bàn nguồn không có món!', 'warning'); return; }
+        DB.getAll('tables').then(function(allTables) {
+            var targets = allTables.filter(function(t) { return t.id !== sourceId && (t.items && t.items.length) && t.total > 0; });
+            if (targets.length === 0) { showToast('Không có bàn nào để gộp!', 'warning'); return; }
+            var container = document.getElementById('mergeTablesList');
+            if (!container) return;
+            var html = '';
+            for (var i = 0; i < targets.length; i++) {
+                var t = targets[i];
+                html += '<div class="merge-table-item" data-id="' + t.id + '"><strong>' + escapeHtml(t.name) + '</strong> - ' + (t.customerName || 'chưa có khách') + ' - ' + formatMoney(t.total) + '</div>';
+            }
+            container.innerHTML = html;
+            var items = document.querySelectorAll('.merge-table-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].onclick = (function(item) {
+                    return function() {
+                        var targetId = item.getAttribute('data-id');
+                        mergeTables(sourceId, targetId);
+                        closeModal('mergeTableModal');
+                    };
+                })(items[i]);
+            }
+            var modal = document.getElementById('mergeTableModal');
+            if (modal) modal.style.display = 'flex';
+        });
+    });
+}
+function mergeTables(sourceId, targetId) {
+    Promise.all([DB.get('tables', String(sourceId)), DB.get('tables', String(targetId))]).then(function(results) {
+        var source = results[0];
+        var target = results[1];
+        if (!source || !target) return;
+        var targetItems = target.items || [];
+        for (var i = 0; i < source.items.length; i++) {
+            var srcItem = source.items[i];
+            var found = false;
+            for (var j = 0; j < targetItems.length; j++) {
+                if (targetItems[j].name === srcItem.name) {
+                    targetItems[j].qty += srcItem.qty;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) targetItems.push({ name: srcItem.name, price: srcItem.price, qty: srcItem.qty, addedTime: srcItem.addedTime });
+        }
+        var newTotal = targetItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        DB.update('tables', targetId, { items: targetItems, total: newTotal }).then(function() {
+            return DB.remove('tables', String(sourceId));
+        }).then(function() {
+            renderTables();
+            if (currentTableDetailId === sourceId || currentTableDetailId === targetId) showTableDetail(targetId);
+            showToast('✅ Đã gộp bàn ' + source.name + ' vào ' + target.name, 'success');
+        });
+    });
+}
+
+// ========== XÓA BÀN ==========
+function showDeleteTableConfirm(tableId) {
+    pendingDeleteTableId = tableId;
+    var modal = document.getElementById('deleteTableModal');
+    if (modal) modal.style.display = 'flex';
+}
+function confirmDeleteTable() {
+    if (!pendingDeleteTableId) return;
+    DB.get('tables', String(pendingDeleteTableId)).then(function(table) {
+        if (!table) return;
+        if (table.items && table.items.length) {
+            restoreIngredients(table.items);
+        }
+        DB.remove('tables', String(pendingDeleteTableId)).then(function() {
+            renderTables();
+            if (currentTableDetailId === pendingDeleteTableId) closeModal('tableDetailModal');
+            showToast('🗑️ Đã xóa bàn ' + table.name, 'success');
+            closeModal('deleteTableModal');
+            pendingDeleteTableId = null;
+        });
+    });
+}
+
 // ========== NGUYÊN LIỆU ==========
 function checkStock(items) {
     return new Promise(function(resolve, reject) {
@@ -507,7 +864,6 @@ function checkStock(items) {
         resolve(ok);
     });
 }
-
 function deductIngredients(items) {
     var updates = [];
     for (var i = 0; i < items.length; i++) {
@@ -524,6 +880,30 @@ function deductIngredients(items) {
                     if (ingredients[l].id === req.ingredientId) {
                         ingredients[l].stock -= req.quantity * orderItem.qty;
                         if (ingredients[l].stock < 0) ingredients[l].stock = 0;
+                        updates.push(DB.update('ingredients', ingredients[l].id, { stock: ingredients[l].stock }));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return Promise.all(updates);
+}
+function restoreIngredients(items) {
+    var updates = [];
+    for (var i = 0; i < items.length; i++) {
+        var orderItem = items[i];
+        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+        var menuItem = null;
+        for (var j = 0; j < menuItems.length; j++) {
+            if (menuItems[j].name === baseName || menuItems[j].id === orderItem.id) { menuItem = menuItems[j]; break; }
+        }
+        if (menuItem && menuItem.ingredients) {
+            for (var k = 0; k < menuItem.ingredients.length; k++) {
+                var req = menuItem.ingredients[k];
+                for (var l = 0; l < ingredients.length; l++) {
+                    if (ingredients[l].id === req.ingredientId) {
+                        ingredients[l].stock += req.quantity * orderItem.qty;
                         updates.push(DB.update('ingredients', ingredients[l].id, { stock: ingredients[l].stock }));
                         break;
                     }
@@ -551,7 +931,6 @@ function addHistory(transaction) {
     };
     return DB.create('transactions', newTrans);
 }
-
 function renderHistoryByDate(dateObj) {
     var dateStr = dateObj.toISOString().slice(0, 10);
     document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
@@ -578,7 +957,6 @@ function renderHistoryByDate(dateObj) {
         container.innerHTML = html;
     });
 }
-
 function refundTransaction(transactionId) {
     var reason = prompt('📝 Lý do hủy?');
     if (!reason) return;
@@ -599,32 +977,6 @@ function refundTransaction(transactionId) {
         });
     });
 }
-
-function restoreIngredients(items) {
-    var updates = [];
-    for (var i = 0; i < items.length; i++) {
-        var orderItem = items[i];
-        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
-        var menuItem = null;
-        for (var j = 0; j < menuItems.length; j++) {
-            if (menuItems[j].name === baseName || menuItems[j].id === orderItem.id) { menuItem = menuItems[j]; break; }
-        }
-        if (menuItem && menuItem.ingredients) {
-            for (var k = 0; k < menuItem.ingredients.length; k++) {
-                var req = menuItem.ingredients[k];
-                for (var l = 0; l < ingredients.length; l++) {
-                    if (ingredients[l].id === req.ingredientId) {
-                        ingredients[l].stock += req.quantity * orderItem.qty;
-                        updates.push(DB.update('ingredients', ingredients[l].id, { stock: ingredients[l].stock }));
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    return Promise.all(updates);
-}
-
 function changeHistoryDate(delta) { var nd = new Date(currentHistoryDate); nd.setDate(nd.getDate() + delta); currentHistoryDate = nd; renderHistoryByDate(currentHistoryDate); }
 
 // ========== BÁO CÁO ==========
@@ -668,7 +1020,6 @@ function renderCustomerList() {
         container.innerHTML = html;
     });
 }
-
 function quickAddCustomer() {
     var name = prompt('👤 Nhập tên khách hàng:');
     if (!name) return;
@@ -683,7 +1034,6 @@ function quickAddCustomer() {
         showToast('✅ Đã thêm khách ' + name, 'success');
     });
 }
-
 function addCustomer(name, phone) {
     var newId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
     var newCustomer = { id: newId, name: name.trim(), phone: phone || '', address: '', totalDebt: 0, totalSpent: 0, createdAt: new Date().toISOString(), debtHistory: [], paymentHistory: [] };
@@ -692,7 +1042,6 @@ function addCustomer(name, phone) {
         return newCustomer;
     });
 }
-
 function showCustomerDetail(customerId) {
     var c = null;
     for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
@@ -709,14 +1058,12 @@ function showCustomerDetail(customerId) {
     document.getElementById('customerDetailContent').innerHTML = '<div class="debt-summary" style="margin-bottom:16px;"><span>💰 Công nợ</span><span style="color:#ef4444; font-size:20px;">' + formatMoney(c.totalDebt || 0) + '</span></div>' + ((c.totalDebt || 0) > 0 ? '<button class="btn-save" onclick="openDebtPayment(\'' + c.id + '\', ' + (c.totalDebt || 0) + ')" style="margin-bottom:16px;">💸 Thanh toán nợ</button>' : '') + '<div class="cost-history-title">📜 Lịch sử</div>' + (historyHtml || '<div class="empty-state">Chưa có giao dịch</div>');
     document.getElementById('customerDetailModal').style.display = 'flex';
 }
-
 function openDebtPayment(customerId, currentDebt) {
     document.getElementById('debtPaymentInfo').innerHTML = '💰 Khách: ' + (function() { for (var i = 0; i < customers.length; i++) if (customers[i].id === customerId) return customers[i].name; return ''; })() + '<br>💢 Nợ: ' + formatMoney(currentDebt);
     document.getElementById('debtPaymentAmount').value = currentDebt;
     document.getElementById('debtPaymentModal').style.display = 'flex';
     pendingDebtCustomerId = customerId;
 }
-
 function confirmDebtPayment() {
     var amount = parseInt(document.getElementById('debtPaymentAmount').value) || 0;
     if (amount <= 0) { showToast('Số tiền không hợp lệ!', 'warning'); return; }
@@ -737,7 +1084,6 @@ function confirmDebtPayment() {
         });
     });
 }
-
 function addCustomerDebt(customerId, amount, note) {
     var c = null;
     for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
@@ -758,7 +1104,6 @@ function showCustomerSelector(callback) {
     document.getElementById('customerSelectorModal').style.display = 'flex';
     document.getElementById('customerSelectorSearch').oninput = function() { renderCustomerSelectorList(this.value); };
 }
-
 function renderCustomerSelectorList(searchTerm) {
     var filtered = customers;
     if (searchTerm) {
@@ -774,14 +1119,12 @@ function renderCustomerSelectorList(searchTerm) {
     }
     container.innerHTML = html;
 }
-
 function selectCustomer(customerId) {
     var customer = null;
     for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { customer = customers[i]; break; } }
     if (customer && pendingCustomerCallback) { pendingCustomerCallback(customer); pendingCustomerCallback = null; }
     closeModal('customerSelectorModal');
 }
-
 function createCustomerFromInput() {
     var name = document.getElementById('customerSelectorSearch').value.trim();
     if (!name) { showToast('Nhập tên khách hàng!', 'warning'); return; }
@@ -813,7 +1156,6 @@ function openCostModal() {
     document.getElementById('costAmount').value = '';
     document.getElementById('costModal').style.display = 'flex';
 }
-
 function renderCostCategoriesList() {
     var container = document.getElementById('costCategoriesList');
     if (costCategories.length === 0) { container.innerHTML = '<div class="empty-state">Chưa có danh mục</div>'; return; }
@@ -824,9 +1166,7 @@ function renderCostCategoriesList() {
     html += '</div>';
     container.innerHTML = html;
 }
-
 function setCostName(name) { document.getElementById('costName').value = name; }
-
 function saveExpense() {
     var name = document.getElementById('costName').value.trim();
     var amount = parseInt(document.getElementById('costAmount').value) || 0;
@@ -857,7 +1197,6 @@ function saveExpense() {
     };
     if (cat) saveTrans(cat); else createCat().then(saveTrans);
 }
-
 function renderTodayCosts() {
     var today = new Date().toISOString().slice(0, 10);
     var todayCosts = costTransactions.filter(function(tx) { return tx.dateKey === today && !tx.deleted; });
@@ -870,7 +1209,6 @@ function renderTodayCosts() {
     html += '<div class="cost-total">Tổng: ' + formatMoney(total) + '</div>';
     document.getElementById('todayCostList').innerHTML = html;
 }
-
 function renderMonthCostTotal() {
     var now = new Date();
     var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -881,7 +1219,6 @@ function renderMonthCostTotal() {
     }
     document.getElementById('monthCostTotal').innerText = formatMoney(total);
 }
-
 function refreshCostModal() {
     var modal = document.getElementById('costModal');
     if (modal && modal.style.display === 'flex') {
@@ -913,3 +1250,10 @@ window.handleCreateNewTable = handleCreateNewTable;
 window.handleTakeawayPayment = handleTakeawayPayment;
 window.handleGrabOrder = handleGrabOrder;
 window.handleDebtOrder = handleDebtOrder;
+window.showSplitBillModal = showSplitBillModal;
+window.showTransferItemsModal = showTransferItemsModal;
+window.showMergeTableModal = showMergeTableModal;
+window.showDeleteTableConfirm = showDeleteTableConfirm;
+window.confirmSplitPayment = confirmSplitPayment;
+window.confirmTransferItems = confirmTransferItems;
+window.confirmDeleteTable = confirmDeleteTable;
