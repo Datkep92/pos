@@ -265,105 +265,107 @@
         });
     }
 
-    // Realtime subscriptions
-    function subscribeToCollection(collection, callback) {
-        var ref = db.ref(CURRENT_SHOP_ID + '/' + collection);
-        var useIncremental = (collection === 'transactions' || collection === 'reports');
-        if (useIncremental) {
-            var updateScheduled = false;
-            var emit = function() {
-                if (updateScheduled) return;
-                updateScheduled = true;
-                setTimeout(function() {
-                    updateScheduled = false;
-                    loadFromLocal(collection).then(function(data) {
-                        if (callback) callback(data);
-                        window.dispatchEvent(new CustomEvent('db_update', { detail: { collection: collection, data: data } }));
-                    });
-                }, 50);
-            };
-            var onAdded = function(snap) {
-                if (!snap.exists()) return;
-                var key = snap.key;
-                var src = snap.val() || {};
-                var item = { id: key };
-                for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                saveToLocal(collection, item).then(emit);
-            };
-            var onChanged = function(snap) {
-                if (!snap.exists()) return;
-                var key = snap.key;
-                var src = snap.val() || {};
-                var item = { id: key };
-                for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                saveToLocal(collection, item).then(emit);
-            };
-            var onRemoved = function(snap) {
-                var key = snap.key;
-                deleteFromLocal(collection, key).then(emit);
-            };
-            ref.on('child_added', onAdded);
-            ref.on('child_changed', onChanged);
-            ref.on('child_removed', onRemoved);
-            if (!listeners[collection]) listeners[collection] = [];
-            listeners[collection].push({ added: onAdded, changed: onChanged, removed: onRemoved });
-            return function() {
-                ref.off('child_added', onAdded);
-                ref.off('child_changed', onChanged);
-                ref.off('child_removed', onRemoved);
-            };
-        } else {
-            var lastStr = '';
-            var scheduled = false;
-            var handler = ref.on('value', function(snap) {
-                var remote = snap.val() || {};
-                var remoteMap = {};
-                for (var key in remote) {
-                    if (remote.hasOwnProperty(key)) {
-                        var item = { id: key };
-                        var src = remote[key];
-                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                        remoteMap[key] = item;
-                    }
+   function subscribeToCollection(collection, callback) {
+    var ref = db.ref(CURRENT_SHOP_ID + '/' + collection);
+    var useIncremental = (collection === 'transactions' || collection === 'reports');
+    if (useIncremental) {
+        var updateScheduled = false;
+        var emitUpdate = function() {
+            if (updateScheduled) return;
+            updateScheduled = true;
+            setTimeout(function() {
+                updateScheduled = false;
+                loadFromLocal(collection).then(function(localData) {
+                    if (callback) callback(localData);
+                    var evt = document.createEvent('CustomEvent');
+                    evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
+                    window.dispatchEvent(evt);
+                });
+            }, 50);
+        };
+        var onAdded = function(snapshot) {
+            if (!snapshot.exists()) return;
+            var key = snapshot.key;
+            var src = snapshot.val() || {};
+            var item = { id: key };
+            for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+            saveToLocal(collection, item).then(emitUpdate);
+        };
+        var onChanged = function(snapshot) {
+            if (!snapshot.exists()) return;
+            var key = snapshot.key;
+            var src = snapshot.val() || {};
+            var item = { id: key };
+            for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+            saveToLocal(collection, item).then(emitUpdate);
+        };
+        var onRemoved = function(snapshot) {
+            var key = snapshot.key;
+            deleteFromLocal(collection, key).then(emitUpdate);
+        };
+        ref.on('child_added', onAdded);
+        ref.on('child_changed', onChanged);
+        ref.on('child_removed', onRemoved);
+        if (!listeners[collection]) listeners[collection] = [];
+        listeners[collection].push({ added: onAdded, changed: onChanged, removed: onRemoved });
+        return function() {
+            ref.off('child_added', onAdded);
+            ref.off('child_changed', onChanged);
+            ref.off('child_removed', onRemoved);
+        };
+    } else {
+        var lastStr = '';
+        var scheduled = false;
+        var handler = ref.on('value', function(snapshot) {
+            var remote = snapshot.val() || {};
+            var remoteMap = {};
+            for (var key in remote) {
+                if (remote.hasOwnProperty(key)) {
+                    var item = { id: key };
+                    var src = remote[key];
+                    for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+                    remoteMap[key] = item;
                 }
-                loadFromLocal(collection).then(function(localItems) {
-                    var toDelete = [];
-                    var toSave = [];
-                    var localMap = {};
-                    for (var i = 0; i < localItems.length; i++) localMap[localItems[i].id] = localItems[i];
-                    for (var id in localMap) {
-                        if (!remoteMap[id]) toDelete.push(id);
+            }
+            loadFromLocal(collection).then(function(localItems) {
+                var toDelete = [];
+                var toSave = [];
+                var localMap = {};
+                for (var i = 0; i < localItems.length; i++) localMap[localItems[i].id] = localItems[i];
+                for (var id in localMap) {
+                    if (!remoteMap[id]) toDelete.push(id);
+                }
+                for (var id in remoteMap) {
+                    var local = localMap[id];
+                    if (!local) toSave.push(remoteMap[id]);
+                    else if ((remoteMap[id]._version || 0) > (local._version || 0)) toSave.push(remoteMap[id]);
+                }
+                var delPromises = toDelete.map(function(id) { return deleteFromLocal(collection, id); });
+                var savePromises = toSave.map(function(item) { return saveToLocal(collection, item); });
+                return Promise.all(delPromises.concat(savePromises)).then(function() {
+                    return loadFromLocal(collection);
+                }).then(function(newData) {
+                    var newStr = JSON.stringify(newData);
+                    if (newStr !== lastStr) {
+                        lastStr = newStr;
+                        if (scheduled) return;
+                        scheduled = true;
+                        setTimeout(function() {
+                            scheduled = false;
+                            if (callback) callback(newData);
+                            var evt = document.createEvent('CustomEvent');
+                            evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: newData } });
+                            window.dispatchEvent(evt);
+                        }, 50);
                     }
-                    for (var id in remoteMap) {
-                        var local = localMap[id];
-                        if (!local) toSave.push(remoteMap[id]);
-                        else if ((remoteMap[id]._version || 0) > (local._version || 0)) toSave.push(remoteMap[id]);
-                    }
-                    var delPromises = toDelete.map(function(id) { return deleteFromLocal(collection, id); });
-                    var savePromises = toSave.map(function(item) { return saveToLocal(collection, item); });
-                    return Promise.all(delPromises.concat(savePromises)).then(function() {
-                        return loadFromLocal(collection);
-                    }).then(function(newData) {
-                        var newStr = JSON.stringify(newData);
-                        if (newStr !== lastStr) {
-                            lastStr = newStr;
-                            if (scheduled) return;
-                            scheduled = true;
-                            setTimeout(function() {
-                                scheduled = false;
-                                if (callback) callback(newData);
-                                window.dispatchEvent(new CustomEvent('db_update', { detail: { collection: collection, data: newData } }));
-                            }, 50);
-                        }
-                    });
                 });
             });
-            if (!listeners[collection]) listeners[collection] = [];
-            listeners[collection].push(handler);
-            return function() { ref.off('value', handler); };
-        }
+        });
+        if (!listeners[collection]) listeners[collection] = [];
+        listeners[collection].push(handler);
+        return function() { ref.off('value', handler); };
     }
-
+}
     // Network listener
     function initNetwork() {
         window.addEventListener('online', function() {

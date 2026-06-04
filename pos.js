@@ -216,8 +216,8 @@ function createTableCard(table) {
             '<span class="table-total">' + formatMoney(table.total) + '</span>' +
         '</div>' +
         '<div class="table-actions">' +
-            '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕ Thêm món</div>' +
-            '<div class="table-action" onclick="event.stopPropagation(); showPaymentForTable(\'' + table.id + '\')">💸 Thanh toán</div>' +
+            '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕</div>' +
+            '<div class="table-action" onclick="event.stopPropagation(); showPaymentForTable(\'' + table.id + '\')">💸</div>' +
         '</div>';
     return div;
 }
@@ -459,7 +459,6 @@ function addToCartWithVariant(itemId, variantName, price) {
 
 function removeFromCart(idx) { tempOrder.splice(idx, 1); renderCart(); }
 function updateCartQty(idx, delta) { if (tempOrder[idx]) { tempOrder[idx].qty += delta; if (tempOrder[idx].qty <= 0) tempOrder.splice(idx, 1); renderCart(); } }
-
 function renderCart() {
     var container = document.getElementById('cartItems');
     var totalSpan = document.getElementById('cartTotal');
@@ -472,7 +471,7 @@ function renderCart() {
         var item = tempOrder[i];
         var itemTotal = item.price * item.qty;
         total += itemTotal;
-        html += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><div><span style="margin-right:8px;">' + formatMoney(itemTotal) + '</span><button onclick="updateCartQty(' + i + ', -1)">➖</button><button onclick="updateCartQty(' + i + ', 1)">➕</button><button onclick="removeFromCart(' + i + ')">✖</button></div></div>';
+        html += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><div><span style="margin-right:8px;">' + formatMoney(itemTotal) + '</span><button onclick="removeFromCart(' + i + ')">✖</button></div></div>';
     }
     container.innerHTML = html;
     totalSpan.innerText = 'Tổng: ' + formatMoney(total);
@@ -1391,7 +1390,44 @@ function refreshCostModal() {
         renderMonthCostTotal();
     }
 }
+// Ghi đè hàm closeModal để bỏ chặn cuộn
+var originalCloseModal = window.closeModal;
+window.closeModal = function(modalId) {
+    var modal = document.getElementById(modalId);
+    if (modal) {
+        // Thêm class closing để chạy animation trượt xuống
+        modal.classList.add('closing');
+        setTimeout(function() {
+            modal.style.display = 'none';
+            modal.classList.remove('closing');
+        }, 200);
+    }
+    document.body.classList.remove('modal-open');
+    if (originalCloseModal) originalCloseModal(modalId);
+};
 
+// Hàm mở modal mới (chặn cuộn body)
+function openBottomSheet(modalId) {
+    var modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.style.display = 'flex';
+    document.body.classList.add('modal-open');
+}
+
+// Tự động thêm class modal-open khi bất kỳ modal nào hiển thị
+var observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+            var modal = mutation.target;
+            if (modal.style.display === 'flex') {
+                document.body.classList.add('modal-open');
+            }
+        }
+    });
+});
+document.querySelectorAll('.modal').forEach(function(modal) {
+    observer.observe(modal, { attributes: true });
+});
 // Export global
 window.showTableDetail = showTableDetail;
 window.showPaymentForTable = showPaymentForTable;

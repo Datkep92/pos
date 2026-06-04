@@ -8,43 +8,7 @@
     <meta name="theme-color" content="#f97316">
     <title>POS Cafe - Bán hàng</title>
     <link rel="stylesheet" href="pos.css">
-    <style>
-        /* Tablet orientation warning */
-        @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
-            .app { display: none; }
-            body::before {
-                content: "🔄 Vui lòng xoay ngang màn hình để sử dụng POS";
-                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-                background: white; display: flex; align-items: center; justify-content: center;
-                text-align: center; font-size: 18px; font-weight: 600; color: #f97316;
-                z-index: 9999; padding: 20px;
-            }
-        }
-        @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
-            .tables-grid { grid-template-columns: repeat(3, 1fr); }
-            .menu-grid { grid-template-columns: repeat(4, 1fr); }
-            .order-main-layout { grid-template-columns: 1fr 320px; }
-        }
-        @media (min-width: 1024px) and (orientation: landscape) {
-            .tables-grid { grid-template-columns: repeat(4, 1fr); }
-            .menu-grid { grid-template-columns: repeat(5, 1fr); }
-        }
-        @media (max-width: 640px) {
-            .order-main-layout { grid-template-columns: 1fr; gap: 16px; }
-            .cart-panel { min-height: 250px; }
-        }
-        .empty-state { text-align: center; color: #64748b; padding: 40px 20px; }
-        .toast-container { position: fixed; bottom: 100px; left: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; z-index: 1100; }
-        .toast { background: #1e293b; color: white; padding: 10px 20px; border-radius: 40px; font-size: 13px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .toast.success { background: #10b981; }
-        .toast.error { background: #ef4444; }
-        .toast.warning { background: #f59e0b; }
-        .payment-modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
-        .payment-modal-buttons button { flex: 1; padding: 14px; border-radius: 40px; font-weight: 600; border: none; cursor: pointer; }
-        .payment-cash { background: #10b981; color: white; }
-        .payment-transfer { background: #3b82f6; color: white; }
-        .payment-debt { background: #f59e0b; color: white; }
-    </style>
+   
 </head>
 <body>
     <div class="app">
@@ -55,7 +19,7 @@
 
         <div class="main-tabs">
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
-            <div class="tab-btn" data-tab="customers">👥 Khách hàng</div>
+            <div class="tab-btn" data-tab="customers">👥 Khách</div>
             <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
             <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
         </div>
