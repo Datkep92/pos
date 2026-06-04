@@ -126,7 +126,14 @@ function initRealtime() {
             updateTablesDiff(newTables);
         }, 100);
     });
-    
+    DB.subscribe('daily_balances', function() {
+    if (currentTab === 'report' || currentTab === 'manager') {
+        renderReport(currentReportDate);
+        if (typeof managerApplyFilter === 'function') {
+            managerApplyFilter();
+        }
+    }
+});
     DB.subscribe('customers', function(data) {
         customers = data || [];
         if (currentTab === 'customers') renderCustomerList();
@@ -447,12 +454,17 @@ function switchTab(tabId) {
         if (contents[i].id === tabId + 'View') contents[i].classList.add('active');
         else contents[i].classList.remove('active');
     }
-var toast = document.getElementById('recentToast');
-    if (toast) {
-        toast.style.display = tabId === 'tables' ? 'flex' : 'none';
-    }
+    
     if (tabId === 'manager' && typeof managerApplyFilter === 'function') {
-    managerApplyFilter();
+    // Đảm bảo manager đã init
+    if (!managerInitialized && typeof initManager === 'function') {
+        initManager();
+    } else {
+        // Đã init rồi thì reload data + render ngay
+        loadAllData().then(function() {
+            managerApplyFilter();
+        });
+    }
 }
 }
 
