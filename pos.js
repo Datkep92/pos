@@ -1,264 +1,257 @@
-// ========== POS.JS - NHÂN VIÊN BÁN HÀNG ==========
-// Tương thích iOS 12, Android 6
+// POS.JS - Tương thích Android 6, không dùng arrow function, async/await, const/let
 
-// ========== BIẾN TOÀN CỤC ==========
-let currentTab = 'tables';
-let tempOrder = [];
-let selectedCustomer = null;
-let currentHistoryDate = new Date();
-let currentReportDate = new Date();
-let costCategories = [];
-let costTransactions = [];
-let menuItems = [];
-let menuCategories = [];
-let ingredients = [];
-let customers = [];
+var currentTab = 'tables';
+var tempOrder = [];
+var selectedCustomer = null;
+var currentHistoryDate = new Date();
+var currentReportDate = new Date();
+var costCategories = [];
+var costTransactions = [];
+var menuItems = [];
+var menuCategories = [];
+var ingredients = [];
+var customers = [];
+var currentTableDetailId = null;
+var currentMenuCategory = 'all';
+var pendingPaymentTableId = null;
+var pendingCustomerCallback = null;
+var pendingDebtCustomerId = null;
 
 // ========== KHỞI TẠO ==========
-document.addEventListener('DOMContentLoaded', async function() {
-    await DB.init();
-    await loadData();
-    initEventListeners();
-    renderCurrentTime();
-    setInterval(renderCurrentTime, 1000);
-    showToast('📱 POS sẵn sàng', 'success');
+document.addEventListener('DOMContentLoaded', function() {
+    DB.init().then(function() {
+        return loadData();
+    }).then(function() {
+        initEventListeners();
+        renderCurrentTime();
+        setInterval(renderCurrentTime, 1000);
+        showToast('POS sẵn sàng', 'success');
+    });
 });
 
-async function loadData() {
-    menuItems = await DB.getAll('menu') || [];
-    menuCategories = await DB.getAll('menu_categories') || [];
-    ingredients = await DB.getAll('ingredients') || [];
-    customers = await DB.getAll('customers') || [];
-    costCategories = await DB.getAll('cost_categories') || [];
-    costTransactions = await DB.getAll('cost_transactions') || [];
-    
-    window.menuItems = menuItems;
-    window.ingredients = ingredients;
-    window.customers = customers;
-    
-    await renderTables();
-    renderCustomerList();
-    renderHistoryByDate(currentHistoryDate);
-    renderReport(currentReportDate);
-    
-    // 👇 THÊM DÒNG NÀY
-    await initRealtime();
+function loadData() {
+    return Promise.all([
+        DB.getAll('menu'),
+        DB.getAll('menu_categories'),
+        DB.getAll('ingredients'),
+        DB.getAll('customers'),
+        DB.getAll('cost_categories'),
+        DB.getAll('cost_transactions')
+    ]).then(function(results) {
+        menuItems = results[0] || [];
+        menuCategories = results[1] || [];
+        ingredients = results[2] || [];
+        customers = results[3] || [];
+        costCategories = results[4] || [];
+        costTransactions = results[5] || [];
+        window.menuItems = menuItems;
+        window.ingredients = ingredients;
+        window.customers = customers;
+        return Promise.all([
+            renderTables(),
+            renderCustomerList(),
+            renderHistoryByDate(currentHistoryDate),
+            renderReport(currentReportDate)
+        ]);
+    }).then(function() {
+        initRealtime();
+    });
+}
+
+function initRealtime() {
+    DB.subscribe('tables', function() {
+        if (currentTab === 'tables') renderTables();
+        if (currentTableDetailId) showTableDetail(currentTableDetailId);
+    });
+    DB.subscribe('customers', function(data) {
+        customers = data || [];
+        if (currentTab === 'customers') renderCustomerList();
+    });
+    DB.subscribe('menu', function(data) {
+        menuItems = data || [];
+        if (document.getElementById('orderModal').style.display === 'flex') renderMenuByCategory(currentMenuCategory);
+    });
+    DB.subscribe('menu_categories', function(data) {
+        menuCategories = data || [];
+        if (document.getElementById('orderModal').style.display === 'flex') renderOrderCategories();
+    });
+    DB.subscribe('ingredients', function(data) { ingredients = data || []; });
+    DB.subscribe('transactions', function() {
+        if (currentTab === 'history') renderHistoryByDate(currentHistoryDate);
+        if (currentTab === 'report') renderReport(currentReportDate);
+    });
+    DB.subscribe('cost_categories', function(data) { costCategories = data || []; refreshCostModal(); });
+    DB.subscribe('cost_transactions', function(data) { costTransactions = data || []; refreshCostModal(); });
 }
 
 function initEventListeners() {
-    // Tab switching
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.onclick = () => switchTab(btn.getAttribute('data-tab'));
-    });
-    
-    // Create order button
+    var tabs = document.querySelectorAll('.tab-btn');
+    for (var i = 0; i < tabs.length; i++) {
+        tabs[i].onclick = (function(tab) { return function() { switchTab(tab.getAttribute('data-tab')); }; })(tabs[i]);
+    }
     document.getElementById('createOrderBtn').onclick = openCreateOrderModal;
     document.getElementById('costBtn').onclick = openCostModal;
-    
-    // History controls
-    document.getElementById('prevDayBtn').onclick = () => changeHistoryDate(-1);
-    document.getElementById('nextDayBtn').onclick = () => changeHistoryDate(1);
-    document.getElementById('historyFilter').onchange = () => renderHistoryByDate(currentHistoryDate);
-    
-    // Report controls
-    document.getElementById('reportPrevDayBtn').onclick = () => changeReportDate(-1);
-    document.getElementById('reportNextDayBtn').onclick = () => changeReportDate(1);
-    
-    // Quick add customer
+    document.getElementById('prevDayBtn').onclick = function() { changeHistoryDate(-1); };
+    document.getElementById('nextDayBtn').onclick = function() { changeHistoryDate(1); };
+    document.getElementById('historyFilter').onchange = function() { renderHistoryByDate(currentHistoryDate); };
+    document.getElementById('reportPrevDayBtn').onclick = function() { changeReportDate(-1); };
+    document.getElementById('reportNextDayBtn').onclick = function() { changeReportDate(1); };
     document.getElementById('quickAddCustomerBtn').onclick = quickAddCustomer;
-    
-    // Save cost
     document.getElementById('saveCostBtn').onclick = saveExpense;
-    
-    // Create customer from selector
     document.getElementById('createCustomerFromSelectorBtn').onclick = createCustomerFromInput;
-    
-    // Debt payment confirm
     document.getElementById('confirmDebtPaymentBtn').onclick = confirmDebtPayment;
+    document.getElementById('paymentCashBtn').onclick = function() { if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'cash'); closeModal('paymentMethodModal'); };
+    document.getElementById('paymentTransferBtn').onclick = function() { if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'transfer'); closeModal('paymentMethodModal'); };
+    document.getElementById('paymentDebtBtn').onclick = function() { if (pendingPaymentTableId) { closeModal('paymentMethodModal'); debtAtTable(pendingPaymentTableId); } };
 }
 
 function switchTab(tabId) {
     currentTab = tabId;
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
-    });
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.toggle('active', content.id === tabId + 'View');
-    });
-}
-
-// ========== THỜI GIAN ==========
-function renderCurrentTime() {
-    const now = new Date();
-    const timeEl = document.getElementById('currentTime');
-    if (timeEl) {
-        timeEl.innerText = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    var tabs = document.querySelectorAll('.tab-btn');
+    for (var i = 0; i < tabs.length; i++) {
+        if (tabs[i].getAttribute('data-tab') === tabId) tabs[i].classList.add('active');
+        else tabs[i].classList.remove('active');
+    }
+    var contents = document.querySelectorAll('.tab-content');
+    for (var i = 0; i < contents.length; i++) {
+        if (contents[i].id === tabId + 'View') contents[i].classList.add('active');
+        else contents[i].classList.remove('active');
     }
 }
 
-// ========== UTILS ==========
-function formatMoney(amount) {
-    return (amount || 0).toLocaleString('vi-VN') + 'đ';
-}
+function formatMoney(amount) { return (amount || 0).toLocaleString('vi-VN') + 'đ'; }
+function showToast(message, type) { var toast = document.createElement('div'); toast.className = 'toast ' + type; toast.innerText = message; document.getElementById('toastContainer').appendChild(toast); setTimeout(function() { toast.remove(); }, 2500); }
+function closeModal(modalId) { var m = document.getElementById(modalId); if (m) m.style.display = 'none'; }
+function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, function(m) { if (m === '&') return '&amp;'; if (m === '<') return '&lt;'; if (m === '>') return '&gt;'; return m; }); }
+function formatDateDisplay(dateStr) { var d = new Date(dateStr); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
+function renderCurrentTime() { var now = new Date(); var timeEl = document.getElementById('currentTime'); if (timeEl) timeEl.innerText = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
 
-function showToast(message, type) {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerText = message;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 2500);
-}
-
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) modal.style.display = 'none';
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
-}
-
-// ========== BÀN (TABLES) ==========
-async function renderTables() {
-    const tables = await DB.getAll('tables');
-    const activeTables = tables.filter(t => 
-        (t.items && t.items.length > 0) || (t.total > 0) || t.status === 'debt'
-    );
-    
-    const grid = document.getElementById('tablesGrid');
-    if (!grid) return;
-    
-    if (activeTables.length === 0) {
-        grid.innerHTML = '<div class="empty-state">🍽️ Không có bàn đang phục vụ</div>';
-        return;
-    }
-    
-    grid.innerHTML = activeTables.map(table => {
-        const itemCount = (table.items || []).reduce((s, i) => s + (i.qty || 0), 0);
-        const total = table.total || 0;
-        let timeDisplay = table.time || '--:--';
-        if (table.startTime) {
-            const start = new Date(table.startTime);
-            const diffMins = Math.floor((Date.now() - start) / 60000);
-            timeDisplay = `${diffMins}p`;
+// ========== BÀN ==========
+function renderTables() {
+    DB.getAll('tables').then(function(tables) {
+        var activeTables = tables.filter(function(t) { return (t.items && t.items.length) || t.total > 0; });
+        var grid = document.getElementById('tablesGrid');
+        if (!grid) return;
+        if (activeTables.length === 0) { grid.innerHTML = '<div class="empty-state">🍽️ Không có bàn đang phục vụ</div>'; return; }
+        var html = '';
+        for (var i = 0; i < activeTables.length; i++) {
+            var table = activeTables[i];
+            var itemCount = 0;
+            if (table.items) for (var j = 0; j < table.items.length; j++) itemCount += table.items[j].qty;
+            var timeDisplay = '--:--';
+            if (table.startTime) {
+                var start = new Date(table.startTime);
+                var diffMins = Math.floor((Date.now() - start) / 60000);
+                var hours = Math.floor(diffMins / 60);
+                var mins = diffMins % 60;
+                timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + (hours ? hours + 'h' + mins + 'p' : mins + 'p');
+            }
+            var displayName = table.customerName ? escapeHtml(table.customerName) : escapeHtml(table.name);
+            html += '<div class="table-card" data-id="' + table.id + '">' +
+                '<div class="table-header">' +
+                    '<span class="table-name" onclick="event.stopPropagation(); showCustomerSelectorForTable(\'' + table.id + '\')" style="cursor:pointer;">🪑 ' + displayName + '</span>' +
+                    '<span class="table-time">⏱️ ' + timeDisplay + '</span>' +
+                '</div>' +
+                '<div class="table-stats"><span class="table-item-count">📦 ' + itemCount + ' món</span><span class="table-total">' + formatMoney(table.total) + '</span></div>' +
+                '<div class="table-actions">' +
+                    '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕ Thêm món</div>' +
+                    '<div class="table-action" onclick="event.stopPropagation(); showPaymentForTable(\'' + table.id + '\')">💸 Thanh toán</div>' +
+                '</div>' +
+            '</div>';
         }
-        return `
-            <div class="table-card" onclick="showTableDetail('${table.id}')">
-                <div class="table-header">
-                    <span class="table-name">🪑 ${escapeHtml(table.name)}${table.customerName ? ` (${escapeHtml(table.customerName)})` : ''}</span>
-                    <span class="table-time">⏱️ ${timeDisplay}</span>
-                </div>
-                <div class="table-stats">
-                    <span class="table-item-count">📦 ${itemCount} món</span>
-                    <span class="table-total">${formatMoney(total)}</span>
-                </div>
-                <div class="table-actions">
-                    <div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable('${table.id}')">➕ Thêm</div>
-                    <div class="table-action" onclick="event.stopPropagation(); showTablePayment('${table.id}')">💸 TT</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-async function showTableDetail(tableId) {
-    window._currentDetailTableId = tableId;
-    const table = await DB.get('tables', String(tableId));
-    if (!table) return;
-    
-    document.getElementById('detailTableName').innerHTML = `🪑 ${escapeHtml(table.name)}${table.customerName ? ` (${escapeHtml(table.customerName)})` : ''}`;
-    
-    let itemsHtml = '';
-    let totalItems = 0;
-    let totalAmount = 0;
-    
-    if (table.items && table.items.length) {
-        itemsHtml = table.items.map((item, idx) => {
-            totalItems += item.qty;
-            totalAmount += item.price * item.qty;
-            return `
-                <div class="cart-item">
-                    <span>${escapeHtml(item.name)} x${item.qty}</span>
-                    <span>${formatMoney(item.price * item.qty)}</span>
-                </div>
-            `;
-        }).join('');
-    } else {
-        itemsHtml = '<div class="empty-state">✨ Chưa có món</div>';
-    }
-    
-    document.getElementById('detailItems').innerHTML = itemsHtml;
-    document.getElementById('detailSummary').innerHTML = `
-        <div class="cart-total">Tổng: ${formatMoney(totalAmount)}</div>
-    `;
-    document.getElementById('detailActions').innerHTML = `
-        <div class="cart-actions">
-            <button class="cart-action-btn cash" onclick="paymentAtTable('${table.id}', 'cash', null)">💰 Tiền mặt</button>
-            <button class="cart-action-btn transfer" onclick="paymentAtTable('${table.id}', 'transfer', null)">💳 Chuyển khoản</button>
-            <button class="cart-action-btn debt" onclick="debtAtTable('${table.id}')">💢 Ghi nợ</button>
-            <button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable('${table.id}'); closeModal('tableDetailModal')">➕ Thêm món</button>
-        </div>
-    `;
-    
-    document.getElementById('tableDetailModal').style.display = 'flex';
-}
-
-async function paymentAtTable(tableId, method, customer) {
-    const table = await DB.get('tables', String(tableId));
-    if (!table || !table.items || table.items.length === 0) {
-        showToast('Không có món để thanh toán!', 'warning');
-        return;
-    }
-    await processPayment('dinein', method, table.items, table.total, customer, table.name);
-    await DB.remove('tables', String(tableId));
-    await renderTables();
-    closeModal('tableDetailModal');
-}
-
-async function debtAtTable(tableId) {
-    const table = await DB.get('tables', String(tableId));
-    if (!table || !table.items || table.items.length === 0) {
-        showToast('Không có món để ghi nợ!', 'warning');
-        return;
-    }
-    
-    showCustomerSelector(async (customer) => {
-        const total = table.total;
-        const items = table.items;
-        const note = `Mua tại ${table.name} - ${items.map(i => `${i.name} x${i.qty}`).join(', ')}`;
-        
-        await addCustomerDebt(customer.id, total, note);
-        await deductIngredients(items);
-        await DB.remove('tables', String(tableId));
-        await renderTables();
-        showToast(`💰 Đã ghi nợ ${formatMoney(total)} cho ${customer.name}`, 'success');
-        closeModal('tableDetailModal');
+        grid.innerHTML = html;
     });
 }
 
-async function openAddMenuForTable(tableId) {
-    window._currentTableId = tableId;
+function showTableDetail(tableId) {
+    currentTableDetailId = tableId;
+    DB.get('tables', String(tableId)).then(function(table) {
+        if (!table) return;
+        document.getElementById('detailTableName').innerHTML = '🪑 ' + escapeHtml(table.name) + (table.customerName ? ' (' + escapeHtml(table.customerName) + ')' : '');
+        var itemsHtml = '', totalAmount = 0;
+        if (table.items && table.items.length) {
+            for (var i = 0; i < table.items.length; i++) {
+                var item = table.items[i];
+                totalAmount += item.price * item.qty;
+                itemsHtml += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><span>' + formatMoney(item.price * item.qty) + '</span></div>';
+            }
+        } else itemsHtml = '<div class="empty-state">✨ Chưa có món</div>';
+        document.getElementById('detailItems').innerHTML = itemsHtml;
+        document.getElementById('detailSummary').innerHTML = '<div class="cart-total">Tổng: ' + formatMoney(totalAmount) + '</div>';
+        document.getElementById('detailActions').innerHTML = '<div class="cart-actions"><button class="cart-action-btn cash" onclick="showPaymentForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">💰 Thanh toán</button><button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button></div>';
+        document.getElementById('tableDetailModal').style.display = 'flex';
+    });
+}
+
+function showPaymentForTable(tableId) { pendingPaymentTableId = tableId; document.getElementById('paymentMethodModal').style.display = 'flex'; }
+
+function paymentAtTable(tableId, method) {
+    DB.get('tables', String(tableId)).then(function(table) {
+        if (!table || !table.items || !table.items.length) return;
+        checkStock(table.items).then(function(ok) {
+            if (!ok) return;
+            deductIngredients(table.items).then(function() {
+                addHistory({ type: 'dinein', amount: table.total, paymentMethod: method, items: table.items, customer: table.customerName ? { name: table.customerName } : null, tableName: table.name, note: '' }).then(function() {
+                    DB.remove('tables', String(tableId)).then(function() {
+                        renderTables();
+                        if (currentTableDetailId === tableId) closeModal('tableDetailModal');
+                        showToast('✅ Thanh toán ' + formatMoney(table.total) + ' thành công', 'success');
+                    });
+                });
+            });
+        });
+    });
+}
+
+function debtAtTable(tableId) {
+    DB.get('tables', String(tableId)).then(function(table) {
+        if (!table || !table.items || !table.items.length) return;
+        showCustomerSelector(function(customer) {
+            checkStock(table.items).then(function(ok) {
+                if (!ok) return;
+                deductIngredients(table.items).then(function() {
+                    addCustomerDebt(customer.id, table.total, 'Mua tai ' + table.name).then(function() {
+                        addHistory({ type: 'debt_payment', amount: table.total, paymentMethod: 'debt', items: table.items, customer: { id: customer.id, name: customer.name }, tableName: table.name, note: '' }).then(function() {
+                            DB.remove('tables', String(tableId)).then(function() {
+                                renderTables();
+                                if (currentTableDetailId === tableId) closeModal('tableDetailModal');
+                                showToast('💰 Đã ghi nợ ' + formatMoney(table.total) + ' cho ' + customer.name, 'success');
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
+function showCustomerSelectorForTable(tableId) {
+    showCustomerSelector(function(customer) {
+        DB.update('tables', String(tableId), { customerId: customer.id, customerName: customer.name }).then(function() {
+            renderTables();
+            if (currentTableDetailId === tableId) showTableDetail(tableId);
+            showToast('✅ Đã gán khách ' + customer.name + ' cho bàn', 'success');
+        });
+    });
+}
+
+function openAddMenuForTable(tableId) {
+    window.currentAddToTableId = tableId;
     tempOrder = [];
     selectedCustomer = null;
+    document.getElementById('orderModalTitle').innerHTML = '➕ Thêm món vào bàn';
     renderOrderCategories();
     renderMenuByCategory('all');
     renderCart();
     document.getElementById('orderModal').style.display = 'flex';
 }
 
-// ========== TẠO ĐƠN (ORDER FLOW) ==========
+// ========== TẠO ĐƠN / GIỎ HÀNG ==========
 function openCreateOrderModal() {
+    window.currentAddToTableId = null;
     tempOrder = [];
     selectedCustomer = null;
-    window._currentTableId = null;
+    document.getElementById('orderModalTitle').innerHTML = '🛒 Tạo đơn hàng';
     renderOrderCategories();
     renderMenuByCategory('all');
     renderCart();
@@ -266,292 +259,284 @@ function openCreateOrderModal() {
 }
 
 function renderOrderCategories() {
-    const container = document.getElementById('orderCategories');
+    var container = document.getElementById('orderCategories');
     if (!container) return;
-    
-    let html = '<div class="category-chip active" data-cat="all" onclick="renderMenuByCategory(\'all\')">📋 Tất cả</div>';
-    menuCategories.forEach(cat => {
-        html += `<div class="category-chip" data-cat="${cat.id}" onclick="renderMenuByCategory('${cat.id}')">${cat.icon || '📌'} ${escapeHtml(cat.name)}</div>`;
-    });
+    var html = '<div class="category-chip active" data-cat="all" onclick="renderMenuByCategory(\'all\')">📋 Tất cả</div>';
+    for (var i = 0; i < menuCategories.length; i++) {
+        var cat = menuCategories[i];
+        html += '<div class="category-chip" data-cat="' + cat.id + '" onclick="renderMenuByCategory(\'' + cat.id + '\')">' + (cat.icon || '📌') + ' ' + escapeHtml(cat.name) + '</div>';
+    }
     container.innerHTML = html;
 }
 
 function renderMenuByCategory(categoryId) {
-    window._currentMenuCategory = categoryId;
-    let items = menuItems;
-    if (categoryId !== 'all') {
-        items = menuItems.filter(i => i.categoryId == categoryId);
-    }
-    
-    const container = document.getElementById('menuGrid');
+    currentMenuCategory = categoryId;
+    var items = categoryId !== 'all' ? menuItems.filter(function(i) { return i.categoryId == categoryId; }) : menuItems.slice();
+    var container = document.getElementById('menuGrid');
     if (!container) return;
-    
-    if (items.length === 0) {
-        container.innerHTML = '<div class="empty-state">📭 Không có món</div>';
-        return;
-    }
-    
-    container.innerHTML = items.map(item => {
-        const price = item.hasVariants && item.variants && item.variants[0] ? item.variants[0].price : (item.price || 0);
-        return `
-            <div class="menu-item" onclick="addToCart('${item.id}', '${escapeHtml(item.name)}', ${price})">
-                <div class="menu-item-name">${escapeHtml(item.name)}</div>
-                <div class="menu-item-price">${formatMoney(price)}</div>
-            </div>
-        `;
-    }).join('');
-    
-    // Cập nhật active state cho category chip
-    document.querySelectorAll('#orderCategories .category-chip').forEach(chip => {
-        const chipCat = chip.getAttribute('data-cat');
-        if ((categoryId === 'all' && chipCat === 'all') || chipCat == categoryId) {
-            chip.classList.add('active');
+    if (items.length === 0) { container.innerHTML = '<div class="empty-state">📭 Không có món</div>'; return; }
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item.hasVariants && item.variants && item.variants.length) {
+            var variantsHtml = '';
+            for (var v = 0; v < item.variants.length; v++) {
+                var variant = item.variants[v];
+                variantsHtml += '<button class="variant-btn" onclick="addToCartWithVariant(\'' + item.id + '\', \'' + escapeHtml(variant.name) + '\', ' + variant.price + ')">' + escapeHtml(variant.name) + '</button>';
+            }
+            html += '<div class="menu-item-variant"><div class="menu-item-name">' + escapeHtml(item.name) + '</div><div class="variant-group">' + variantsHtml + '</div></div>';
         } else {
-            chip.classList.remove('active');
+            var price = item.price || 0;
+            html += '<div class="menu-item" onclick="addToCart(\'' + item.id + '\', \'' + escapeHtml(item.name) + '\', ' + price + ')"><div class="menu-item-name">' + escapeHtml(item.name) + '</div><div class="menu-item-price">' + formatMoney(price) + '</div></div>';
         }
-    });
+    }
+    container.innerHTML = html;
+    var chips = document.querySelectorAll('#orderCategories .category-chip');
+    for (var i = 0; i < chips.length; i++) {
+        var cat = chips[i].getAttribute('data-cat');
+        if ((categoryId === 'all' && cat === 'all') || cat == categoryId) chips[i].classList.add('active');
+        else chips[i].classList.remove('active');
+    }
 }
 
 function addToCart(id, name, price) {
-    const existing = tempOrder.find(i => i.id === id);
-    if (existing) {
-        existing.qty++;
-    } else {
-        tempOrder.push({ id: id, name: name, price: price, qty: 1 });
+    var existing = null;
+    for (var i = 0; i < tempOrder.length; i++) {
+        if (tempOrder[i].id === id) { existing = tempOrder[i]; break; }
     }
+    if (existing) existing.qty++;
+    else tempOrder.push({ id: id, name: name, price: price, qty: 1 });
     renderCart();
 }
 
-function removeFromCart(index) {
-    tempOrder.splice(index, 1);
+function addToCartWithVariant(itemId, variantName, price) {
+    var item = null;
+    for (var i = 0; i < menuItems.length; i++) { if (menuItems[i].id === itemId) { item = menuItems[i]; break; } }
+    if (!item) return;
+    var displayName = item.name + ' (' + variantName + ')';
+    var existing = null;
+    for (var i = 0; i < tempOrder.length; i++) {
+        if (tempOrder[i].name === displayName) { existing = tempOrder[i]; break; }
+    }
+    if (existing) existing.qty++;
+    else tempOrder.push({ id: itemId + '_' + variantName, name: displayName, price: price, qty: 1 });
     renderCart();
 }
 
-function updateCartQty(index, delta) {
-    const item = tempOrder[index];
-    if (item) {
-        item.qty += delta;
-        if (item.qty <= 0) {
-            tempOrder.splice(index, 1);
-        }
-        renderCart();
-    }
-}
+function removeFromCart(idx) { tempOrder.splice(idx, 1); renderCart(); }
+function updateCartQty(idx, delta) { if (tempOrder[idx]) { tempOrder[idx].qty += delta; if (tempOrder[idx].qty <= 0) tempOrder.splice(idx, 1); renderCart(); } }
 
 function renderCart() {
-    const container = document.getElementById('cartItems');
-    const totalSpan = document.getElementById('cartTotal');
-    const actionsDiv = document.getElementById('cartActions');
-    
+    var container = document.getElementById('cartItems');
+    var totalSpan = document.getElementById('cartTotal');
+    var actionsDiv = document.getElementById('cartActions');
     if (!container) return;
-    
-    if (tempOrder.length === 0) {
-        container.innerHTML = '<div class="empty-state">🛒 Chưa có món</div>';
-        totalSpan.innerText = 'Tổng: 0đ';
-        if (actionsDiv) actionsDiv.innerHTML = '';
-        return;
-    }
-    
-    let total = 0;
-    let itemsHtml = '';
-    tempOrder.forEach((item, idx) => {
-        const itemTotal = item.price * item.qty;
+    if (tempOrder.length === 0) { container.innerHTML = '<div class="empty-state">🛒 Chưa có món</div>'; totalSpan.innerText = 'Tổng: 0đ'; if (actionsDiv) actionsDiv.innerHTML = ''; return; }
+    var total = 0;
+    var html = '';
+    for (var i = 0; i < tempOrder.length; i++) {
+        var item = tempOrder[i];
+        var itemTotal = item.price * item.qty;
         total += itemTotal;
-        itemsHtml += `
-            <div class="cart-item">
-                <span>${escapeHtml(item.name)} x${item.qty}</span>
-                <div>
-                    <span style="margin-right:8px;">${formatMoney(itemTotal)}</span>
-                    <button onclick="updateCartQty(${idx}, -1)" style="background:none; border:none; font-size:16px;">➖</button>
-                    <button onclick="updateCartQty(${idx}, 1)" style="background:none; border:none; font-size:16px;">➕</button>
-                    <button onclick="removeFromCart(${idx})" style="background:none; border:none; color:red;">✖</button>
-                </div>
-            </div>
-        `;
-    });
-    
-    container.innerHTML = itemsHtml;
-    totalSpan.innerText = `Tổng: ${formatMoney(total)}`;
-    
-    // 5 nút xử lý đơn hàng
-    actionsDiv.innerHTML = `
-        <button class="cart-action-btn table" onclick="handleOrderCreateTable()">🍽️ Tại bàn</button>
-        <button class="cart-action-btn cash" onclick="handleOrderPayment('cash')">💰 TM mặt</button>
-        <button class="cart-action-btn transfer" onclick="handleOrderPayment('transfer')">💳 CK khoản</button>
-        <button class="cart-action-btn grab" onclick="handleOrderGrab()">🚕 Grab</button>
-        <button class="cart-action-btn debt" onclick="handleOrderDebt()">💢 Ghi nợ</button>
-    `;
+        html += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><div><span style="margin-right:8px;">' + formatMoney(itemTotal) + '</span><button onclick="updateCartQty(' + i + ', -1)">➖</button><button onclick="updateCartQty(' + i + ', 1)">➕</button><button onclick="removeFromCart(' + i + ')">✖</button></div></div>';
+    }
+    container.innerHTML = html;
+    totalSpan.innerText = 'Tổng: ' + formatMoney(total);
+    if (window.currentAddToTableId) {
+        actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleAddToExistingTable()">🍽️ Thêm vào bàn</button>';
+    } else {
+        actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button><button class="cart-action-btn cash" onclick="handleTakeawayPayment(\'cash\')">💰 TM mặt</button><button class="cart-action-btn transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 CK khoản</button><button class="cart-action-btn grab" onclick="handleGrabOrder()">🚕 Grab</button><button class="cart-action-btn debt" onclick="handleDebtOrder()">💢 Ghi nợ</button>';
+    }
 }
 
-async function handleOrderCreateTable() {
-    if (tempOrder.length === 0) {
-        showToast('Vui lòng chọn món!', 'warning');
-        return;
-    }
-    
-    // Kiểm tra tồn kho
-    if (!await checkStock(tempOrder)) return;
-    
-    // Tạo bàn mới
-    const tables = await DB.getAll('tables');
-    let maxNumber = 0;
-    tables.forEach(t => {
-        const match = t.name.match(/Bàn (\d+)/);
-        if (match) maxNumber = Math.max(maxNumber, parseInt(match[1]));
-    });
-    const newNumber = maxNumber + 1;
-    if (newNumber > 99) {
-        showToast('Đã đạt giới hạn 99 bàn!', 'warning');
-        return;
-    }
-    
-    const newTableId = Date.now().toString();
-    const now = new Date();
-    const newTable = {
-        id: newTableId,
-        name: `Bàn ${newNumber}`,
-        status: 'occupied',
-        time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-        startTime: now.toISOString(),
-        items: tempOrder.map(item => ({ ...item, addedTime: now.toISOString() })),
-        total: tempOrder.reduce((s, i) => s + i.price * i.qty, 0),
-        customerId: selectedCustomer?.id || null,
-        customerName: selectedCustomer?.name || null
-    };
-    
-    await DB.create('tables', newTable, newTableId);
-    await deductIngredients(tempOrder);
-    
-    showToast(`✅ Đã tạo bàn ${newTable.name}`, 'success');
-    tempOrder = [];
-    selectedCustomer = null;
-    closeModal('orderModal');
-    await renderTables();
-}
-
-async function handleOrderPayment(method) {
-    if (tempOrder.length === 0) {
-        showToast('Vui lòng chọn món!', 'warning');
-        return;
-    }
-    const total = tempOrder.reduce((s, i) => s + i.price * i.qty, 0);
-    await processPayment('takeaway', method, tempOrder, total, selectedCustomer, 'Mang đi');
-    tempOrder = [];
-    selectedCustomer = null;
-    closeModal('orderModal');
-}
-
-async function handleOrderGrab() {
-    if (tempOrder.length === 0) {
-        showToast('Vui lòng chọn món!', 'warning');
-        return;
-    }
-    const total = tempOrder.reduce((s, i) => s + i.price * i.qty, 0);
-    await processPayment('grab', 'grab', tempOrder, total, null, 'Grab');
-    tempOrder = [];
-    selectedCustomer = null;
-    closeModal('orderModal');
-}
-
-async function handleOrderDebt() {
-    if (tempOrder.length === 0) {
-        showToast('Vui lòng chọn món!', 'warning');
-        return;
-    }
-    showCustomerSelector(async (customer) => {
-        const total = tempOrder.reduce((s, i) => s + i.price * i.qty, 0);
-        const note = `Mua hàng - ${tempOrder.map(i => `${i.name} x${i.qty}`).join(', ')}`;
-        
-        if (!await checkStock(tempOrder)) return;
-        await addCustomerDebt(customer.id, total, note);
-        await deductIngredients(tempOrder);
-        
-        await addHistory({
-            type: 'debt_payment',
-            amount: total,
-            paymentMethod: 'debt',
-            items: tempOrder.slice(),
-            customer: { id: customer.id, name: customer.name },
-            note: note
+function handleAddToExistingTable() {
+    if (!window.currentAddToTableId) { showToast('Lỗi: không xác định bàn', 'error'); return; }
+    if (tempOrder.length === 0) { showToast('Chưa chọn món!', 'warning'); return; }
+    checkStock(tempOrder).then(function(ok) {
+        if (!ok) return;
+        deductIngredients(tempOrder).then(function() {
+            DB.get('tables', String(window.currentAddToTableId)).then(function(table) {
+                if (!table) return;
+                var existingItems = table.items || [];
+                for (var i = 0; i < tempOrder.length; i++) {
+                    var newItem = tempOrder[i];
+                    var found = false;
+                    for (var j = 0; j < existingItems.length; j++) {
+                        if (existingItems[j].name === newItem.name) {
+                            existingItems[j].qty += newItem.qty;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) existingItems.push({ id: newItem.id, name: newItem.name, price: newItem.price, qty: newItem.qty, addedTime: new Date().toISOString() });
+                }
+                var newTotal = 0;
+                for (var i = 0; i < existingItems.length; i++) newTotal += existingItems[i].price * existingItems[i].qty;
+                DB.update('tables', String(window.currentAddToTableId), { items: existingItems, total: newTotal }).then(function() {
+                    renderTables();
+                    if (currentTableDetailId === window.currentAddToTableId) showTableDetail(window.currentAddToTableId);
+                    showToast('✅ Đã thêm món vào bàn', 'success');
+                    closeModal('orderModal');
+                    tempOrder = [];
+                });
+            });
         });
-        
-        showToast(`💰 Đã ghi nợ ${formatMoney(total)} cho ${customer.name}`, 'success');
-        tempOrder = [];
-        selectedCustomer = null;
-        closeModal('orderModal');
     });
 }
 
-// ========== THANH TOÁN (PROCESS PAYMENT) ==========
-async function processPayment(type, method, items, amount, customer, tableName) {
-    // Kiểm tra tồn kho
-    if (!await checkStock(items)) return false;
-    
-    // Trừ nguyên liệu
-    await deductIngredients(items);
-    
-    // Ghi giao dịch
-    await addHistory({
-        type: type,
-        amount: amount,
-        paymentMethod: method,
-        items: items,
-        customer: customer,
-        tableName: tableName,
-        note: customer ? `KH: ${customer.name}` : ''
+function handleCreateNewTable() {
+    if (tempOrder.length === 0) { showToast('Chưa chọn món!', 'warning'); return; }
+    checkStock(tempOrder).then(function(ok) {
+        if (!ok) return;
+        DB.getAll('tables').then(function(tables) {
+            var maxNum = 0;
+            for (var i = 0; i < tables.length; i++) {
+                var match = tables[i].name.match(/Ban (\d+)/);
+                if (match && parseInt(match[1]) > maxNum) maxNum = parseInt(match[1]);
+            }
+            var newNumber = maxNum + 1;
+            if (newNumber > 99) { showToast('Đã đạt giới hạn 99 bàn!', 'warning'); return; }
+            var newId = Date.now().toString();
+            var now = new Date();
+            var newTable = {
+                id: newId, name: 'Ban ' + newNumber, status: 'occupied',
+                time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                startTime: now.toISOString(),
+                items: tempOrder.map(function(item) { return { id: item.id, name: item.name, price: item.price, qty: item.qty, addedTime: now.toISOString() }; }),
+                total: tempOrder.reduce(function(s, i) { return s + i.price * i.qty; }, 0),
+                customerId: selectedCustomer ? selectedCustomer.id : null,
+                customerName: selectedCustomer ? selectedCustomer.name : null
+            };
+            deductIngredients(tempOrder).then(function() {
+                DB.create('tables', newTable, newId).then(function() {
+                    showToast('✅ Đã tạo bàn ' + newTable.name, 'success');
+                    tempOrder = [];
+                    selectedCustomer = null;
+                    closeModal('orderModal');
+                    renderTables();
+                });
+            });
+        });
     });
-    
-    showToast(`✅ ${formatMoney(amount)} - ${method === 'cash' ? 'Tiền mặt' : method === 'transfer' ? 'Chuyển khoản' : 'Grab'}`, 'success');
-    
-    // Refresh UI
-    await renderTables();
-    renderCustomerList();
-    renderHistoryByDate(currentHistoryDate);
-    renderReport(currentReportDate);
-    
-    return true;
 }
 
-// ========== KIỂM TRA & TRỪ NGUYÊN LIỆU ==========
-async function checkStock(items) {
-    for (const orderItem of items) {
-        const menuItem = menuItems.find(m => m.id === orderItem.id);
+function handleTakeawayPayment(method) {
+    if (tempOrder.length === 0) return;
+    var total = tempOrder.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+    checkStock(tempOrder).then(function(ok) {
+        if (!ok) return;
+        deductIngredients(tempOrder).then(function() {
+            addHistory({ type: 'takeaway', amount: total, paymentMethod: method, items: tempOrder.slice(), customer: selectedCustomer, tableName: 'Mang di', note: '' }).then(function() {
+                showToast('✅ Thanh toán ' + formatMoney(total) + ' thành công', 'success');
+                tempOrder = [];
+                selectedCustomer = null;
+                closeModal('orderModal');
+                if (currentTab === 'history') renderHistoryByDate(currentHistoryDate);
+                if (currentTab === 'report') renderReport(currentReportDate);
+            });
+        });
+    });
+}
+
+function handleGrabOrder() {
+    if (tempOrder.length === 0) return;
+    var total = tempOrder.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+    checkStock(tempOrder).then(function(ok) {
+        if (!ok) return;
+        deductIngredients(tempOrder).then(function() {
+            addHistory({ type: 'grab', amount: total, paymentMethod: 'grab', items: tempOrder.slice(), customer: null, tableName: 'Grab', note: '' }).then(function() {
+                showToast('✅ Đơn Grab ' + formatMoney(total), 'success');
+                tempOrder = [];
+                closeModal('orderModal');
+                if (currentTab === 'history') renderHistoryByDate(currentHistoryDate);
+                if (currentTab === 'report') renderReport(currentReportDate);
+            });
+        });
+    });
+}
+
+function handleDebtOrder() {
+    if (tempOrder.length === 0) return;
+    showCustomerSelector(function(customer) {
+        var total = tempOrder.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
+        checkStock(tempOrder).then(function(ok) {
+            if (!ok) return;
+            deductIngredients(tempOrder).then(function() {
+                addCustomerDebt(customer.id, total, 'Mua hang').then(function() {
+                    addHistory({ type: 'debt_payment', amount: total, paymentMethod: 'debt', items: tempOrder.slice(), customer: { id: customer.id, name: customer.name }, note: '' }).then(function() {
+                        showToast('💰 Đã ghi nợ ' + formatMoney(total) + ' cho ' + customer.name, 'success');
+                        tempOrder = [];
+                        selectedCustomer = null;
+                        closeModal('orderModal');
+                        if (currentTab === 'history') renderHistoryByDate(currentHistoryDate);
+                        if (currentTab === 'report') renderReport(currentReportDate);
+                    });
+                });
+            });
+        });
+    });
+}
+
+// ========== NGUYÊN LIỆU ==========
+function checkStock(items) {
+    return new Promise(function(resolve, reject) {
+        var ok = true;
+        for (var i = 0; i < items.length; i++) {
+            var orderItem = items[i];
+            var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+            var menuItem = null;
+            for (var j = 0; j < menuItems.length; j++) {
+                if (menuItems[j].name === baseName || menuItems[j].id === orderItem.id) { menuItem = menuItems[j]; break; }
+            }
+            if (menuItem && menuItem.ingredients) {
+                for (var k = 0; k < menuItem.ingredients.length; k++) {
+                    var req = menuItem.ingredients[k];
+                    var ing = null;
+                    for (var l = 0; l < ingredients.length; l++) {
+                        if (ingredients[l].id === req.ingredientId) { ing = ingredients[l]; break; }
+                    }
+                    if (ing && ing.stock < (req.quantity * orderItem.qty)) {
+                        showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
+                        ok = false;
+                        resolve(false);
+                        return;
+                    }
+                }
+            }
+        }
+        resolve(ok);
+    });
+}
+
+function deductIngredients(items) {
+    var updates = [];
+    for (var i = 0; i < items.length; i++) {
+        var orderItem = items[i];
+        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+        var menuItem = null;
+        for (var j = 0; j < menuItems.length; j++) {
+            if (menuItems[j].name === baseName || menuItems[j].id === orderItem.id) { menuItem = menuItems[j]; break; }
+        }
         if (menuItem && menuItem.ingredients) {
-            for (const req of menuItem.ingredients) {
-                const ing = ingredients.find(i => i.id === req.ingredientId);
-                if (ing) {
-                    const needed = (req.quantity || 0) * orderItem.qty;
-                    if (ing.stock < needed) {
-                        showToast(`⚠️ Nguyên liệu "${ing.name}" không đủ cho món ${orderItem.name}`, 'error');
-                        return false;
+            for (var k = 0; k < menuItem.ingredients.length; k++) {
+                var req = menuItem.ingredients[k];
+                for (var l = 0; l < ingredients.length; l++) {
+                    if (ingredients[l].id === req.ingredientId) {
+                        ingredients[l].stock -= req.quantity * orderItem.qty;
+                        if (ingredients[l].stock < 0) ingredients[l].stock = 0;
+                        updates.push(DB.update('ingredients', ingredients[l].id, { stock: ingredients[l].stock }));
+                        break;
                     }
                 }
             }
         }
     }
-    return true;
+    return Promise.all(updates);
 }
 
-async function deductIngredients(items) {
-    for (const orderItem of items) {
-        const menuItem = menuItems.find(m => m.id === orderItem.id);
-        if (menuItem && menuItem.ingredients) {
-            for (const req of menuItem.ingredients) {
-                const ing = ingredients.find(i => i.id === req.ingredientId);
-                if (ing) {
-                    ing.stock -= (req.quantity || 0) * orderItem.qty;
-                    if (ing.stock < 0) ing.stock = 0;
-                    await DB.update('ingredients', ing.id, { stock: ing.stock });
-                }
-            }
-        }
-    }
-    window.ingredients = ingredients;
-}
-
-// ========== LỊCH SỬ GIAO DỊCH ==========
-async function addHistory(transaction) {
-    const newTrans = {
+// ========== LỊCH SỬ ==========
+function addHistory(transaction) {
+    var newTrans = {
         id: Date.now().toString(),
         date: new Date().toISOString(),
         dateKey: new Date().toISOString().slice(0, 10),
@@ -562,623 +547,358 @@ async function addHistory(transaction) {
         customer: transaction.customer || null,
         tableName: transaction.tableName || null,
         note: transaction.note || '',
-        refunded: false,
-        refundReason: null,
-        refundedAt: null
+        refunded: false
     };
-    await DB.create('transactions', newTrans);
+    return DB.create('transactions', newTrans);
 }
 
-async function renderHistoryByDate(dateObj) {
-    const dateStr = dateObj.toISOString().slice(0, 10);
+function renderHistoryByDate(dateObj) {
+    var dateStr = dateObj.toISOString().slice(0, 10);
     document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
-    
-    let transactions = await DB.getTransactionsByDate(dateStr);
-    const filter = document.getElementById('historyFilter').value;
-    
-    if (filter !== 'all') {
-        if (filter === 'cash') transactions = transactions.filter(t => t.paymentMethod === 'cash');
-        else if (filter === 'transfer') transactions = transactions.filter(t => t.paymentMethod === 'transfer');
-        else if (filter === 'debt_payment') transactions = transactions.filter(t => t.type === 'debt_payment');
-        else transactions = transactions.filter(t => t.type === filter);
-    }
-    
-    transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-    const container = document.getElementById('historyList');
-    if (!container) return;
-    
-    if (transactions.length === 0) {
-        container.innerHTML = '<div class="empty-state">📭 Không có giao dịch</div>';
-        return;
-    }
-    
-    container.innerHTML = transactions.map(tx => {
-        const timeStr = new Date(tx.date).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        const typeIcon = tx.type === 'dinein' ? '🍽️' : tx.type === 'takeaway' ? '🛵' : tx.type === 'grab' ? '🚕' : '💰';
-        const typeName = tx.type === 'dinein' ? 'Tại chỗ' : tx.type === 'takeaway' ? 'Mang đi' : tx.type === 'grab' ? 'Grab' : 'Thanh toán nợ';
-        const isRefunded = tx.refunded === true;
-        
-        return `
-            <div class="history-item ${tx.type}">
-                <div class="history-header">
-                    <span class="history-time">${timeStr} - ${typeIcon} ${typeName}</span>
-                    <span class="history-amount">${formatMoney(tx.amount)}</span>
-                </div>
-                <div class="history-info">
-                    ${tx.tableName ? `<span>🪑 ${tx.tableName}</span>` : ''}
-                    ${tx.customer ? `<span>👤 ${escapeHtml(tx.customer.name)}</span>` : ''}
-                    ${!isRefunded ? `<button class="btn-refund" onclick="refundTransaction('${tx.id}')">🔄 Hủy</button>` : '<span style="color:#999;">✅ Đã hủy</span>'}
-                </div>
-                ${tx.note ? `<div style="font-size:11px; color:#888;">📝 ${escapeHtml(tx.note)}</div>` : ''}
-            </div>
-        `;
-    }).join('');
+    var filter = document.getElementById('historyFilter').value;
+    DB.getTransactionsByDate(dateStr).then(function(transactions) {
+        if (filter !== 'all') {
+            if (filter === 'cash') transactions = transactions.filter(function(t) { return t.paymentMethod === 'cash'; });
+            else if (filter === 'transfer') transactions = transactions.filter(function(t) { return t.paymentMethod === 'transfer'; });
+            else if (filter === 'debt_payment') transactions = transactions.filter(function(t) { return t.type === 'debt_payment'; });
+            else transactions = transactions.filter(function(t) { return t.type === filter; });
+        }
+        transactions.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+        var container = document.getElementById('historyList');
+        if (!container) return;
+        if (transactions.length === 0) { container.innerHTML = '<div class="empty-state">📭 Không có giao dịch</div>'; return; }
+        var html = '';
+        for (var i = 0; i < transactions.length; i++) {
+            var tx = transactions[i];
+            var timeStr = new Date(tx.date).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+            var typeIcon = { dinein: '🍽️', takeaway: '🛵', grab: '🚕', debt_payment: '💰' }[tx.type] || '📝';
+            var typeName = { dinein: 'Tại chỗ', takeaway: 'Mang đi', grab: 'Grab', debt_payment: 'Thanh toán nợ' }[tx.type];
+            html += '<div class="history-item ' + tx.type + '"><div class="history-header"><span class="history-time">' + timeStr + ' - ' + typeIcon + ' ' + typeName + '</span><span class="history-amount">' + formatMoney(tx.amount) + '</span></div><div class="history-info">' + (tx.tableName ? '<span>🪑 ' + tx.tableName + '</span>' : '') + (tx.customer ? '<span>👤 ' + escapeHtml(tx.customer.name) + '</span>' : '') + (!tx.refunded ? '<button class="btn-refund" onclick="refundTransaction(\'' + tx.id + '\')">🔄 Hủy</button>' : '<span>✅ Đã hủy</span>') + '</div>' + (tx.note ? '<div style="font-size:11px;">📝 ' + escapeHtml(tx.note) + '</div>' : '') + '</div>';
+        }
+        container.innerHTML = html;
+    });
 }
 
-async function refundTransaction(transactionId) {
-    const reason = prompt('📝 Nhập lý do hủy giao dịch:', 'Khách yêu cầu hoàn tiền');
+function refundTransaction(transactionId) {
+    var reason = prompt('📝 Lý do hủy?');
     if (!reason) return;
-    
-    if (!confirm('Bạn có chắc chắn muốn HỦY giao dịch này? Nguyên liệu sẽ được hoàn trả.')) return;
-    
-    const trans = await DB.get('transactions', transactionId);
-    if (!trans || trans.refunded) {
-        showToast('Giao dịch không tồn tại hoặc đã bị hủy!', 'error');
-        return;
-    }
-    
-    // Khôi phục nguyên liệu
-    if (trans.items && trans.items.length) {
-        for (const orderItem of trans.items) {
-            const menuItem = menuItems.find(m => m.id === orderItem.id);
-            if (menuItem && menuItem.ingredients) {
-                for (const req of menuItem.ingredients) {
-                    const ing = ingredients.find(i => i.id === req.ingredientId);
-                    if (ing) {
-                        ing.stock += (req.quantity || 0) * orderItem.qty;
-                        await DB.update('ingredients', ing.id, { stock: ing.stock });
+    DB.get('transactions', transactionId).then(function(trans) {
+        if (!trans || trans.refunded) return;
+        restoreIngredients(trans.items).then(function() {
+            if (trans.type === 'debt_payment' && trans.customer) {
+                addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
+            }
+            trans.refunded = true;
+            trans.refundReason = reason;
+            trans.refundedAt = Date.now();
+            DB.update('transactions', transactionId, trans).then(function() {
+                showToast('✅ Đã hủy giao dịch', 'success');
+                renderHistoryByDate(currentHistoryDate);
+                renderReport(currentReportDate);
+            });
+        });
+    });
+}
+
+function restoreIngredients(items) {
+    var updates = [];
+    for (var i = 0; i < items.length; i++) {
+        var orderItem = items[i];
+        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+        var menuItem = null;
+        for (var j = 0; j < menuItems.length; j++) {
+            if (menuItems[j].name === baseName || menuItems[j].id === orderItem.id) { menuItem = menuItems[j]; break; }
+        }
+        if (menuItem && menuItem.ingredients) {
+            for (var k = 0; k < menuItem.ingredients.length; k++) {
+                var req = menuItem.ingredients[k];
+                for (var l = 0; l < ingredients.length; l++) {
+                    if (ingredients[l].id === req.ingredientId) {
+                        ingredients[l].stock += req.quantity * orderItem.qty;
+                        updates.push(DB.update('ingredients', ingredients[l].id, { stock: ingredients[l].stock }));
+                        break;
                     }
                 }
             }
         }
     }
-    
-    // Xử lý công nợ nếu là debt_payment
-    if (trans.type === 'debt_payment' && trans.customer) {
-        await addCustomerDebt(trans.customer.id, trans.amount, `Hoàn tiền hủy giao dịch - ${reason}`);
-    }
-    
-    // Đánh dấu giao dịch đã hủy
-    trans.refunded = true;
-    trans.refundReason = reason;
-    trans.refundedAt = Date.now();
-    await DB.update('transactions', transactionId, trans);
-    
-    showToast(`✅ Đã hủy giao dịch ${formatMoney(trans.amount)}`, 'success');
-    renderHistoryByDate(currentHistoryDate);
-    renderReport(currentReportDate);
-    window.ingredients = ingredients;
+    return Promise.all(updates);
 }
 
-function changeHistoryDate(delta) {
-    const newDate = new Date(currentHistoryDate);
-    newDate.setDate(newDate.getDate() + delta);
-    currentHistoryDate = newDate;
-    renderHistoryByDate(currentHistoryDate);
-}
+function changeHistoryDate(delta) { var nd = new Date(currentHistoryDate); nd.setDate(nd.getDate() + delta); currentHistoryDate = nd; renderHistoryByDate(currentHistoryDate); }
 
 // ========== BÁO CÁO ==========
-async function renderReport(dateObj) {
-    const dateStr = dateObj.toISOString().slice(0, 10);
+function renderReport(dateObj) {
+    var dateStr = dateObj.toISOString().slice(0, 10);
     document.getElementById('reportDate').innerText = formatDateDisplay(dateStr);
-    
-    const transactions = await DB.getTransactionsByDate(dateStr);
-    const activeTrans = transactions.filter(t => !t.refunded);
-    
-    let revenue = 0, dineinTotal = 0, takeawayTotal = 0, grabTotal = 0;
-    let cashTotal = 0, transferTotal = 0;
-    let dineinCount = 0, takeawayCount = 0, grabCount = 0;
-    
-    for (const tx of activeTrans) {
-        revenue += tx.amount;
-        if (tx.type === 'dinein') { dineinTotal += tx.amount; dineinCount++; }
-        else if (tx.type === 'takeaway') { takeawayTotal += tx.amount; takeawayCount++; }
-        else if (tx.type === 'grab') { grabTotal += tx.amount; grabCount++; }
-        
-        if (tx.paymentMethod === 'cash') cashTotal += tx.amount;
-        else if (tx.paymentMethod === 'transfer') transferTotal += tx.amount;
-    }
-    
-    const container = document.getElementById('reportStats');
-    if (!container) return;
-    
-    container.innerHTML = `
-        <div class="stat-card">
-            <div class="stat-row"><span class="stat-label">💰 Tổng doanh thu</span><span class="stat-value primary">${formatMoney(revenue)}</span></div>
-            <div class="stat-row"><span class="stat-label">🍽️ Tại chỗ (${dineinCount} đơn)</span><span class="stat-value">${formatMoney(dineinTotal)}</span></div>
-            <div class="stat-row"><span class="stat-label">🛵 Mang đi (${takeawayCount} đơn)</span><span class="stat-value">${formatMoney(takeawayTotal)}</span></div>
-            <div class="stat-row"><span class="stat-label">🚕 Grab (${grabCount} đơn)</span><span class="stat-value">${formatMoney(grabTotal)}</span></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-row"><span class="stat-label">💰 Tiền mặt</span><span class="stat-value success">${formatMoney(cashTotal)}</span></div>
-            <div class="stat-row"><span class="stat-label">💳 Chuyển khoản</span><span class="stat-value info">${formatMoney(transferTotal)}</span></div>
-        </div>
-    `;
+    DB.getTransactionsByDate(dateStr).then(function(transactions) {
+        transactions = transactions.filter(function(t) { return !t.refunded; });
+        var revenue = 0, dineinTotal = 0, takeawayTotal = 0, grabTotal = 0, cashTotal = 0, transferTotal = 0;
+        var dineinCount = 0, takeawayCount = 0, grabCount = 0;
+        for (var i = 0; i < transactions.length; i++) {
+            var tx = transactions[i];
+            revenue += tx.amount;
+            if (tx.type === 'dinein') { dineinTotal += tx.amount; dineinCount++; }
+            else if (tx.type === 'takeaway') { takeawayTotal += tx.amount; takeawayCount++; }
+            else if (tx.type === 'grab') { grabTotal += tx.amount; grabCount++; }
+            if (tx.paymentMethod === 'cash') cashTotal += tx.amount;
+            else if (tx.paymentMethod === 'transfer') transferTotal += tx.amount;
+        }
+        document.getElementById('reportStats').innerHTML = '<div class="stat-card"><div class="stat-row"><span>💰 Tổng doanh thu</span><span class="stat-value primary">' + formatMoney(revenue) + '</span></div><div class="stat-row"><span>🍽️ Tại chỗ (' + dineinCount + ' đơn)</span><span>' + formatMoney(dineinTotal) + '</span></div><div class="stat-row"><span>🛵 Mang đi (' + takeawayCount + ' đơn)</span><span>' + formatMoney(takeawayTotal) + '</span></div><div class="stat-row"><span>🚕 Grab (' + grabCount + ' đơn)</span><span>' + formatMoney(grabTotal) + '</span></div></div><div class="stat-card"><div class="stat-row"><span>💰 Tiền mặt</span><span class="stat-value success">' + formatMoney(cashTotal) + '</span></div><div class="stat-row"><span>💳 Chuyển khoản</span><span class="stat-value info">' + formatMoney(transferTotal) + '</span></div></div>';
+    });
 }
-
-function changeReportDate(delta) {
-    const newDate = new Date(currentReportDate);
-    newDate.setDate(newDate.getDate() + delta);
-    currentReportDate = newDate;
-    renderReport(currentReportDate);
-}
+function changeReportDate(delta) { var nd = new Date(currentReportDate); nd.setDate(nd.getDate() + delta); currentReportDate = nd; renderReport(currentReportDate); }
 
 // ========== KHÁCH HÀNG ==========
-async function renderCustomerList() {
-    customers = await DB.getAll('customers') || [];
-    const container = document.getElementById('customerList');
-    if (!container) return;
-    
-    const keyword = document.getElementById('customerSearchInput')?.value.toLowerCase() || '';
-    let filtered = customers;
-    if (keyword) {
-        filtered = customers.filter(c => c.name.toLowerCase().includes(keyword) || (c.phone && c.phone.includes(keyword)));
-    }
-    
-    const totalDebt = filtered.reduce((s, c) => s + (c.totalDebt || 0), 0);
-    document.getElementById('totalDebtAmount').innerText = formatMoney(totalDebt);
-    
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty-state">📭 Không có khách hàng</div>';
-        return;
-    }
-    
-    container.innerHTML = filtered.map(c => {
-        const debt = c.totalDebt || 0;
-        return `
-            <div class="customer-card" onclick="showCustomerDetail('${c.id}')">
-                <div class="customer-avatar">${c.name.charAt(0).toUpperCase()}</div>
-                <div class="customer-info">
-                    <div class="customer-name">${escapeHtml(c.name)}</div>
-                    <div class="customer-phone">📞 ${c.phone || 'Chưa có'}</div>
-                </div>
-                <div class="customer-debt">${debt > 0 ? formatMoney(debt) : '✅'}</div>
-            </div>
-        `;
-    }).join('');
+function renderCustomerList() {
+    DB.getAll('customers').then(function(custs) {
+        customers = custs;
+        var keyword = document.getElementById('customerSearchInput') ? document.getElementById('customerSearchInput').value.toLowerCase() : '';
+        var filtered = keyword ? customers.filter(function(c) { return c.name.toLowerCase().indexOf(keyword) !== -1 || (c.phone && c.phone.indexOf(keyword) !== -1); }) : customers;
+        var totalDebt = 0;
+        for (var i = 0; i < filtered.length; i++) totalDebt += (filtered[i].totalDebt || 0);
+        document.getElementById('totalDebtAmount').innerText = formatMoney(totalDebt);
+        var container = document.getElementById('customerList');
+        if (!filtered.length) { container.innerHTML = '<div class="empty-state">📭 Không có khách hàng</div>'; return; }
+        var html = '';
+        for (var i = 0; i < filtered.length; i++) {
+            var c = filtered[i];
+            html += '<div class="customer-card" onclick="showCustomerDetail(\'' + c.id + '\')"><div class="customer-avatar">' + c.name.charAt(0).toUpperCase() + '</div><div class="customer-info"><div class="customer-name">' + escapeHtml(c.name) + '</div><div class="customer-phone">📞 ' + (c.phone || '') + '</div></div><div class="customer-debt">' + ((c.totalDebt || 0) > 0 ? formatMoney(c.totalDebt) : '✅') + '</div></div>';
+        }
+        container.innerHTML = html;
+    });
 }
 
-async function quickAddCustomer() {
-    const name = prompt('👤 Nhập tên khách hàng:');
+function quickAddCustomer() {
+    var name = prompt('👤 Nhập tên khách hàng:');
     if (!name) return;
-    
-    const existing = customers.find(c => c.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-        showToast(`Khách "${name}" đã tồn tại!`, 'warning');
-        return;
+    var exists = false;
+    for (var i = 0; i < customers.length; i++) {
+        if (customers[i].name.toLowerCase() === name.toLowerCase()) { exists = true; break; }
     }
-    
-    await addCustomer(name, '');
-    document.getElementById('customerSearchInput').value = '';
-    await renderCustomerList();
-    showToast(`✅ Đã thêm khách ${name}`, 'success');
+    if (exists) { showToast('Khách đã tồn tại!', 'warning'); return; }
+    addCustomer(name, '').then(function() {
+        document.getElementById('customerSearchInput').value = '';
+        renderCustomerList();
+        showToast('✅ Đã thêm khách ' + name, 'success');
+    });
 }
 
-async function addCustomer(name, phone) {
-    const newId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
-    const newCustomer = {
-        id: newId,
-        name: name.trim(),
-        phone: phone || '',
-        address: '',
-        totalDebt: 0,
-        totalSpent: 0,
-        createdAt: new Date().toISOString(),
-        debtHistory: [],
-        paymentHistory: []
-    };
-    await DB.create('customers', newCustomer);
-    customers.push(newCustomer);
-    return newCustomer;
+function addCustomer(name, phone) {
+    var newId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
+    var newCustomer = { id: newId, name: name.trim(), phone: phone || '', address: '', totalDebt: 0, totalSpent: 0, createdAt: new Date().toISOString(), debtHistory: [], paymentHistory: [] };
+    return DB.create('customers', newCustomer).then(function() {
+        customers.push(newCustomer);
+        return newCustomer;
+    });
 }
 
-async function showCustomerDetail(customerId) {
-    const c = customers.find(c => c.id === customerId);
+function showCustomerDetail(customerId) {
+    var c = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
     if (!c) return;
-    
-    const totalDebt = c.totalDebt || 0;
-    const debtHistory = c.debtHistory || [];
-    const paymentHistory = c.paymentHistory || [];
-    
-    let historyHtml = '';
-    [...debtHistory, ...paymentHistory]
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-        .forEach(h => {
-            const isDebt = h.amount > 0 && !h.method;
-            historyHtml += `
-                <div class="cart-item">
-                    <span>${new Date(h.date).toLocaleString('vi-VN')}</span>
-                    <span style="color:${isDebt ? 'var(--danger)' : 'var(--success)'}">${isDebt ? '-' : '+'}${formatMoney(h.amount)}</span>
-                </div>
-                <div style="font-size:11px; color:#888; margin-bottom:8px;">📝 ${escapeHtml(h.note || '')}</div>
-            `;
-        });
-    
-    const container = document.getElementById('customerDetailContent');
-    if (!container) return;
-    
-    container.innerHTML = `
-        <div class="debt-summary" style="margin-bottom:16px;">
-            <span>💰 Công nợ</span>
-            <span style="color:var(--danger); font-size:20px;">${formatMoney(totalDebt)}</span>
-        </div>
-        ${totalDebt > 0 ? `<button class="btn-save" onclick="openDebtPayment('${c.id}', ${totalDebt})" style="margin-bottom:16px;">💸 Thanh toán nợ</button>` : ''}
-        <div class="cost-history-title">📜 Lịch sử giao dịch</div>
-        <div class="cost-list">${historyHtml || '<div class="empty-state">Chưa có giao dịch</div>'}</div>
-    `;
-    
+    var historyHtml = '';
+    var all = [];
+    if (c.debtHistory) for (var i = 0; i < c.debtHistory.length; i++) all.push({ type: 'debt', date: c.debtHistory[i].date, amount: c.debtHistory[i].amount, note: c.debtHistory[i].note });
+    if (c.paymentHistory) for (var i = 0; i < c.paymentHistory.length; i++) all.push({ type: 'payment', date: c.paymentHistory[i].date, amount: c.paymentHistory[i].amount, note: c.paymentHistory[i].note });
+    all.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+    for (var i = 0; i < all.length; i++) {
+        var h = all[i];
+        historyHtml += '<div class="cart-item"><span>' + new Date(h.date).toLocaleString('vi-VN') + '</span><span style="color:' + (h.type === 'debt' ? '#ef4444' : '#10b981') + '">' + (h.type === 'debt' ? '-' : '+') + formatMoney(h.amount) + '</span></div><div style="font-size:11px; margin-bottom:8px;">📝 ' + escapeHtml(h.note || '') + '</div>';
+    }
+    document.getElementById('customerDetailContent').innerHTML = '<div class="debt-summary" style="margin-bottom:16px;"><span>💰 Công nợ</span><span style="color:#ef4444; font-size:20px;">' + formatMoney(c.totalDebt || 0) + '</span></div>' + ((c.totalDebt || 0) > 0 ? '<button class="btn-save" onclick="openDebtPayment(\'' + c.id + '\', ' + (c.totalDebt || 0) + ')" style="margin-bottom:16px;">💸 Thanh toán nợ</button>' : '') + '<div class="cost-history-title">📜 Lịch sử</div>' + (historyHtml || '<div class="empty-state">Chưa có giao dịch</div>');
     document.getElementById('customerDetailModal').style.display = 'flex';
 }
 
 function openDebtPayment(customerId, currentDebt) {
-    document.getElementById('debtPaymentInfo').innerHTML = `💰 Khách: ${customers.find(c => c.id === customerId)?.name}<br>💢 Nợ hiện tại: ${formatMoney(currentDebt)}`;
+    document.getElementById('debtPaymentInfo').innerHTML = '💰 Khách: ' + (function() { for (var i = 0; i < customers.length; i++) if (customers[i].id === customerId) return customers[i].name; return ''; })() + '<br>💢 Nợ: ' + formatMoney(currentDebt);
     document.getElementById('debtPaymentAmount').value = currentDebt;
     document.getElementById('debtPaymentModal').style.display = 'flex';
-    window._currentDebtCustomerId = customerId;
+    pendingDebtCustomerId = customerId;
 }
 
-async function confirmDebtPayment() {
-    const customerId = window._currentDebtCustomerId;
-    const amount = parseInt(document.getElementById('debtPaymentAmount').value) || 0;
-    if (amount <= 0) {
-        showToast('Số tiền không hợp lệ!', 'warning');
-        return;
-    }
-    
-    const customer = customers.find(c => c.id === customerId);
+function confirmDebtPayment() {
+    var amount = parseInt(document.getElementById('debtPaymentAmount').value) || 0;
+    if (amount <= 0) { showToast('Số tiền không hợp lệ!', 'warning'); return; }
+    var customer = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === pendingDebtCustomerId) { customer = customers[i]; break; } }
     if (!customer) return;
-    
-    const newTotal = (customer.totalDebt || 0) - amount;
-    const paymentAmount = Math.min(amount, customer.totalDebt || 0);
-    
-    customer.totalDebt = Math.max(0, newTotal);
+    var payment = Math.min(amount, customer.totalDebt || 0);
+    customer.totalDebt = (customer.totalDebt || 0) - payment;
     customer.paymentHistory = customer.paymentHistory || [];
-    customer.paymentHistory.unshift({
-        id: Date.now(),
-        date: new Date().toISOString(),
-        amount: paymentAmount,
-        method: 'cash',
-        note: `Thanh toán nợ ${formatMoney(paymentAmount)}`
+    customer.paymentHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: payment, method: 'cash', note: 'Thanh toán nợ ' + formatMoney(payment) });
+    DB.update('customers', customer.id, { totalDebt: customer.totalDebt, paymentHistory: customer.paymentHistory }).then(function() {
+        addHistory({ type: 'debt_payment', amount: payment, paymentMethod: 'cash', customer: { id: customer.id, name: customer.name }, note: 'Thanh toán nợ' }).then(function() {
+            DB.getAll('customers').then(function(newCusts) { customers = newCusts; });
+            showToast('✅ Đã thanh toán ' + formatMoney(payment), 'success');
+            closeModal('debtPaymentModal');
+            renderCustomerList();
+            showCustomerDetail(customer.id);
+        });
     });
-    
-    await DB.update('customers', customerId, { totalDebt: customer.totalDebt, paymentHistory: customer.paymentHistory });
-    
-    await addHistory({
-        type: 'debt_payment',
-        amount: paymentAmount,
-        paymentMethod: 'cash',
-        customer: { id: customer.id, name: customer.name },
-        note: `Thanh toán nợ`
-    });
-    
-    customers = await DB.getAll('customers');
-    showToast(`✅ Đã thanh toán ${formatMoney(paymentAmount)} cho ${customer.name}`, 'success');
-    closeModal('debtPaymentModal');
-    renderCustomerList();
-    showCustomerDetail(customerId);
 }
 
-async function addCustomerDebt(customerId, amount, note) {
-    let customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-    
-    customer.totalDebt = (customer.totalDebt || 0) + amount;
-    customer.debtHistory = customer.debtHistory || [];
-    customer.debtHistory.unshift({
-        id: Date.now(),
-        date: new Date().toISOString(),
-        amount: amount,
-        note: note,
-        status: 'unpaid'
+function addCustomerDebt(customerId, amount, note) {
+    var c = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
+    if (!c) return Promise.resolve();
+    c.totalDebt = (c.totalDebt || 0) + amount;
+    c.debtHistory = c.debtHistory || [];
+    c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: amount, note: note, status: 'unpaid' });
+    return DB.update('customers', customerId, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
+        return DB.getAll('customers').then(function(newCusts) { customers = newCusts; });
     });
-    
-    await DB.update('customers', customerId, { totalDebt: customer.totalDebt, debtHistory: customer.debtHistory });
-    customers = await DB.getAll('customers');
 }
 
-// ========== CHỌN KHÁCH HÀNG (SELECTOR) ==========
-let pendingCustomerCallback = null;
-
+// ========== CHỌN KHÁCH ==========
 function showCustomerSelector(callback) {
     pendingCustomerCallback = callback;
     renderCustomerSelectorList('');
     document.getElementById('customerSelectorSearch').value = '';
     document.getElementById('customerSelectorModal').style.display = 'flex';
-    
-    const searchInput = document.getElementById('customerSelectorSearch');
-    searchInput.oninput = function() {
-        renderCustomerSelectorList(this.value);
-    };
+    document.getElementById('customerSelectorSearch').oninput = function() { renderCustomerSelectorList(this.value); };
 }
 
 function renderCustomerSelectorList(searchTerm) {
-    let filtered = customers;
+    var filtered = customers;
     if (searchTerm) {
-        const lower = searchTerm.toLowerCase();
-        filtered = customers.filter(c => c.name.toLowerCase().includes(lower) || (c.phone && c.phone.includes(searchTerm)));
+        var lower = searchTerm.toLowerCase();
+        filtered = customers.filter(function(c) { return c.name.toLowerCase().indexOf(lower) !== -1 || (c.phone && c.phone.indexOf(searchTerm) !== -1); });
     }
-    
-    const container = document.getElementById('customerSelectorList');
-    if (!container) return;
-    
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty-state">📭 Không tìm thấy khách</div>';
-        return;
+    var container = document.getElementById('customerSelectorList');
+    if (filtered.length === 0) { container.innerHTML = '<div class="empty-state">📭 Không tìm thấy khách</div>'; return; }
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var c = filtered[i];
+        html += '<div class="customer-select-item" onclick="selectCustomer(\'' + c.id + '\')"><div class="customer-avatar" style="width:36px;height:36px;">' + c.name.charAt(0).toUpperCase() + '</div><div><div style="font-weight:600;">' + escapeHtml(c.name) + '</div><div style="font-size:11px;">' + (c.phone || '') + ((c.totalDebt || 0) > 0 ? ' - Nợ: ' + formatMoney(c.totalDebt) : '') + '</div></div></div>';
     }
-    
-    container.innerHTML = filtered.map(c => `
-        <div class="customer-select-item" onclick="selectCustomer('${c.id}')">
-            <div class="customer-avatar" style="width:36px; height:36px;">${c.name.charAt(0).toUpperCase()}</div>
-            <div style="flex:1;">
-                <div style="font-weight:600;">${escapeHtml(c.name)}</div>
-                <div style="font-size:11px; color:#888;">${c.phone || ''} ${c.totalDebt > 0 ? `- Nợ: ${formatMoney(c.totalDebt)}` : ''}</div>
-            </div>
-        </div>
-    `).join('');
+    container.innerHTML = html;
 }
 
 function selectCustomer(customerId) {
-    const customer = customers.find(c => c.id === customerId);
-    if (customer && pendingCustomerCallback) {
-        pendingCustomerCallback(customer);
-        pendingCustomerCallback = null;
-    }
+    var customer = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { customer = customers[i]; break; } }
+    if (customer && pendingCustomerCallback) { pendingCustomerCallback(customer); pendingCustomerCallback = null; }
     closeModal('customerSelectorModal');
 }
 
-async function createCustomerFromInput() {
-    const name = document.getElementById('customerSelectorSearch').value.trim();
-    if (!name) {
-        showToast('Vui lòng nhập tên khách hàng!', 'warning');
-        return;
+function createCustomerFromInput() {
+    var name = document.getElementById('customerSelectorSearch').value.trim();
+    if (!name) { showToast('Nhập tên khách hàng!', 'warning'); return; }
+    var exists = false;
+    for (var i = 0; i < customers.length; i++) {
+        if (customers[i].name.toLowerCase() === name.toLowerCase()) { exists = true; break; }
     }
-    
-    const existing = customers.find(c => c.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-        if (confirm(`Khách "${existing.name}" đã tồn tại. Chọn khách này?`)) {
-            selectCustomer(existing.id);
+    if (exists) {
+        if (confirm('Khách "' + name + '" đã tồn tại. Chọn khách này?')) {
+            for (var i = 0; i < customers.length; i++) {
+                if (customers[i].name.toLowerCase() === name.toLowerCase()) { selectCustomer(customers[i].id); break; }
+            }
         }
         return;
     }
-    
-    const newCustomer = await addCustomer(name, '');
-    if (newCustomer && pendingCustomerCallback) {
-        pendingCustomerCallback(newCustomer);
-        pendingCustomerCallback = null;
-    }
-    closeModal('customerSelectorModal');
-    showToast(`✅ Đã tạo khách ${name}`, 'success');
-    await renderCustomerList();
+    addCustomer(name, '').then(function(newC) {
+        if (newC && pendingCustomerCallback) { pendingCustomerCallback(newC); pendingCustomerCallback = null; }
+        closeModal('customerSelectorModal');
+        showToast('✅ Đã tạo khách ' + name, 'success');
+        renderCustomerList();
+    });
 }
 
-// ========== CHI PHÍ (COST) ==========
-async function openCostModal() {
-    costCategories = await DB.getAll('cost_categories') || [];
-    costTransactions = await DB.getAll('cost_transactions') || [];
-    
+// ========== CHI PHÍ ==========
+function openCostModal() {
+    DB.getAll('cost_categories').then(function(cats) { costCategories = cats || []; });
+    DB.getAll('cost_transactions').then(function(txs) { costTransactions = txs || []; renderCostCategoriesList(); renderTodayCosts(); renderMonthCostTotal(); });
     document.getElementById('costName').value = '';
     document.getElementById('costAmount').value = '';
-    
-    renderCostCategoriesList();
-    await renderTodayCosts();
-    await renderMonthCostTotal();
-    
     document.getElementById('costModal').style.display = 'flex';
 }
 
 function renderCostCategoriesList() {
-    const container = document.getElementById('costCategoriesList');
-    if (!container) return;
-    
-    if (costCategories.length === 0) {
-        container.innerHTML = '<div class="empty-state">Chưa có danh mục</div>';
-        return;
+    var container = document.getElementById('costCategoriesList');
+    if (costCategories.length === 0) { container.innerHTML = '<div class="empty-state">Chưa có danh mục</div>'; return; }
+    var html = '<div class="cost-history-title">📦 Danh mục nhanh</div><div class="quick-money" style="flex-wrap:wrap;">';
+    for (var i = 0; i < costCategories.length; i++) {
+        html += '<button class="quick-money-btn" onclick="setCostName(\'' + escapeHtml(costCategories[i].name) + '\')">' + escapeHtml(costCategories[i].name) + '</button>';
     }
-    
-    container.innerHTML = '<div class="cost-history-title">📦 Danh mục nhanh</div><div class="quick-money" style="flex-wrap:wrap;">' +
-        costCategories.map(cat => `<button class="quick-money-btn" onclick="setCostName('${escapeHtml(cat.name)}')">${escapeHtml(cat.name)}</button>`).join('') +
-        '</div>';
-}
-
-function setCostName(name) {
-    document.getElementById('costName').value = name;
-}
-
-async function saveExpense() {
-    const name = document.getElementById('costName').value.trim();
-    const amount = parseInt(document.getElementById('costAmount').value) || 0;
-    
-    if (!name) {
-        showToast('Vui lòng nhập tên chi phí!', 'warning');
-        return;
-    }
-    if (amount <= 0) {
-        showToast('Số tiền phải lớn hơn 0!', 'warning');
-        return;
-    }
-    
-    let category = costCategories.find(c => c.name === name);
-    if (!category) {
-        const newId = Date.now().toString();
-        category = { id: newId, name: name, createdAt: Date.now() };
-        await DB.create('cost_categories', category);
-        costCategories.push(category);
-    }
-    
-    const now = new Date();
-    const data = {
-        categoryId: category.id,
-        categoryName: category.name,
-        amount: amount,
-        quantity: 1,
-        date: now.toISOString(),
-        dateKey: now.toISOString().slice(0, 10),
-        createdAt: Date.now(),
-        deleted: false
-    };
-    await DB.create('cost_transactions', data);
-    
-    costTransactions.push(data);
-    showToast(`✅ Đã thêm chi phí ${formatMoney(amount)}`, 'success');
-    
-    document.getElementById('costName').value = '';
-    document.getElementById('costAmount').value = '';
-    await renderTodayCosts();
-    await renderMonthCostTotal();
-}
-
-async function renderTodayCosts() {
-    const container = document.getElementById('todayCostList');
-    if (!container) return;
-    
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayCosts = costTransactions.filter(tx => tx.dateKey === todayStr && !tx.deleted);
-    
-    if (todayCosts.length === 0) {
-        container.innerHTML = '<div class="empty-text">📭 Chưa có chi phí hôm nay</div>';
-        return;
-    }
-    
-    let total = 0;
-    let html = '';
-    todayCosts.forEach(tx => {
-        total += tx.amount;
-        html += `<div class="cost-item"><span>${escapeHtml(tx.categoryName)}</span><span>${formatMoney(tx.amount)}</span></div>`;
-    });
-    html += `<div class="cost-total">Tổng: ${formatMoney(total)}</div>`;
+    html += '</div>';
     container.innerHTML = html;
 }
 
-async function renderMonthCostTotal() {
-    const container = document.getElementById('monthCostTotal');
-    if (!container) return;
-    
-    const now = new Date();
-    const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const startStr = startDate.toISOString().slice(0, 10);
-    const endStr = endDate.toISOString().slice(0, 10);
-    
-    let total = 0;
-    costTransactions.forEach(tx => {
-        if (!tx.deleted && tx.dateKey >= startStr && tx.dateKey <= endStr) {
-            total += tx.amount;
-        }
-    });
-    
-    container.innerHTML = formatMoney(total);
-}
-// Thêm biến để lưu unsubscribe functions
-let realtimeUnsubscribes = {};
+function setCostName(name) { document.getElementById('costName').value = name; }
 
-// Gọi sau khi loadData xong
-async function initRealtime() {
-    // Subscribe tables
-    DB.subscribe('tables', async (data) => {
-        if (currentTab === 'tables') await renderTables();
-        // Nếu đang xem chi tiết bàn, refresh
-        const detailModal = document.getElementById('tableDetailModal');
-        if (detailModal && detailModal.style.display === 'flex' && window._currentDetailTableId) {
-            await showTableDetail(window._currentDetailTableId);
-        }
-    });
-    
-    // Subscribe customers
-    DB.subscribe('customers', async (data) => {
-        customers = data || [];
-        window.customers = customers;
-        if (currentTab === 'customers') await renderCustomerList();
-        // Refresh selector nếu đang mở
-        const selectorModal = document.getElementById('customerSelectorModal');
-        if (selectorModal && selectorModal.style.display === 'flex') {
-            const searchVal = document.getElementById('customerSelectorSearch')?.value || '';
-            renderCustomerSelectorList(searchVal);
-        }
-    });
-    
-    // Subscribe menu (cho nhân viên thấy món mới ngay)
-    DB.subscribe('menu', async (data) => {
-        menuItems = data || [];
-        window.menuItems = menuItems;
-        const orderModal = document.getElementById('orderModal');
-        if (orderModal && orderModal.style.display === 'flex') {
-            renderMenuByCategory(window._currentMenuCategory || 'all');
-        }
-    });
-    
-    DB.subscribe('menu_categories', async (data) => {
-        menuCategories = data || [];
-        const orderModal = document.getElementById('orderModal');
-        if (orderModal && orderModal.style.display === 'flex') {
-            renderOrderCategories();
-        }
-    });
-    
-    // Subscribe ingredients (cập nhật tồn kho realtime)
-    DB.subscribe('ingredients', async (data) => {
-        ingredients = data || [];
-        window.ingredients = ingredients;
-    });
-    
-    // Subscribe transactions (cập nhật lịch sử và báo cáo realtime)
-    DB.subscribe('transactions', async (data) => {
-        if (currentTab === 'history') await renderHistoryByDate(currentHistoryDate);
-        if (currentTab === 'report') await renderReport(currentReportDate);
-        // Cập nhật tổng công nợ trên tab khách hàng
-        if (currentTab === 'customers') {
-            const totalDebt = customers.reduce((s, c) => s + (c.totalDebt || 0), 0);
-            const totalEl = document.getElementById('totalDebtAmount');
-            if (totalEl) totalEl.innerText = formatMoney(totalDebt);
-        }
-    });
-    
-    // Subscribe cost (cập nhật popup chi phí)
-    DB.subscribe('cost_categories', async (data) => {
-        costCategories = data || [];
-        const costModal = document.getElementById('costModal');
-        if (costModal && costModal.style.display === 'flex') {
+function saveExpense() {
+    var name = document.getElementById('costName').value.trim();
+    var amount = parseInt(document.getElementById('costAmount').value) || 0;
+    if (!name) { showToast('Nhập tên chi phí!', 'warning'); return; }
+    if (amount <= 0) { showToast('Số tiền > 0!', 'warning'); return; }
+    var cat = null;
+    for (var i = 0; i < costCategories.length; i++) { if (costCategories[i].name === name) { cat = costCategories[i]; break; } }
+    var createCat = function() {
+        var newId = Date.now().toString();
+        var newCat = { id: newId, name: name, createdAt: Date.now() };
+        return DB.create('cost_categories', newCat).then(function() {
+            costCategories.push(newCat);
             renderCostCategoriesList();
-        }
-    });
-    
-    DB.subscribe('cost_transactions', async (data) => {
-        costTransactions = data || [];
-        const costModal = document.getElementById('costModal');
-        if (costModal && costModal.style.display === 'flex') {
-            await renderTodayCosts();
-            await renderMonthCostTotal();
-        }
-    });
-}
-// ========== HELPER ==========
-function formatDateDisplay(dateStr) {
-    const d = new Date(dateStr);
-    return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+            return newCat;
+        });
+    };
+    var saveTrans = function(category) {
+        var now = new Date();
+        var data = { categoryId: category.id, categoryName: category.name, amount: amount, quantity: 1, date: now.toISOString(), dateKey: now.toISOString().slice(0, 10), createdAt: Date.now(), deleted: false };
+        return DB.create('cost_transactions', data).then(function() {
+            costTransactions.push(data);
+            showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
+            document.getElementById('costName').value = '';
+            document.getElementById('costAmount').value = '';
+            renderTodayCosts();
+            renderMonthCostTotal();
+        });
+    };
+    if (cat) saveTrans(cat); else createCat().then(saveTrans);
 }
 
-// Export global functions
+function renderTodayCosts() {
+    var today = new Date().toISOString().slice(0, 10);
+    var todayCosts = costTransactions.filter(function(tx) { return tx.dateKey === today && !tx.deleted; });
+    if (todayCosts.length === 0) { document.getElementById('todayCostList').innerHTML = '<div class="empty-text">📭 Chưa có chi phí hôm nay</div>'; return; }
+    var total = 0, html = '';
+    for (var i = 0; i < todayCosts.length; i++) {
+        total += todayCosts[i].amount;
+        html += '<div class="cost-item"><span>' + escapeHtml(todayCosts[i].categoryName) + '</span><span>' + formatMoney(todayCosts[i].amount) + '</span></div>';
+    }
+    html += '<div class="cost-total">Tổng: ' + formatMoney(total) + '</div>';
+    document.getElementById('todayCostList').innerHTML = html;
+}
+
+function renderMonthCostTotal() {
+    var now = new Date();
+    var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    var end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    var total = 0;
+    for (var i = 0; i < costTransactions.length; i++) {
+        if (!costTransactions[i].deleted && costTransactions[i].dateKey >= start && costTransactions[i].dateKey <= end) total += costTransactions[i].amount;
+    }
+    document.getElementById('monthCostTotal').innerText = formatMoney(total);
+}
+
+function refreshCostModal() {
+    var modal = document.getElementById('costModal');
+    if (modal && modal.style.display === 'flex') {
+        renderTodayCosts();
+        renderMonthCostTotal();
+    }
+}
+
+// Export global
 window.showTableDetail = showTableDetail;
-window.paymentAtTable = paymentAtTable;
-window.debtAtTable = debtAtTable;
+window.showPaymentForTable = showPaymentForTable;
+window.showCustomerSelectorForTable = showCustomerSelectorForTable;
 window.openAddMenuForTable = openAddMenuForTable;
 window.addToCart = addToCart;
+window.addToCartWithVariant = addToCartWithVariant;
 window.removeFromCart = removeFromCart;
 window.updateCartQty = updateCartQty;
-window.handleOrderCreateTable = handleOrderCreateTable;
-window.handleOrderPayment = handleOrderPayment;
-window.handleOrderGrab = handleOrderGrab;
-window.handleOrderDebt = handleOrderDebt;
 window.renderMenuByCategory = renderMenuByCategory;
 window.closeModal = closeModal;
 window.refundTransaction = refundTransaction;
@@ -1188,3 +908,8 @@ window.confirmDebtPayment = confirmDebtPayment;
 window.selectCustomer = selectCustomer;
 window.setCostName = setCostName;
 window.quickAddCustomer = quickAddCustomer;
+window.handleAddToExistingTable = handleAddToExistingTable;
+window.handleCreateNewTable = handleCreateNewTable;
+window.handleTakeawayPayment = handleTakeawayPayment;
+window.handleGrabOrder = handleGrabOrder;
+window.handleDebtOrder = handleDebtOrder;
