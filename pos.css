@@ -1878,3 +1878,704 @@ body.modal-open {
     color: #f97316;
     background: #fff7ed;
 }
+
+/* Cải thiện hiển thị cart-item */
+.cart-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    gap: 8px;
+}
+
+/* Tên món + số lượng */
+.cart-item span:first-child {
+    font-weight: 500;
+    color: var(--text);
+    flex: 2;
+    word-break: break-word;
+}
+
+/* Giá tiền */
+.cart-item span:last-child {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+/* Nút xóa */
+.cart-item button {
+    background: transparent;
+    border: none;
+    color: var(--danger);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 20px;
+    transition: 0.05s linear;
+}
+
+.cart-item button:active {
+    background: #fee2e2;
+    transform: scale(0.96);
+}
+
+.table-action:first-child {
+    margin-right: auto;
+    margin-left: 4px;   /* thêm khoảng cách với mép trái nếu muốn */
+}
+
+.recent-toast {
+    position: fixed;
+    bottom: 100px;
+    right: 16px;
+    width: 220px;
+    background: rgba(220, 224, 231, 0.92);   /* 👈 ĐÂY LÀ MÀU NỀN */
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 8px 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    z-index: 200;
+    border-left: 3px solid #f97316;
+    pointer-events: auto;
+}
+
+.recent-toast-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+}
+
+.recent-toast-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.recent-toast-item {
+    font-size: 11px;
+    color: #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px 0;
+    border-bottom: 1px solid #334155;
+}
+
+.recent-toast-item:active {
+    background: #334155;
+    border-radius: 8px;
+    transform: scale(0.98);
+}
+
+.toast-time {
+    color: #020202;
+    min-width: 55px;
+}
+
+.toast-info {
+    flex: 1;
+    color: #e01313;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 6px;
+}
+
+.toast-amount {
+    font-weight: 700;
+    color: #f97316;
+}
+
+@media (max-width: 480px) {
+    .recent-toast {
+        bottom: 130px;
+        right: 8px;
+        left: auto;
+        width: 240px;
+        padding: 6px 10px;
+    }
+}
+
+.toast-info {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cart-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 15px;
+}
+.cart-item > span:first-child {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+.cart-item > span:first-child span {
+    order: 1;
+}
+.cart-item > span:first-child .time-text {
+    order: 2;
+    font-size: 11px;
+    color: #64748b;
+}
+.cart-item > span:last-child {
+    white-space: nowrap;
+}
+/* MODAL THANH TOÁN NỢ */
+#debtPaymentModal .modal-content {
+    max-width: 350px;
+    width: 90%;
+    background: var(--surface);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+#debtPaymentModal .modal-body {
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+#debtPaymentModal #debtPaymentInfo {
+    background: #f8fafc;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    border-left: 4px solid var(--warning);
+    margin: 0;
+}
+
+#debtPaymentModal #debtPaymentInfo br {
+    display: block;
+    margin: 4px 0;
+}
+
+#debtPaymentModal #debtPaymentAmount {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 16px;
+    font-weight: 500;
+    background: var(--surface);
+    text-align: right;
+}
+
+#debtPaymentModal #debtPaymentAmount:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+#debtPaymentModal .form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+#debtPaymentModal .btn-save {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+}
+
+#debtPaymentModal .btn-cancel {
+    background: #e2e8f0;
+    color: var(--text);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+}
+
+/* Responsive nhỏ */
+@media (max-width: 480px) {
+    #debtPaymentModal .modal-body {
+        padding: 16px;
+    }
+    #debtPaymentModal #debtPaymentAmount {
+        font-size: 14px;
+        padding: 10px 14px;
+    }
+    #debtPaymentModal .btn-save,
+    #debtPaymentModal .btn-cancel {
+        padding: 8px 16px;
+        font-size: 14px;
+    }
+}
+
+/* ========== MANAGER (ADMIN) STYLES ========== */
+.nav-group.full-width {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+.mode-select {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 30px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 14px;
+}
+.manager-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+.manager-box {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+    border: 1px solid var(--border);
+    transition: 0.1s;
+}
+.manager-box:active {
+    transform: scale(0.98);
+    background: #f1f5f9;
+}
+.manager-box label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 6px;
+}
+.big-value {
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--primary);
+}
+.summary-hint {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}
+.card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.card-header {
+    padding: 12px 16px;
+    background: #f8fafc;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+}
+.card-header h2 {
+    font-size: 16px;
+    margin: 0;
+}
+.card-body {
+    padding: 12px;
+}
+.collapsible .card-body {
+    display: block;
+}
+.collapsible.collapsed .card-body {
+    display: none;
+}
+.toggle-icon {
+    font-size: 12px;
+    transition: transform 0.2s;
+}
+.collapsible.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+.stats-list, .alert-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.stats-item, .alert-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+}
+.stats-qty, .alert-stock {
+    font-weight: 600;
+    color: var(--primary);
+}
+.admin-expense-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 40px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+/* Modal chi tiết lịch sử (nếu chưa có) */
+#historyDetailModal .modal-content {
+    max-width: 500px;
+}
+.cost-history-header {
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+.cost-history-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+.cost-history-item {
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.history-date-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.history-date-group {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.history-date-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+.history-date-title {
+    font-weight: 600;
+}
+.history-date-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.history-date-amount {
+    font-weight: 700;
+    color: var(--primary);
+}
+.history-date-items {
+    padding: 8px;
+    border-top: 1px solid var(--border);
+}
+.history-date-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+    cursor: pointer;
+}
+.history-date-item:active {
+    background: #f1f5f9;
+}
+.history-date-item-time {
+    font-size: 12px;
+}
+.history-date-item-amount {
+    font-weight: 700;
+}
+
+/* ========== MODAL CHI PHÍ QUẢN LÝ ========== */
+#adminCostModal .modal-content {
+    max-width: 500px;
+    width: 90%;
+    background: var(--surface);
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+#adminCostModal .modal-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Ô nhập tên chi phí */
+#adminCostModal .form-input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    outline: none;
+    transition: border-color 0.2s;
+}
+#adminCostModal .form-input:focus {
+    border-color: var(--primary);
+}
+
+/* Danh sách danh mục nhanh (dạng lưới linh hoạt) */
+#adminRecentCategoriesList {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0;
+}
+#adminRecentCategoriesList .recent-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    border-radius: 40px;
+    padding: 4px 8px;
+}
+#adminRecentCategoriesList .recent-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 13px;
+    border-radius: 30px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#adminRecentCategoriesList .recent-btn:active {
+    background: #e2e8f0;
+}
+#adminRecentCategoriesList .action-btn-edit,
+#adminRecentCategoriesList .action-btn-delete {
+    background: #f1f5f9;
+    border: none;
+    border-radius: 30px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+#adminRecentCategoriesList .action-btn-delete {
+    color: var(--danger);
+}
+
+/* Các nút số tiền nhanh (quick-money) */
+#adminCostModal .quick-money {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0;
+}
+.quick-money-btn {
+    background: #f1f5f9;
+    border: none;
+    border-radius: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.05s linear;
+}
+.quick-money-btn:active {
+    background: #e2e8f0;
+    transform: scale(0.96);
+}
+
+/* Nút lưu chi phí */
+.btn-save {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 40px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+}
+.btn-save:active {
+    background: var(--primary-dark);
+    transform: scale(0.98);
+}
+
+/* Tiêu đề danh sách chi phí hôm nay / tháng */
+.cost-history-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin: 8px 0 4px 0;
+    color: var(--text);
+}
+
+/* Danh sách chi phí */
+.cost-list {
+    background: #f8fafc;
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.today-cost-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+.today-cost-item:last-child {
+    border-bottom: none;
+}
+.today-cost-name {
+    font-weight: 500;
+}
+.today-cost-amount {
+    font-weight: 700;
+    color: var(--primary);
+}
+.cost-total {
+    font-weight: 700;
+    text-align: right;
+    font-size: 15px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 480px) {
+    #adminCostModal .modal-body {
+        padding: 12px;
+        gap: 10px;
+    }
+    .quick-money-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+}
+
+/* Danh sách chi phí (quản lý & nhân viên) */
+.manager-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.manager-item:active {
+    background: #f1f5f9;
+    transform: scale(0.99);
+}
+.manager-item span:first-child {
+    font-weight: 500;
+    font-size: 14px;
+}
+.manager-item strong {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 14px;
+}
+
+#costHistoryModal .cost-history-header {
+    font-weight: 600;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+#costHistoryModal .cost-history-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#costHistoryModal .cost-history-item {
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+}
+.cost-history-date {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.cost-history-amount {
+    font-weight: 700;
+    font-size: 14px;
+    margin-top: 4px;
+}
+.cost-history-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* Modal chi tiết khách hàng */
+#customerDetailModal .modal-content {
+    max-width: 500px;
+    width: 90%;
+    background: var(--surface);
+    border-radius: 20px;
+    overflow: hidden;
+}
+#customerDetailModal .modal-body {
+    padding: 16px;
+}
+#customerDetailModal .debt-summary {
+    background: #fff7ed;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+}
+#customerDetailModal .btn-save {
+    background: var(--primary);
+    color: white;
+    padding: 10px;
+    border-radius: 40px;
+    width: 100%;
+    border: none;
+    font-weight: 600;
+    margin-bottom: 16px;
+    cursor: pointer;
+}
+#customerDetailModal .cart-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+#customerDetailModal .cost-history-title {
+    font-weight: 700;
+    margin: 12px 0 8px;
+}

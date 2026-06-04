@@ -57,6 +57,7 @@ function loadData() {
         window.ingredients = ingredients;
         window.customers = customers;
         return renderTables();
+        updateRecentToast();
     }).then(function() {
         renderCustomerList();
         renderHistoryByDate(currentHistoryDate);
@@ -64,7 +65,53 @@ function loadData() {
         initRealtime();
     });
 }
-
+function renderRecentTransactions() {
+    var todayStr = new Date().toISOString().slice(0, 10);
+    DB.getTransactionsByDate(todayStr).then(function(transactions) {
+        var validTx = transactions.filter(function(tx) { return !tx.refunded; });
+        validTx.sort(function(a, b) {
+            return new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date);
+        });
+        var recent = validTx.slice(0, 3);
+        var container = document.getElementById('recentList');
+        if (!container) return;
+        
+        if (recent.length === 0) {
+            container.innerHTML = '<div class="empty-text" style="padding: 8px;">Chưa có giao dịch hôm nay</div>';
+            return;
+        }
+        
+        var html = '';
+        for (var i = 0; i < recent.length; i++) {
+            var tx = recent[i];
+            var timeDiff = Math.floor((Date.now() - new Date(tx.createdAt || tx.date)) / 60000);
+            var timeText = '';
+            if (timeDiff < 1) timeText = 'Vừa xong';
+            else if (timeDiff < 60) timeText = timeDiff + ' phút trước';
+            else timeText = Math.floor(timeDiff / 60) + ' giờ trước';
+            
+            var totalItems = 0;
+            if (tx.items && tx.items.length) {
+                for (var j = 0; j < tx.items.length; j++) totalItems += tx.items[j].qty;
+            }
+            
+            var locationInfo = '';
+            if (tx.tableName) locationInfo = '🍽️ ' + tx.tableName;
+            else if (tx.type === 'takeaway') locationInfo = '🛵 Mang đi';
+            else if (tx.type === 'grab') locationInfo = '🚕 Grab';
+            else locationInfo = '🍽️ Tại chỗ';
+            
+            html += `
+                <div class="recent-item" onclick="showTransactionDetail('${tx.id}')">
+                    <span class="recent-time">${timeText}</span>
+                    <span class="recent-info">${locationInfo} - ${totalItems} món</span>
+                    <span class="recent-amount">${formatMoney(tx.amount)}</span>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    });
+}
 // ========== REALTIME THÔNG MINH ==========
 function initRealtime() {
     DB.subscribe('tables', function(newTables) {
@@ -108,6 +155,8 @@ function initRealtime() {
     
    // Trong initRealtime, thay đổi:
 DB.subscribe('transactions', function() {
+        updateRecentToast();   // thêm dòng này
+
     // Hủy lần render trước nếu chưa kịp chạy
     if (renderDebounceTimer) clearTimeout(renderDebounceTimer);
     // Đợi 150ms để gộp nhiều sự kiện
@@ -125,6 +174,61 @@ DB.subscribe('cost_transactions', function(data) {
 });
 }
 
+function updateRecentToast() {
+    var todayStr = new Date().toISOString().slice(0, 10);
+    DB.getTransactionsByDate(todayStr).then(function(transactions) {
+        var validTx = transactions.filter(function(tx) { return !tx.refunded; });
+        validTx.sort(function(a, b) {
+            return new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date);
+        });
+        var recent = validTx.slice(0, 3);
+        var container = document.getElementById('recentToastList');
+        if (!container) return;
+        
+        if (recent.length === 0) {
+            container.innerHTML = '<div style="font-size: 10px; color: #64748b; text-align:center;">✨ Chưa có giao dịch</div>';
+            return;
+        }
+        
+        var html = '';
+        for (var i = 0; i < recent.length; i++) {
+            var tx = recent[i];
+            var timeDiff = Math.floor((Date.now() - new Date(tx.createdAt || tx.date)) / 60000);
+            var timeText = '';
+            if (timeDiff < 1) timeText = 'vừa xong';
+            else if (timeDiff < 60) timeText = timeDiff + 'p';
+            else timeText = Math.floor(timeDiff / 60) + 'h';
+            
+            var totalItems = 0;
+            if (tx.items && tx.items.length) {
+                for (var j = 0; j < tx.items.length; j++) totalItems += tx.items[j].qty;
+            }
+            
+            var shortInfo = '';
+            if (tx.tableName) shortInfo = tx.tableName;
+            else if (tx.type === 'takeaway') shortInfo = 'Mang đi';
+            else if (tx.type === 'grab') shortInfo = 'Grab';
+            else shortInfo = 'Tại chỗ';
+            
+            // Thêm phương thức thanh toán
+            var methodIcon = '';
+            if (tx.paymentMethod === 'cash') methodIcon = '💰';
+            else if (tx.paymentMethod === 'transfer') methodIcon = '💳';
+            else if (tx.paymentMethod === 'debt') methodIcon = '💢';
+            else if (tx.paymentMethod === 'grab') methodIcon = '🚕';
+            else methodIcon = '💵';
+            
+            html += `
+                <div class="recent-toast-item" onclick="showTransactionDetail('${tx.id}')">
+                    <span class="toast-time">${timeText}</span>
+                    <span class="toast-info">${shortInfo} (${totalItems} món) ${methodIcon}</span>
+                    <span class="toast-amount">${formatMoney(tx.amount)}</span>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    });
+}
 // ========== CẬP NHẬT BÀN THÔNG MINH ==========
 function updateTablesDiff(newTables) {
     var activeTables = newTables.filter(function(t) { return (t.items && t.items.length) || t.total > 0; });
@@ -181,7 +285,7 @@ function updateTableCard(card, table) {
     var displayName = table.customerName ? escapeHtml(table.customerName) : escapeHtml(table.name);
     
     var nameSpan = card.querySelector('.table-name');
-    if (nameSpan) nameSpan.innerHTML = '🪑 ' + displayName;
+    if (nameSpan) nameSpan.innerHTML = displayName;
     
     var timeSpan = card.querySelector('.table-time');
     if (timeSpan) timeSpan.innerHTML = '⏱️ ' + timeDisplay;
@@ -218,17 +322,17 @@ function createTableCard(table) {
     div.onclick = function(id) { return function() { showTableDetail(id); }; }(table.id);
     div.innerHTML = 
         '<div class="table-header">' +
-            '<span class="table-name" onclick="event.stopPropagation(); showCustomerSelectorForTable(\'' + table.id + '\')" style="cursor:pointer;">🪑 ' + displayName + '</span>' +
+            '<span class="table-name" onclick="event.stopPropagation(); showCustomerSelectorForTable(\'' + table.id + '\')" style="cursor:pointer;">' + displayName + '</span>' +
             '<span class="table-time">⏱️ ' + timeDisplay + '</span>' +
         '</div>' +
         '<div class="table-stats">' +
             '<span class="table-item-count">📦 ' + itemCount + ' món</span>' +
             '<span class="table-total">' + formatMoney(table.total) + '</span>' +
         '</div>' +
-        '<div class="table-actions">' +
-            '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕</div>' +
-            '<div class="table-action" onclick="event.stopPropagation(); showPaymentForTable(\'' + table.id + '\')">💸</div>' +
-        '</div>';
+        // Phần div.actions bên trong createTableCard
+'<div class="table-actions">' +
+    '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕</div>' +
+'</div>';
     return div;
 }
 
@@ -343,6 +447,13 @@ function switchTab(tabId) {
         if (contents[i].id === tabId + 'View') contents[i].classList.add('active');
         else contents[i].classList.remove('active');
     }
+var toast = document.getElementById('recentToast');
+    if (toast) {
+        toast.style.display = tabId === 'tables' ? 'flex' : 'none';
+    }
+    if (tabId === 'manager' && typeof managerApplyFilter === 'function') {
+    managerApplyFilter();
+}
 }
 
 function formatMoney(amount) { return (amount || 0).toLocaleString('vi-VN') + 'đ'; }
@@ -357,38 +468,51 @@ function showTableDetail(tableId) {
     currentTableDetailId = tableId;
     DB.get('tables', String(tableId)).then(function(table) {
         if (!table) return;
-        document.getElementById('detailTableName').innerHTML = '🪑 ' + escapeHtml(table.name) + (table.customerName ? ' (' + escapeHtml(table.customerName) + ')' : '');
+        var tableName = escapeHtml(table.name);
+        var customerName = table.customerName ? ' (' + escapeHtml(table.customerName) + ')' : '';
+        document.getElementById('detailTableName').innerHTML = '🪑 ' + tableName + customerName;
+
         var itemsHtml = '', totalAmount = 0;
         if (table.items && table.items.length) {
             for (var i = 0; i < table.items.length; i++) {
                 var item = table.items[i];
                 totalAmount += item.price * item.qty;
-                itemsHtml += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><span>' + formatMoney(item.price * item.qty) + '</span></div>';
+                var timeStr = '';
+                if (item.addedTime) {
+                    var d = new Date(item.addedTime);
+                    timeStr = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                }
+                // Hiển thị tên món, số lượng, giờ (nếu có) và giá
+                itemsHtml += '<div class="cart-item">' +
+                    '<span>' + escapeHtml(item.name) + ' x' + item.qty + (timeStr ? ' 🕒 ' + timeStr : '') + '</span>' +
+                    '<span>' + formatMoney(item.price * item.qty) + '</span>' +
+                '</div>';
             }
         } else {
             itemsHtml = '<div class="empty-state">✨ Chưa có món</div>';
         }
         document.getElementById('detailItems').innerHTML = itemsHtml;
         document.getElementById('detailSummary').innerHTML = '<div class="cart-total">Tổng: ' + formatMoney(totalAmount) + '</div>';
+
         // Hàng 1: các nút chỉnh sửa bàn (Thêm món, Chia hóa đơn, Chuyển món, Gộp bàn, Xóa bàn)
-var editButtonsHtml = 
-    '<div class="cart-actions edit-actions">' +
-        '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button>' +
-        '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showSplitBillModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🧾 Chia hóa đơn</button>' +
-        '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showTransferItemsModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔄 Chuyển món</button>' +
-        '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showMergeTableModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔗 Gộp bàn</button>' +
-        '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showDeleteTableConfirm(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🗑️ Xóa bàn</button>' +
-    '</div>';
+        var editButtonsHtml = 
+            '<div class="cart-actions edit-actions">' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showSplitBillModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🧾 Chia hóa đơn</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showTransferItemsModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔄 Chuyển món</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showMergeTableModal(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🔗 Gộp bàn</button>' +
+                '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="showDeleteTableConfirm(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">🗑️ Xóa bàn</button>' +
+            '</div>';
 
-// Hàng 2: 3 nút thanh toán trực tiếp (Tiền mặt, Chuyển khoản, Ghi nợ)
-var paymentButtonsHtml = 
-    '<div class="cart-actions payment-actions">' +
-        '<button class="cart-action-btn cash" onclick="paymentAtTable(\'' + table.id + '\', \'cash\'); closeModal(\'tableDetailModal\')">💰 Tiền mặt</button>' +
-        '<button class="cart-action-btn transfer" onclick="paymentAtTable(\'' + table.id + '\', \'transfer\'); closeModal(\'tableDetailModal\')">💳 Chuyển khoản</button>' +
-        '<button class="cart-action-btn debt" onclick="debtAtTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">💢 Ghi nợ</button>' +
-    '</div>';
+        // Hàng 2: 3 nút thanh toán trực tiếp (Tiền mặt, Chuyển khoản, Ghi nợ)
+        var paymentButtonsHtml = 
+            '<div class="cart-actions payment-actions">' +
+                '<button class="cart-action-btn cash" onclick="paymentAtTable(\'' + table.id + '\', \'cash\'); closeModal(\'tableDetailModal\')">💰 Tiền mặt</button>' +
+                '<button class="cart-action-btn transfer" onclick="paymentAtTable(\'' + table.id + '\', \'transfer\'); closeModal(\'tableDetailModal\')">💳 Chuyển khoản</button>' +
+                '<button class="cart-action-btn debt" onclick="debtAtTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">💢 Ghi nợ</button>' +
+            '</div>';
 
-document.getElementById('detailActions').innerHTML = editButtonsHtml + paymentButtonsHtml;
+        document.getElementById('detailActions').innerHTML = editButtonsHtml + paymentButtonsHtml;
         document.getElementById('tableDetailModal').style.display = 'flex';
     });
 }
@@ -512,65 +636,97 @@ function renderMenuByCategory(categoryId) {
 }
 
 function addToCart(id, name, price) {
-    var existing = null;
-    for (var i = 0; i < tempOrder.length; i++) {
-        if (tempOrder[i].id === id) { existing = tempOrder[i]; break; }
-    }
-    if (existing) existing.qty++;
-    else tempOrder.push({ id: id, name: name, price: price, qty: 1 });
+    tempOrder.push({
+        id: id,
+        name: name,
+        price: price,
+        qty: 1,
+        addedTime: new Date().toISOString()
+    });
     renderCart();
 }
 
 function addToCartWithVariant(itemId, variantName, price) {
     var item = null;
-    for (var i = 0; i < menuItems.length; i++) { if (menuItems[i].id === itemId) { item = menuItems[i]; break; } }
+    for (var i = 0; i < menuItems.length; i++) {
+        if (menuItems[i].id === itemId) { item = menuItems[i]; break; }
+    }
     if (!item) return;
     var displayName = item.name + ' (' + variantName + ')';
-    var existing = null;
-    for (var i = 0; i < tempOrder.length; i++) {
-        if (tempOrder[i].name === displayName) { existing = tempOrder[i]; break; }
-    }
-    if (existing) existing.qty++;
-    else tempOrder.push({ id: itemId + '_' + variantName, name: displayName, price: price, qty: 1 });
+    tempOrder.push({
+        id: itemId + '_' + variantName,
+        name: displayName,
+        price: price,
+        qty: 1,
+        addedTime: new Date().toISOString()
+    });
     renderCart();
 }
 
 function removeFromCart(idx) { tempOrder.splice(idx, 1); renderCart(); }
-function updateCartQty(idx, delta) { if (tempOrder[idx]) { tempOrder[idx].qty += delta; if (tempOrder[idx].qty <= 0) tempOrder.splice(idx, 1); renderCart(); } }
-function renderCart() {
+function updateCartQty(idx, delta) {
+    if (tempOrder[idx]) {
+        var newQty = tempOrder[idx].qty + delta;
+        if (newQty <= 0) {
+            tempOrder.splice(idx, 1);
+        } else {
+            tempOrder[idx].qty = newQty;
+        }
+        renderCart();
+    }
+}function renderCart() {
     var container = document.getElementById('cartItems');
     var totalSpan = document.getElementById('cartTotal');
     var actionsDiv = document.getElementById('cartActions');
     if (!container) return;
-    if (tempOrder.length === 0) { container.innerHTML = '<div class="empty-state">🛒 Chưa có món</div>'; totalSpan.innerText = 'Tổng: 0đ'; if (actionsDiv) actionsDiv.innerHTML = ''; return; }
+    if (tempOrder.length === 0) {
+        container.innerHTML = '<div class="empty-state">🛒 Chưa có món</div>';
+        totalSpan.innerText = 'Tổng: 0đ';
+        if (actionsDiv) actionsDiv.innerHTML = '';
+        return;
+    }
     var total = 0;
     var html = '';
     for (var i = 0; i < tempOrder.length; i++) {
         var item = tempOrder[i];
         var itemTotal = item.price * item.qty;
         total += itemTotal;
-        html += '<div class="cart-item"><span>' + escapeHtml(item.name) + ' x' + item.qty + '</span><div><span style="margin-right:8px;">' + formatMoney(itemTotal) + '</span><button onclick="removeFromCart(' + i + ')">✖</button></div></div>';
+        var timeStr = '';
+        if (item.addedTime) {
+            var date = new Date(item.addedTime);
+            timeStr = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        }
+        html += '<div class="cart-item" data-idx="' + i + '">' +
+            '<div class="cart-item-info">' +
+                '<span class="cart-item-name">' + escapeHtml(item.name) + '</span>' +
+                (timeStr ? '<span class="cart-item-time">🕒 ' + timeStr + '</span>' : '') +
+                '<div class="cart-item-qty-control">' +
+                    '<button onclick="updateCartQty(' + i + ', -1)">-</button>' +
+                    '<span>' + item.qty + '</span>' +
+                    '<button onclick="updateCartQty(' + i + ', 1)">+</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="cart-item-price">' + formatMoney(itemTotal) + '</div>' +
+            '<button class="cart-item-remove" onclick="removeFromCart(' + i + ')">✖</button>' +
+        '</div>';
     }
     container.innerHTML = html;
     totalSpan.innerText = 'Tổng: ' + formatMoney(total);
-    // === Bắt đầu sửa ===
-var createBtnContainer = document.getElementById('cartCreateBtn');
-if (currentAddToTableId) {
-    // Đang thêm vào bàn cũ -> ẩn nút tạo bàn, chỉ hiện nút "Thêm vào bàn"
-    if (createBtnContainer) createBtnContainer.innerHTML = '';
-    actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleAddToExistingTable()">🍽️ Thêm vào bàn</button>';
-} else {
-    // Tạo đơn mới -> đưa nút "Tạo bàn mới" vào cartCreateBtn, các nút còn lại để dưới
-    if (createBtnContainer) {
-        createBtnContainer.innerHTML = '<button class="cart-action-btn table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button>';
+    // Giữ nguyên phần actions (tạo bàn mới, thanh toán...)
+    var createBtnContainer = document.getElementById('cartCreateBtn');
+    if (currentAddToTableId) {
+        if (createBtnContainer) createBtnContainer.innerHTML = '';
+        actionsDiv.innerHTML = '<button class="cart-action-btn table" onclick="handleAddToExistingTable()">🍽️ Thêm vào bàn</button>';
+    } else {
+        if (createBtnContainer) {
+            createBtnContainer.innerHTML = '<button class="cart-action-btn table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button>';
+        }
+        actionsDiv.innerHTML = 
+            '<button class="cart-action-btn cash" onclick="handleTakeawayPayment(\'cash\')">💰 TM mặt</button>' +
+            '<button class="cart-action-btn transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 CK khoản</button>' +
+            '<button class="cart-action-btn grab" onclick="handleGrabOrder()">🚕 Grab</button>' +
+            '<button class="cart-action-btn debt" onclick="handleDebtOrder()">💢 Ghi nợ</button>';
     }
-    actionsDiv.innerHTML = 
-        '<button class="cart-action-btn cash" onclick="handleTakeawayPayment(\'cash\')">💰 TM mặt</button>' +
-        '<button class="cart-action-btn transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 CK khoản</button>' +
-        '<button class="cart-action-btn grab" onclick="handleGrabOrder()">🚕 Grab</button>' +
-        '<button class="cart-action-btn debt" onclick="handleDebtOrder()">💢 Ghi nợ</button>';
-}
-// === Kết thúc sửa ===
 }
 
 function handleAddToExistingTable() {
@@ -584,18 +740,18 @@ function handleAddToExistingTable() {
                 var existingItems = table.items || [];
                 for (var i = 0; i < tempOrder.length; i++) {
                     var newItem = tempOrder[i];
-                    var found = false;
-                    for (var j = 0; j < existingItems.length; j++) {
-                        if (existingItems[j].name === newItem.name) {
-                            existingItems[j].qty += newItem.qty;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) existingItems.push({ id: newItem.id, name: newItem.name, price: newItem.price, qty: newItem.qty, addedTime: new Date().toISOString() });
+                    existingItems.push({
+                        id: newItem.id,
+                        name: newItem.name,
+                        price: newItem.price,
+                        qty: newItem.qty,
+                        addedTime: newItem.addedTime || new Date().toISOString()
+                    });
                 }
                 var newTotal = 0;
-                for (var i = 0; i < existingItems.length; i++) newTotal += existingItems[i].price * existingItems[i].qty;
+                for (var i = 0; i < existingItems.length; i++) {
+                    newTotal += existingItems[i].price * existingItems[i].qty;
+                }
                 DB.update('tables', String(currentAddToTableId), { items: existingItems, total: newTotal }).then(function() {
                     renderTables();
                     if (currentTableDetailId === currentAddToTableId) showTableDetail(currentAddToTableId);
@@ -626,7 +782,15 @@ function handleCreateNewTable() {
                 id: newId, name: 'Ban ' + newNumber, status: 'occupied',
                 time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                 startTime: now.toISOString(),
-                items: tempOrder.map(function(item) { return { id: item.id, name: item.name, price: item.price, qty: item.qty, addedTime: now.toISOString() }; }),
+                items: tempOrder.map(function(item) {
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        price: item.price,
+                        qty: item.qty,
+                        addedTime: item.addedTime || now.toISOString()
+                    };
+                }),
                 total: tempOrder.reduce(function(s, i) { return s + i.price * i.qty; }, 0),
                 customerId: selectedCustomer ? selectedCustomer.id : null,
                 customerName: selectedCustomer ? selectedCustomer.name : null

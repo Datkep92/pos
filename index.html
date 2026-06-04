@@ -18,11 +18,13 @@
         </div>
 
         <div class="main-tabs">
-            <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
-            <div class="tab-btn" data-tab="customers">👥 Khách</div>
-            <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
-            <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
-        </div>
+    <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
+    <div class="tab-btn" data-tab="customers">👥 Khách</div>
+    <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
+    <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
+    <!-- Thêm tab admin -->
+    <div class="tab-btn" data-tab="manager">📊 Admin</div>
+</div>
 
         <div class="main-content">
             <div id="tablesView" class="tab-content active"><div class="tables-grid" id="tablesGrid"></div></div>
@@ -36,6 +38,123 @@
                 </div>
                 <div class="customer-list" id="customerList"></div>
             </div>
+            <!-- ========== TAB QUẢN LÝ (ADMIN) ========== -->
+<div id="managerView" class="tab-content">
+    <div class="nav-group full-width">
+        <button id="managerPeriodPrevBtn" class="nav-btn">◀</button>
+        <select id="managerViewModeSelect" class="mode-select">
+            <option value="period">Kỳ 20/5/2026 → 19/6/2026</option>
+            <option value="month">Tháng</option>
+            <option value="day">Ngày</option>
+        </select>
+        <button id="managerPeriodNextBtn" class="nav-btn">▶</button>
+    </div>
+
+    <!-- CARD THỐNG KÊ TỔNG HỢP (KPI) -->
+    <div class="card">
+        <div class="manager-grid">
+            <div class="manager-box" id="revenueBox" style="cursor: pointer;">
+                <label>💰 Doanh thu</label>
+                <div class="big-value" id="managerRevenue">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+            <div class="manager-box" id="grabBox" style="cursor: pointer;">
+                <label>🚕 Grab</label>
+                <div class="big-value" id="managerGrab">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+            <div class="manager-box" id="bankBox" style="cursor: pointer;">
+                <label>🏦 Chuyển khoản</label>
+                <div class="big-value" id="managerBank">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+            <div class="manager-box" id="cashBox" style="cursor: pointer;">
+                <label>💵 Thực nhận</label>
+                <div class="big-value" id="managerCash">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+            <div class="manager-box" id="expenseBox" style="cursor: pointer;">
+                <label>📉 Chi phí (NV)</label>
+                <div class="big-value" id="managerExpense">0đ</div>
+                <div class="summary-hint">Click danh sách</div>
+            </div>
+            <div class="manager-box" id="debtOccurBox" style="cursor: pointer;">
+                <label>📊 Công nợ phát sinh</label>
+                <div class="big-value" id="managerDebt">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+            <div class="manager-box" id="adminExpenseBox" style="cursor: pointer;">
+                <label>📋 Tổng CP Quản lý</label>
+                <div class="big-value" id="managerAdminExpense">0đ</div>
+                <div class="summary-hint">Click xem chi tiết</div>
+            </div>
+            <div class="manager-box" id="totalDebtBox" style="cursor: pointer;">
+                <label>🏦 TỔNG CÔNG NỢ</label>
+                <div class="big-value" id="managerTotalDebt">0đ</div>
+                <div class="summary-hint">Click xem danh sách nợ</div>
+            </div>
+            <div class="manager-box employee-box" id="employeeBox" style="cursor: pointer;">
+                <label>👥 NHÂN VIÊN</label>
+                <div class="big-value" id="managerTotalSalary">0đ</div>
+                <div class="summary-hint">Click quản lý</div>
+            </div>
+            <div class="manager-box" id="netIncomeBox" style="cursor: pointer;">
+                <label>💰 THU NHẬP RÒNG</label>
+                <div class="big-value" id="managerNetIncome">0đ</div>
+                <div class="summary-hint">Click chi tiết</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thống kê đồ uống -->
+    <div class="card">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <h2>📊 Thống kê đồ uống</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body" id="managerDrinkStats">
+            <div class="empty-state">Đang tải...</div>
+        </div>
+    </div>
+
+    <!-- Cảnh báo tồn kho thấp -->
+    <div class="card">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <h2>⚠️ Cảnh báo tồn kho thấp</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body" id="managerLowStockAlert">
+            <div class="empty-state">Đang tải...</div>
+        </div>
+    </div>
+
+    <!-- Chi phí nhân viên -->
+    <div class="card collapsible">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <h2>📋 Chi Phí (Nhân viên)</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body" id="managerExpenseList"></div>
+    </div>
+
+    <!-- Chi phí quản lý + nút thêm -->
+    <div class="card collapsible collapsed">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <button class="admin-expense-btn" id="adminExpenseFab">➕ Thêm chi phí Quản lý</button>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body" id="managerAdminExpenseList"></div>
+    </div>
+
+    <!-- Công nợ khách hàng -->
+    <div class="card collapsible collapsed">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <h2>🧾 Công Nợ Khách Hàng</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body" id="managerDebtList"></div>
+    </div>
+</div>
             <div id="historyView" class="tab-content">
                 <div class="history-controls">
                     <button class="nav-btn" id="prevDayBtn">◀</button>
@@ -248,10 +367,95 @@
         <div class="modal-body" id="costDetailList"></div>
     </div>
 </div>
+<!-- Toast giao dịch gần đây -->
+<div id="recentToast" class="recent-toast">
+    <div id="recentToastList" class="recent-toast-list"></div>
+</div>
+<!-- MODAL HIỂN THỊ LỊCH SỬ CHI TIẾT (ADMIN) -->
+<div class="modal" id="historyDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title" id="historyDetailTitle">📋 Chi tiết</span>
+            <span class="modal-close" onclick="closeModal('historyDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="historyDetailContent">
+            <!-- Nội dung sẽ được render bằng JS -->
+        </div>
+    </div>
+</div>
+<!-- MODAL CHI TIẾT LỊCH SỬ (DÙNG CHO ADMIN) -->
+<div class="modal" id="historyDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title" id="historyDetailTitle">📋 Chi tiết</span>
+            <span class="modal-close" onclick="closeModal('historyDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="historyDetailContent">
+            <!-- Nội dung sẽ được JS thay thế -->
+        </div>
+    </div>
+</div>
+<!-- MODAL CHI PHÍ QUẢN LÝ (ADMIN) -->
+<div class="modal" id="adminCostModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title" id="adminExpensePopupTitle">📊 Thêm chi phí Quản lý</span>
+            <span class="modal-close" onclick="closeModal('adminCostModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="adminExpenseNameInput" class="form-input" placeholder="Tên chi phí">
+            <div class="cost-categories" id="adminRecentCategoriesList">
+                <div class="empty-text">Chưa có danh mục</div>
+            </div>
+            <div class="quick-money">
+                <button type="button" class="quick-money-btn" data-amount="35000">35k</button>
+                <button type="button" class="quick-money-btn" data-amount="40000">40k</button>
+                <button type="button" class="quick-money-btn" data-amount="50000">50k</button>
+                <button type="button" class="quick-money-btn" data-amount="55000">55k</button>
+                <button type="button" class="quick-money-btn" data-amount="60000">60k</button>
+                <button type="button" class="quick-money-btn" data-amount="100000">100k</button>
+                <button type="button" class="quick-money-btn" data-amount="200000">200k</button>
+            </div>
+            <input type="number" id="adminExpenseAmount" class="form-input" placeholder="Số tiền" step="1000">
+            <input type="number" id="adminExpenseQty" class="form-input" placeholder="Số lượng" value="1" step="1">
+            <button class="btn-save" id="saveAdminExpenseBtn">💾 Lưu chi phí Quản lý</button>
+            <div class="cost-history-title">📋 Chi phí quản lý hôm nay</div>
+            <div id="adminTodayCostList" class="cost-list"></div>
+            <div class="cost-history-title">📜 Tổng chi phí quản lý tháng này</div>
+            <div id="adminMonthCostTotal" class="cost-total">0đ</div>
+        </div>
+    </div>
+</div>
+<!-- MODAL LỊCH SỬ CHI PHÍ -->
+<div class="modal" id="costHistoryModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title" id="costHistoryTitle">📜 Lịch sử chi phí</span>
+            <span class="modal-close" onclick="closeModal('costHistoryModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="costHistoryList"></div>
+    </div>
+</div>
+<!-- MODAL CHI TIẾT KHÁCH -->
+<div class="modal" id="customerDetailModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">👤 Chi tiết khách</span>
+            <span class="modal-close" onclick="closeModal('customerDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="customerDetailContent"></div>
+    </div>
+</div>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
     <script src="db.js"></script>
     <script src="pos.js"></script>
+    <script src="manager.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof initManager === 'function') initManager();
+    });
+</script>
 </body>
 </html>
