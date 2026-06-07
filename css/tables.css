@@ -1,0 +1,219 @@
+/* ============================================================
+   TABLES.CSS - Tab Bàn (Tables View)
+   POS Cafe - Hỗ trợ iPad/iPhone/Tablet ngang-dọc
+   ============================================================ */
+
+/* ===== TABLES GRID ===== */
+.tables-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    padding: 12px;
+}
+
+/* Responsive: giảm số cột khi màn hình nhỏ */
+@media (max-width: 900px) {
+    .tables-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 700px) {
+    .tables-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 500px) {
+    .tables-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Portrait tablet & mobile: cố định 2 cột, không cuộn ngang */
+@media (orientation: portrait) and (max-width: 768px) {
+    .tables-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Landscape tablet - POS ngang */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
+    .tables-grid { grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 10px; }
+}
+
+/* Desktop lớn */
+@media (min-width: 1025px) {
+    .tables-grid { grid-template-columns: repeat(6, 1fr); gap: 14px; }
+}
+
+/* ===== TABLE CARD ===== */
+.table-card {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border-left: 4px solid var(--primary);
+    cursor: pointer;
+    transition: transform 0.1s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 120px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.table-card:active {
+    transform: scale(0.98);
+}
+
+/* Bàn trống */
+.table-card.empty {
+    border-left-color: var(--border);
+    opacity: 0.85;
+}
+
+/* Bàn đã thanh toán chờ xóa */
+.table-card.paid {
+    border-left-color: var(--success);
+    opacity: 0.7;
+}
+
+/* Bàn bị khóa (dùng >5h) */
+.table-card.table-locked {
+    border-left-color: #dc2626;
+    background: #fef2f2;
+}
+.table-card.table-locked .table-time {
+    color: #dc2626;
+}
+
+.table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.table-name {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 70%;
+}
+
+.table-time {
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: #f1f5f9;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.table-stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+}
+
+.table-item-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.table-total {
+    font-weight: 800;
+    color: var(--primary);
+    font-size: 16px;
+}
+
+.table-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.table-action {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    padding: 6px 0;
+    text-align: center;
+    font-size: 16px;
+    cursor: pointer;
+    width: 44px;
+    flex-shrink: 0;
+    transition: 0.05s linear;
+    -webkit-appearance: none;
+}
+
+.table-action:first-child { margin-right: auto; margin-left: 4px; }
+.table-action:last-child { margin-left: auto; }
+
+.table-action:active {
+    background: #eef2f6;
+    transform: scale(0.94);
+}
+
+/* Responsive table card */
+@media (max-width: 480px) {
+    .table-card { padding: 10px; min-height: 100px; }
+    .table-name { font-size: 13px; }
+    .table-total { font-size: 14px; }
+    .table-action { width: 38px; font-size: 14px; }
+}
+
+/* Tablet dọc */
+@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+    .table-card { padding: 14px; min-height: 130px; }
+    .table-name { font-size: 15px; }
+    .table-total { font-size: 17px; }
+}
+
+/* Tablet ngang / POS */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
+    .table-card { padding: 14px 12px; min-height: 140px; }
+    .table-name { font-size: 15px; }
+    .table-total { font-size: 18px; }
+    .table-action { width: 48px; height: 36px; font-size: 18px; }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+    .table-card { padding: 16px; min-height: 150px; }
+    .table-name { font-size: 16px; }
+    .table-total { font-size: 20px; }
+    .table-action { width: 50px; height: 38px; font-size: 18px; }
+}
+
+.table-card {
+    min-height: 75px;  /* Chiều cao tối thiểu */
+    padding: 6px 8px;  /* Giảm padding */
+}
+
+.table-stats {
+    margin-bottom: 6px;  /* Giảm khoảng cách */
+}
+
+.table-actions {
+    margin-top: 4px;  /* Giảm khoảng cách */
+}
+
+.table-action {
+    padding: 3px 0;  /* Nút nhỏ hơn */
+    width: 36px;
+}
+
+/* Cách 2: Giữ nguyên flex nhưng căn trái */
+.table-actions {
+    display: flex;
+    justify-content: flex-start;  /* Căn trái thay vì space-between */
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.table-action {
+    width: 36px;
+    margin: 0;  /* Bỏ margin auto */
+}
+
+.table-action:first-child { 
+    margin-right: 0; 
+    margin-left: 0; 
+}

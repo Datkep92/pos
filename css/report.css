@@ -1,0 +1,125 @@
+/* ============================================================
+   REPORT.CSS - Tab Báo Cáo (Report View)
+   POS Cafe - Hỗ trợ iPad/iPhone/Tablet ngang-dọc
+   ============================================================ */
+
+.report-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    background: var(--surface);
+    padding: 8px 12px;
+    border-radius: 60px;
+    border: 1px solid var(--border);
+}
+
+.report-stats { display: flex; flex-direction: column; gap: 12px; }
+
+.stat-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    border: 1px solid var(--border);
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.stat-row:last-child { border-bottom: none; }
+.stat-value.primary { color: var(--primary); font-weight: 700; }
+.stat-value.success { color: var(--success); }
+
+/* Daily balance form */
+.daily-balance-form {
+    margin-top: 20px;
+    padding: 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.balance-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.balance-row label {
+    font-weight: 500;
+    font-size: 14px;
+    flex: 1;
+    min-width: 180px;
+}
+
+.balance-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 40px;
+    font-size: 14px;
+    background: var(--surface);
+    min-width: 120px;
+    -webkit-appearance: none;
+}
+
+#actualCashInput {
+    font-weight: bold;
+    font-size: 18px;
+    color: #f97316;
+    background: #fff7ed;
+}
+
+.btn-submit-balance {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-appearance: none;
+}
+
+.btn-submit-balance:active {
+    transform: scale(0.96);
+    background: var(--primary-dark);
+}
+
+.balance-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .balance-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .btn-submit-balance { text-align: center; }
+    .stat-card { padding: 12px; }
+}
+
+/* Tablet dọc */
+@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+    .stat-card { padding: 18px; }
+}
+
+/* Tablet ngang */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
+    .report-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+    .report-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .daily-balance-form { max-width: 600px; }
+}
