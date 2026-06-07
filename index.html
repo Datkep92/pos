@@ -7,24 +7,104 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f97316">
     <title>POS Cafe - Bán hàng</title>
-    <link rel="stylesheet" href="pos.css">
-   
+    <!-- CSS modules - tách riêng cho từng tab, tối ưu tải nhanh -->
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/tables.css">
+    <link rel="stylesheet" href="css/customers.css">
+    <link rel="stylesheet" href="css/history.css">
+    <link rel="stylesheet" href="css/report.css">
+    <link rel="stylesheet" href="css/manager.css">
+    <link rel="stylesheet" href="css/order.css">
+    <link rel="stylesheet" href="css/modals.css">
 </head>
 <body>
+    <!-- ========== MÀN HÌNH ĐĂNG NHẬP / ĐĂNG KÝ ========== -->
+    <div class="auth-overlay" id="authOverlay">
+        <div class="auth-container">
+            <!-- FORM ĐĂNG NHẬP -->
+            <div class="auth-form" id="loginForm">
+                <div class="auth-logo">☕</div>
+                <h2 class="auth-title">POS CAFE</h2>
+                <p class="auth-subtitle">Đăng nhập để tiếp tục</p>
+                
+                <div class="auth-field">
+                    <label>Mã POS</label>
+                    <input type="text" id="loginShopCode" class="form-input" placeholder="Nhập mã POS (VD: cafe01)" autocomplete="off">
+                </div>
+                <div class="auth-field">
+                    <label>Tên đăng nhập</label>
+                    <input type="text" id="loginUsername" class="form-input" placeholder="Tên đăng nhập" autocomplete="off">
+                </div>
+                <div class="auth-field">
+                    <label>Mật khẩu</label>
+                    <input type="password" id="loginPassword" class="form-input" placeholder="Mật khẩu">
+                </div>
+                
+                <div class="auth-error" id="loginError"></div>
+                
+                <button class="auth-btn" id="loginBtn" onclick="handleLogin()">Đăng nhập</button>
+                
+                <div class="auth-switch">
+                    Chưa có POS? <span onclick="showRegisterForm()">Đăng ký ngay</span>
+                </div>
+            </div>
+            
+            <!-- FORM ĐĂNG KÝ -->
+            <div class="auth-form" id="registerForm" style="display:none;">
+                <div class="auth-logo">☕</div>
+                <h2 class="auth-title">Đăng ký POS mới</h2>
+                <p class="auth-subtitle">Tạo cửa hàng mới</p>
+                
+                <div class="auth-field">
+                    <label>Tên quán / cửa hàng</label>
+                    <input type="text" id="regShopName" class="form-input" placeholder="VD: Cafe Milano">
+                </div>
+                <div class="auth-field">
+                    <label>Mã POS (dùng để đăng nhập)</label>
+                    <input type="text" id="regShopCode" class="form-input" placeholder="VD: cafe01 (ít nhất 3 ký tự)">
+                </div>
+                <div class="auth-field">
+                    <label>Tên đăng nhập Admin</label>
+                    <input type="text" id="regAdminUser" class="form-input" placeholder="Tên đăng nhập">
+                </div>
+                <div class="auth-field">
+                    <label>Mật khẩu</label>
+                    <input type="password" id="regAdminPass" class="form-input" placeholder="Mật khẩu (ít nhất 4 ký tự)">
+                </div>
+                <div class="auth-field">
+                    <label>Xác nhận mật khẩu</label>
+                    <input type="password" id="regConfirmPass" class="form-input" placeholder="Nhập lại mật khẩu">
+                </div>
+                
+                <div class="auth-error" id="registerError"></div>
+                
+                <button class="auth-btn" id="registerBtn" onclick="handleRegister()">Đăng ký</button>
+                
+                <div class="auth-switch">
+                    Đã có tài khoản? <span onclick="showLoginForm()">Đăng nhập</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="app">
         <div class="header">
             <div class="logo"><span class="logo-icon">☕</span><span class="logo-text">POS CAFE</span></div>
-            <div class="header-right"><span class="staff-name">👤 Nhân viên</span><span class="time" id="currentTime">--:--</span></div>
+            <div class="header-right">
+                <span class="staff-name">👤 Nhân viên</span>
+                <span class="time" id="currentTime">--:--</span>
+            </div>
         </div>
 
         <div class="main-tabs">
-    <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
-    <div class="tab-btn" data-tab="customers">👥 Khách</div>
-    <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
-    <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
-    <!-- Thêm tab admin -->
-    <div class="tab-btn" data-tab="manager">📊 Admin</div>
-</div>
+            <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
+            <div class="tab-btn" data-tab="customers">👥 Khách</div>
+            <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
+            <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
+            <div class="tab-btn" data-tab="staff" style="display:none;">👥 Nhân viên</div>
+            <div class="tab-btn" data-tab="inventory" style="display:none;">📋 Menu - Tồn kho</div>
+            <div class="tab-btn" data-tab="manager" style="display:none;">⚙️ Quản lý</div>
+        </div>
 
         <div class="main-content">
             <div id="tablesView" class="tab-content active"><div class="tables-grid" id="tablesGrid"></div></div>
@@ -74,7 +154,7 @@
                 <div class="summary-hint">Click chi tiết</div>
             </div>
             <div class="manager-box" id="expenseBox" style="cursor: pointer;">
-                <label>📉 Chi phí (NV)</label>
+                <label>🏦 Chi phí từ Két POS</label>
                 <div class="big-value" id="managerExpense">0đ</div>
                 <div class="summary-hint">Click danh sách</div>
             </div>
@@ -131,19 +211,10 @@
     <!-- Chi phí nhân viên -->
     <div class="card collapsible">
         <div class="card-header toggle-header" style="cursor: pointer;">
-            <h2>📋 Chi Phí (Nhân viên)</h2>
+            <h2>📋 Chi Phí Nhân Viên</h2>
             <span class="toggle-icon">▼</span>
         </div>
         <div class="card-body" id="managerExpenseList"></div>
-    </div>
-
-    <!-- Chi phí quản lý + nút thêm -->
-    <div class="card collapsible collapsed">
-        <div class="card-header toggle-header" style="cursor: pointer;">
-            <button class="admin-expense-btn" id="adminExpenseFab">➕ Thêm chi phí Quản lý</button>
-            <span class="toggle-icon">▼</span>
-        </div>
-        <div class="card-body" id="managerAdminExpenseList"></div>
     </div>
 
     <!-- Công nợ khách hàng -->
@@ -153,6 +224,167 @@
             <span class="toggle-icon">▼</span>
         </div>
         <div class="card-body" id="managerDebtList"></div>
+    </div>
+</div>
+            <!-- ========== TAB NHÂN VIÊN (ADMIN) ========== -->
+<div id="staffView" class="tab-content">
+    <div class="staff-mgmt-container">
+        <div class="card">
+            <div class="card-header">
+                <h2>👥 Quản lý nhân viên</h2>
+                <span class="staff-pos-id" id="staffPosId" style="font-size:12px;color:#94a3b8;font-weight:400;"></span>
+            </div>
+            <div class="card-body">
+                <button class="btn-save" onclick="showAddStaffForm()" style="margin-bottom:12px;width:100%;">➕ Thêm nhân viên</button>
+                
+                <!-- Form thêm nhân viên -->
+                <div id="addStaffForm" style="display:none;margin-bottom:12px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div class="auth-field" style="margin-bottom:8px;">
+                        <label style="font-size:12px;">Tên đăng nhập</label>
+                        <input type="text" id="newStaffUsername" class="form-input" placeholder="Tên đăng nhập">
+                    </div>
+                    <div class="auth-field" style="margin-bottom:8px;">
+                        <label style="font-size:12px;">Mật khẩu</label>
+                        <input type="password" id="newStaffPassword" class="form-input" placeholder="Mật khẩu (ít nhất 4 ký tự)">
+                    </div>
+                    <div class="auth-field" style="margin-bottom:8px;">
+                        <label style="font-size:12px;">Tên hiển thị</label>
+                        <input type="text" id="newStaffDisplayName" class="form-input" placeholder="Tên hiển thị (không bắt buộc)">
+                    </div>
+                    <div class="auth-error" id="addStaffError" style="font-size:12px;margin-bottom:8px;"></div>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn-save" onclick="handleAddStaff()" style="flex:1;">💾 Lưu</button>
+                        <button class="btn-cancel" onclick="hideAddStaffForm()" style="flex:1;">Hủy</button>
+                    </div>
+                </div>
+                
+                <!-- Danh sách nhân viên -->
+                <div id="staffList">
+                    <div class="empty-text">Đang tải...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+            <!-- ========== TAB MENU - TỒN KHO (ADMIN) ========== -->
+<div id="inventoryView" class="tab-content">
+    <div class="inventory-container">
+        <!-- PHẦN MENU (THỰC ĐƠN) -->
+        <div class="card">
+            <div class="card-header">
+                <h2>📋 Quản lý thực đơn</h2>
+                <span class="inv-pos-id" id="invPosId" style="font-size:12px;color:#94a3b8;font-weight:400;"></span>
+            </div>
+            <div class="card-body">
+                <!-- Danh mục -->
+                <div class="inv-section">
+                    <div class="inv-section-header">
+                        <span class="inv-section-title">📂 Danh mục</span>
+                        <button class="btn-small btn-outline" onclick="showAddCategoryForm()">+ Thêm</button>
+                    </div>
+                    <div id="invCategoryList" class="inv-category-list"></div>
+                    <!-- Form thêm/sửa danh mục -->
+                    <div id="addCategoryForm" style="display:none;margin-top:8px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <input type="text" id="invCategoryName" class="form-input" placeholder="Tên danh mục (VD: Cà phê)">
+                        <input type="number" id="invCategoryOrder" class="form-input" placeholder="Thứ tự (VD: 1)" style="margin-top:6px;">
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <button class="btn-small btn-save" onclick="handleSaveCategory()">💾 Lưu</button>
+                            <button class="btn-small btn-cancel" onclick="hideAddCategoryForm()">Hủy</button>
+                        </div>
+                        <div id="invCategoryError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+                    </div>
+                </div>
+                
+                <!-- Món ăn -->
+                <div class="inv-section">
+                    <div class="inv-section-header">
+                        <span class="inv-section-title">🍽️ Món ăn</span>
+                        <button class="btn-small btn-outline" onclick="showAddMenuItemForm()">+ Thêm món</button>
+                    </div>
+                    <!-- Bộ lọc danh mục -->
+                    <div class="inv-filter-row">
+                        <select id="invMenuFilter" class="filter-select" onchange="renderInventoryMenu()">
+                            <option value="all">📋 Tất cả danh mục</option>
+                        </select>
+                    </div>
+                    <div id="invMenuItemList" class="inv-menu-list"></div>
+                    <!-- Form thêm/sửa món -->
+                    <div id="addMenuItemForm" style="display:none;margin-top:8px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <input type="text" id="invMenuItemName" class="form-input" placeholder="Tên món">
+                        <input type="number" id="invMenuItemPrice" class="form-input" placeholder="Giá bán" style="margin-top:6px;" step="1000">
+                        <select id="invMenuItemCategory" class="form-input" style="margin-top:6px;">
+                            <option value="">-- Chọn danh mục --</option>
+                        </select>
+                        
+                        <!-- Sizes -->
+                        <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <strong style="font-size:13px;">📏 Size món</strong>
+                                <button class="btn-small btn-outline" onclick="_addMenuItemSizeRow('','')" style="font-size:11px;">+ Thêm size</button>
+                            </div>
+                            <div id="menuItemSizesContainer"></div>
+                        </div>
+                        
+                        <!-- Ingredients -->
+                        <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <strong style="font-size:13px;">🧂 Nguyên liệu</strong>
+                                <button class="btn-small btn-outline" onclick="_addMenuItemIngredientRow('','','')" style="font-size:11px;">+ Thêm NL</button>
+                            </div>
+                            <div id="menuItemIngredientsContainer"></div>
+                        </div>
+                        
+                        <div style="display:flex;gap:6px;margin-top:8px;">
+                            <button class="btn-small btn-save" onclick="handleSaveMenuItem()">💾 Lưu</button>
+                            <button class="btn-small btn-cancel" onclick="hideAddMenuItemForm()">Hủy</button>
+                        </div>
+                        <div id="invMenuItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PHẦN TỒN KHO (NGUYÊN LIỆU) -->
+        <div class="card">
+            <div class="card-header">
+                <h2>🧂 Quản lý tồn kho</h2>
+            </div>
+            <div class="card-body">
+                <div class="inv-section">
+                    <div class="inv-section-header">
+                        <span class="inv-section-title">📦 Nguyên liệu</span>
+                        <button class="btn-small btn-outline" onclick="showAddIngredientForm()">+ Thêm</button>
+                    </div>
+                    <div id="invIngredientList" class="inv-ingredient-list"></div>
+                    <!-- Form thêm/sửa nguyên liệu -->
+                    <div id="addIngredientForm" style="display:none;margin-top:8px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <input type="text" id="invIngredientName" class="form-input" placeholder="Tên nguyên liệu">
+                        <input type="text" id="invIngredientUnit" class="form-input" placeholder="Đơn vị (VD: kg, lít, cái)" style="margin-top:6px;">
+                        <input type="number" id="invIngredientStock" class="form-input" placeholder="Tồn kho hiện tại" style="margin-top:6px;" step="0.1">
+                        <input type="number" id="invIngredientMinStock" class="form-input" placeholder="Cảnh báo tồn tối thiểu" style="margin-top:6px;" step="0.1">
+                        
+                        <!-- Conversion fields -->
+                        <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                            <strong style="font-size:13px;">🔄 Quy đổi đơn vị</strong>
+                            <div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap;">
+                                <span style="font-size:12px;color:#64748b;">1</span>
+                                <input type="text" id="invIngredientConvFrom" class="form-input" placeholder="VD: kg" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                                <span style="font-size:12px;color:#64748b;">→</span>
+                                <input type="number" id="invIngredientConvRate" class="form-input" placeholder="SL" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;" step="0.1">
+                                <input type="text" id="invIngredientConvTo" class="form-input" placeholder="VD: ml" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                            </div>
+                            <div style="font-size:11px;color:#94a3b8;margin-top:4px;">VD: 1 kg → 1600 ml (để trống nếu không quy đổi)</div>
+                        </div>
+                        
+                        <div style="display:flex;gap:6px;margin-top:8px;">
+                            <button class="btn-small btn-save" onclick="handleSaveIngredient()">💾 Lưu</button>
+                            <button class="btn-small btn-cancel" onclick="hideAddIngredientForm()">Hủy</button>
+                        </div>
+                        <div id="invIngredientError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
             <div id="historyView" class="tab-content">
@@ -177,46 +409,55 @@
         <button class="nav-btn" id="reportNextDayBtn">▶</button>
     </div>
     <div class="report-stats" id="reportStats"></div>
-    <!-- Form nhập số dư cuối ngày nằm ngay dưới -->
-    <div class="daily-balance-form">
-    <div class="balance-row">
-    <label>💵 Tiền mặt thực nhận:</label>
-    <input type="number" id="actualCashInput" class="balance-input" placeholder="0đ" step="1000" value="0">
-    <button id="submitActualCashBtn" class="btn-submit-balance">📤 Gửi báo cáo</button>
-</div>
-<div class="actual-cash-preview" id="actualCashPreview" style="display: none;"></div>
-    <div class="balance-note">* Nhập số tiền mặt thực tế bàn giao cuối ca, hệ thống sẽ tự tính số dư để lại quán.</div>
-</div>
+    <!-- Khu vực đối soát quỹ -->
+    <div id="reconciliationArea"></div>
 </div>
         </div>
 
         <div class="float-buttons">
             <button class="float-btn primary" id="createOrderBtn"><span class="float-icon">➕</span><span class="float-label">TẠO ĐƠN</span></button>
-            <button class="float-btn cost" id="costBtn"><span class="float-icon">📊</span><span class="float-label">CHI PHÍ</span></button>
+            <button class="float-btn cost" id="expenseFloatBtn"><span class="float-icon">📊</span><span class="float-label">CHI PHÍ</span></button>
         </div>
+        
+        <!-- DRAFT BUBBLE CONTAINER - Hiển thị các đơn nháp dạng bong bóng -->
+        <div class="draft-bubble-container" id="draftBubbleContainer"></div>
     </div>
 
-    <!-- MODAL TẠO ĐƠN -->
-    <div class="modal" id="orderModal">
-        <div class="modal-content modal-large">
-            <div class="modal-header"><span class="modal-title">🛒 Tạo đơn hàng</span><span class="modal-close" onclick="closeModal('orderModal')">&times;</span></div>
-            <div class="modal-body order-modal-body">
-                <div class="order-categories" id="orderCategories"></div>
-                <div class="order-main-layout">
+    <!-- MODAL TẠO ĐƠN - BỐ CỤC 3 CỘT -->
+<div class="modal" id="orderModal">
+    <div class="modal-content modal-large">
+        <div class="modal-header">
+            <span class="modal-title">🛒 Tạo đơn hàng</span>
+            <div class="modal-header-actions" id="orderHeaderActions"></div>
+            <span class="modal-close" onclick="closeModal('orderModal')">&times;</span>
+        </div>
+        <div class="modal-body order-modal-body">
+            <!-- BỐ CỤC 3 CỘT -->
+            <div class="order-three-columns">
+                <!-- CỘT 1: DANH MỤC -->
+                <div class="order-categories-column" id="orderCategoriesColumn"></div>
+                
+                <!-- CỘT 2: MENU -->
+                <div class="order-menu-column">
                     <div class="menu-grid" id="menuGrid"></div>
-                    <div class="cart-panel">
-    <div class="cart-title">🛒 Giỏ hàng</div>
-    <div class="cart-items" id="cartItems">Chưa có món</div>
-    <div class="cart-total-row">
-        <div class="cart-total" id="cartTotal">Tổng: 0đ</div>
-        <div id="cartCreateBtn"></div>
-    </div>
-    <div class="cart-actions" id="cartActions"></div>
-</div>
+                </div>
+                
+                <!-- CỘT 3: GIỎ HÀNG -->
+                <div class="order-cart-column">
+                    <div class="cart-header">🛒 Giỏ hàng</div>
+                    <div class="cart-items-list" id="cartItemsList"></div>
+                    <div class="cart-total-section">
+                        <div class="total-row">
+                            <span>Tổng cộng:</span>
+                            <span id="cartTotalAmount">0đ</span>
+                        </div>
+                        <div class="cart-action-buttons" id="cartFooterActions"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
     <!-- MODAL CHI TIẾT BÀN -->
     <div class="modal" id="tableDetailModal">
@@ -230,7 +471,7 @@
         </div>
     </div>
 
-    <!-- MODAL THANH TOÁN (3 nút) -->
+    <!-- MODAL THANH TOÁN (3 nút + in) -->
     <div class="modal" id="paymentMethodModal">
         <div class="modal-content" style="max-width:350px;">
             <div class="modal-header"><span class="modal-title">💸 Chọn phương thức thanh toán</span><span class="modal-close" onclick="closeModal('paymentMethodModal')">&times;</span></div>
@@ -239,6 +480,51 @@
                     <button class="payment-cash" id="paymentCashBtn">💰 Tiền mặt</button>
                     <button class="payment-transfer" id="paymentTransferBtn">💳 Chuyển khoản</button>
                     <button class="payment-debt" id="paymentDebtBtn">💢 Ghi nợ</button>
+                </div>
+                <div class="payment-print-option" id="paymentPrintOption" style="margin-top:12px;display:none;">
+                    <label style="display:flex;align-items:center;gap:8px;justify-content:center;cursor:pointer;font-size:14px;">
+                        <input type="checkbox" id="printAfterPaymentCheck" checked> 🖨️ In hóa đơn sau khi thanh toán
+                    </label>
+                    <div style="display:flex;gap:6px;margin-top:8px;justify-content:center;">
+                        <button class="print-mode-btn active" id="printModeBrowser" onclick="setPrintMode('browser')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">🌐 In trình duyệt</button>
+                        <button class="print-mode-btn" id="printModeTcp" onclick="setPrintMode('tcp')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">🌍 In TCP (IP:9100)</button>
+                        <button class="print-mode-btn" id="printModeSunmi" onclick="setPrintMode('sunmi')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">📟 Sunmi (localhost:8001)</button>
+                        <button class="print-mode-btn" id="printModeBluetooth" onclick="setPrintMode('bluetooth')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">📡 Bluetooth</button>
+                    </div>
+                    <!-- Khu vực dò tìm máy in (chỉ hiện khi chọn TCP) -->
+                    <div id="tcpSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                            <span id="selectedPrinterDisplay" style="font-size:11px;color:#475569;flex:1;">🖨️ Chưa chọn máy in</span>
+                            <button onclick="scanPrinters(showPrinterList)" style="padding:4px 8px;border:1px solid #f97316;border-radius:6px;background:#fff;color:#f97316;font-size:10px;cursor:pointer;font-weight:600;">🔍 Dò tìm</button>
+                            <button onclick="setPrinterIP()" style="padding:4px 8px;border:1px solid #94a3b8;border-radius:6px;background:#fff;color:#475569;font-size:10px;cursor:pointer;">✏️ Nhập IP</button>
+                        </div>
+                        <div id="printerScanResult" style="max-height:120px;overflow-y:auto;"></div>
+                        <div style="text-align:center;margin-top:4px;">
+                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="testTCPConnection()">🔍 Kiểm tra kết nối máy in đã chọn</span>
+                        </div>
+                    </div>
+                    <!-- Khu vực Sunmi (chỉ hiện khi chọn Sunmi) -->
+                    <div id="sunmiSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <div id="sunmiStatus" style="font-size:11px;color:#475569;text-align:center;">
+                            <span>🔄 Đang kiểm tra...</span>
+                        </div>
+                        <div style="text-align:center;margin-top:4px;">
+                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="testSunmiService()">🔄 Kiểm tra lại</span>
+                            <span style="font-size:10px;color:#94a3b8;margin:0 4px;">|</span>
+                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="window.open('http://localhost:8001','_blank')">🔗 Mở localhost:8001</span>
+                        </div>
+                    </div>
+                    <!-- Khu vực Bluetooth (chỉ hiện khi chọn Bluetooth) -->
+                    <div id="btSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                            <span id="btStatus" style="font-size:11px;color:#475569;flex:1;">Chưa kết nối</span>
+                            <button onclick="connectBluetoothPrinter()" style="padding:4px 8px;border:1px solid #3b82f6;border-radius:6px;background:#3b82f6;color:#fff;font-size:10px;cursor:pointer;font-weight:600;">🔗 Kết nối</button>
+                            <button onclick="disconnectBluetooth()" style="padding:4px 8px;border:1px solid #ef4444;border-radius:6px;background:#fff;color:#ef4444;font-size:10px;cursor:pointer;">❌ Ngắt</button>
+                        </div>
+                        <div style="text-align:center;margin-top:4px;">
+                            <span style="font-size:10px;color:#94a3b8;">Kết nối Bluetooth đến InnerPrinter</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -289,15 +575,6 @@
         <div class="form-actions"><button class="btn-save" id="confirmDebtPaymentBtn">✅ Xác nhận</button><button class="btn-cancel" onclick="closeModal('debtPaymentModal')">Hủy</button></div></div></div>
     </div>
 
-    <!-- MODAL CHI PHÍ -->
-    <div class="quick-money">
-    <button class="quick-money-btn" data-amount="35000">35k</button>
-    <button class="quick-money-btn" data-amount="40000">40k</button>
-    <button class="quick-money-btn" data-amount="50000">50k</button>
-    <button class="quick-money-btn" data-amount="55000">55k</button>
-    <button class="quick-money-btn" data-amount="60000">60k</button>
-</div>
-
     <div class="toast-container" id="toastContainer"></div>
 <!-- MODAL CHI TIẾT GIAO DỊCH -->
 <div class="modal" id="transactionDetailModal">
@@ -331,29 +608,82 @@
         </div>
     </div>
 </div>
-<!-- MODAL CHI PHÍ -->
-<div class="modal" id="costModal">
+<!-- MODAL CHI PHÍ THỐNG NHẤT - Tối ưu mobile/tablet -->
+<div class="modal expense-modal-full" id="expenseModal">
     <div class="modal-content">
         <div class="modal-header">
-            <span class="modal-title">📊 Thêm chi phí</span>
-            <span class="modal-close" onclick="closeModal('costModal')">&times;</span>
+            <span class="modal-title">📊 Chi phí</span>
+            <span class="expense-header-total" id="expenseHeaderTotal"></span>
+            <span class="modal-close" onclick="closeModal('expenseModal')">&times;</span>
         </div>
-        <div class="modal-body">
-            <input type="text" id="costName" class="form-input" placeholder="Tên chi phí">
-            <div class="cost-categories" id="costCategoriesList"></div>
-            <div class="quick-money">
-                <button type="button" class="quick-money-btn" data-amount="35000">35k</button>
-                <button type="button" class="quick-money-btn" data-amount="40000">40k</button>
-                <button type="button" class="quick-money-btn" data-amount="50000">50k</button>
-                <button type="button" class="quick-money-btn" data-amount="55000">55k</button>
-                <button type="button" class="quick-money-btn" data-amount="60000">60k</button>
+        <div class="modal-body expense-modal-body">
+            <!-- CỘT TRÁI: Nhập liệu -->
+            <div class="expense-form-col">
+                <!-- Chọn loại chi phí -->
+                <div class="expense-type-tabs">
+                    <button class="expense-type-tab active" id="expenseIngredientTab" onclick="switchExpenseType('ingredient')">🧂 Nguyên liệu</button>
+                    <button class="expense-type-tab" id="expenseWasteTab" onclick="switchExpenseType('waste')">📦 Hao phí</button>
+                </div>
+
+                <!-- Chọn nguồn tiền -->
+                <div class="fund-source-row">
+                    <span class="fund-source-label">Nguồn tiền:</span>
+                    <button class="fund-source-btn active" id="fundSourcePosBtn" onclick="switchFundSource('pos_cash')">🏦 Két POS</button>
+                    <button class="fund-source-btn" id="fundSourceMgmtBtn" onclick="switchFundSource('management')">👔 QL TT</button>
+                </div>
+
+                <!-- KHU VỰC NGUYÊN LIỆU -->
+                <div id="expenseIngredientArea">
+                    <div class="expense-section-title">🧂 Chọn nguyên liệu</div>
+                    <input type="text" id="expenseIngredientSearch" class="form-input" placeholder="🔍 Tìm nguyên liệu...">
+                    <div class="ingredient-grid" id="expenseIngredientGrid"></div>
+
+                    <div class="ingredient-qty-price-row">
+                        <div class="ingredient-field">
+                            <label>Số lượng</label>
+                            <input type="number" id="expenseQty" class="form-input" placeholder="0" value="0" min="0" step="1">
+                        </div>
+                        <div class="ingredient-field total">
+                            <label>Thành tiền</label>
+                            <input type="number" id="expenseAmount" class="form-input" placeholder="0đ" step="1000">
+                        </div>
+                        <div class="ingredient-field">
+                            <label>Đơn giá</label>
+                            <input type="number" id="expenseUnitPrice" class="form-input" placeholder="0đ" step="1000" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KHU VỰC HAO PHÍ -->
+                <div id="expenseWasteArea" style="display:none;">
+                    <div class="expense-section-title">📦 Chọn loại hao phí</div>
+                    <div class="waste-grid" id="expenseWasteGrid"></div>
+
+                    <input type="text" id="expenseNameInput" class="form-input" placeholder="Tên chi phí">
+                    <input type="number" id="expenseAmount" class="form-input" placeholder="Số tiền" step="1000">
+                </div>
+
+                <button class="btn-save" id="saveExpenseBtn">💾 Lưu chi phí</button>
             </div>
-            <input type="number" id="costAmount" class="form-input" placeholder="Số tiền" step="1000">
-            <button class="btn-save" id="saveCostBtn">💾 Lưu chi phí</button>
-            <div class="cost-history-title">📋 Chi phí hôm nay</div>
-            <div id="todayCostList" class="cost-list"></div>
-            <div class="cost-history-title">📜 Tổng chi phí tháng này</div>
-            <div id="monthCostTotal" class="cost-total">0đ</div>
+
+            <!-- CỘT PHẢI: Xem dữ liệu -->
+            <div class="expense-data-col">
+                <!-- Date navigation -->
+                <div class="expense-date-nav">
+                    <button class="expense-date-btn" onclick="expenseDateChange(-1)">◀</button>
+                    <div class="expense-date-display" id="expenseDateDisplay" onclick="expensePickDate()">📅 Hôm nay</div>
+                    <button class="expense-date-btn" onclick="expenseDateChange(1)">▶</button>
+                </div>
+                <!-- Chi phí theo ngày -->
+                <div id="expenseTodayList" class="cost-list"></div>
+
+                <!-- Tổng chi phí tháng -->
+                <div class="cost-history-title" style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>📜 Chi phí tháng này</span>
+                    <button class="exp-month-toggle-all" id="expMonthToggleAll" onclick="toggleAllMonthDates()">📂 Mở rộng tất cả</button>
+                </div>
+                <div id="expenseMonthTotal" class="cost-total"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -367,8 +697,9 @@
         <div class="modal-body" id="costDetailList"></div>
     </div>
 </div>
-<!-- Toast giao dịch gần đây -->
+<!-- Toast giao dịch gần đây (chỉ hiển thị bàn) -->
 <div id="recentToast" class="recent-toast">
+    <div class="recent-toast-header">🍽️ BÀN GẦN ĐÂY</div>
     <div id="recentToastList" class="recent-toast-list"></div>
 </div>
 <!-- MODAL HIỂN THỊ LỊCH SỬ CHI TIẾT (ADMIN) -->
@@ -383,46 +714,19 @@
         </div>
     </div>
 </div>
-<!-- MODAL CHI TIẾT LỊCH SỬ (DÙNG CHO ADMIN) -->
-<div class="modal" id="historyDetailModal">
-    <div class="modal-content">
+<!-- MODAL QUẢN LÝ NHẬN TIỀN -->
+<div class="modal" id="managerCashPickupModal">
+    <div class="modal-content" style="max-width:400px;">
         <div class="modal-header">
-            <span class="modal-title" id="historyDetailTitle">📋 Chi tiết</span>
-            <span class="modal-close" onclick="closeModal('historyDetailModal')">&times;</span>
-        </div>
-        <div class="modal-body" id="historyDetailContent">
-            <!-- Nội dung sẽ được JS thay thế -->
-        </div>
-    </div>
-</div>
-<!-- MODAL CHI PHÍ QUẢN LÝ (ADMIN) -->
-<div class="modal" id="adminCostModal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <span class="modal-title" id="adminExpensePopupTitle">📊 Thêm chi phí Quản lý</span>
-            <span class="modal-close" onclick="closeModal('adminCostModal')">&times;</span>
+            <span class="modal-title">💰 Quản lý nhận tiền</span>
+            <span class="modal-close" onclick="closeModal('managerCashPickupModal')">&times;</span>
         </div>
         <div class="modal-body">
-            <input type="text" id="adminExpenseNameInput" class="form-input" placeholder="Tên chi phí">
-            <div class="cost-categories" id="adminRecentCategoriesList">
-                <div class="empty-text">Chưa có danh mục</div>
-            </div>
-            <div class="quick-money">
-                <button type="button" class="quick-money-btn" data-amount="35000">35k</button>
-                <button type="button" class="quick-money-btn" data-amount="40000">40k</button>
-                <button type="button" class="quick-money-btn" data-amount="50000">50k</button>
-                <button type="button" class="quick-money-btn" data-amount="55000">55k</button>
-                <button type="button" class="quick-money-btn" data-amount="60000">60k</button>
-                <button type="button" class="quick-money-btn" data-amount="100000">100k</button>
-                <button type="button" class="quick-money-btn" data-amount="200000">200k</button>
-            </div>
-            <input type="number" id="adminExpenseAmount" class="form-input" placeholder="Số tiền" step="1000">
-            <input type="number" id="adminExpenseQty" class="form-input" placeholder="Số lượng" value="1" step="1">
-            <button class="btn-save" id="saveAdminExpenseBtn">💾 Lưu chi phí Quản lý</button>
-            <div class="cost-history-title">📋 Chi phí quản lý hôm nay</div>
-            <div id="adminTodayCostList" class="cost-list"></div>
-            <div class="cost-history-title">📜 Tổng chi phí quản lý tháng này</div>
-            <div id="adminMonthCostTotal" class="cost-total">0đ</div>
+            <input type="number" id="managerPickupAmount" class="form-input" placeholder="Số tiền" step="1000">
+            <input type="text" id="managerPickupNote" class="form-input" placeholder="Ghi chú (VD: Quản lý nhận 10:00)">
+            <button class="btn-save" id="saveManagerPickupBtn" onclick="saveManagerPickup()">💾 Xác nhận</button>
+            <div class="cost-history-title">📋 Lịch sử nhận tiền hôm nay</div>
+            <div id="managerPickupHistory" class="cost-list"></div>
         </div>
     </div>
 </div>
@@ -436,6 +740,101 @@
         <div class="modal-body" id="costHistoryList"></div>
     </div>
 </div>
+<!-- MODAL CHI TIẾT MÓN ĂN -->
+<div class="modal" id="menuItemDetailModal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <span class="modal-title" id="menuItemDetailTitle">🍽️ Chi tiết món</span>
+            <span class="modal-close" onclick="closeModal('menuItemDetailModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="menuItemDetailContent">
+        </div>
+    </div>
+</div>
+<!-- MODAL SỬA MÓN ĂN (POPUP) -->
+<div class="modal" id="editMenuItemModal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <span class="modal-title" id="editMenuItemModalTitle">✏️ Sửa món</span>
+            <span class="modal-close" onclick="closeModal('editMenuItemModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="editMenuItemModalBody">
+            <input type="text" id="editMenuItemName" class="form-input" placeholder="Tên món">
+            <input type="number" id="editMenuItemPrice" class="form-input" placeholder="Giá bán" style="margin-top:6px;" step="1000">
+            <select id="editMenuItemCategory" class="form-input" style="margin-top:6px;">
+                <option value="">-- Chọn danh mục --</option>
+            </select>
+            
+            <!-- Sizes -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <strong style="font-size:13px;">📏 Size món</strong>
+                    <button class="btn-small btn-outline" onclick="_addEditMenuItemSizeRow('','')" style="font-size:11px;">+ Thêm size</button>
+                </div>
+                <div id="editMenuItemSizesContainer"></div>
+            </div>
+            
+            <!-- Ingredients -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <strong style="font-size:13px;">🧂 Nguyên liệu</strong>
+                    <button class="btn-small btn-outline" onclick="_addEditMenuItemIngredientRow('','','')" style="font-size:11px;">+ Thêm NL</button>
+                </div>
+                <div id="editMenuItemIngredientsContainer"></div>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn-small btn-save" onclick="handleEditMenuItemSave()" style="flex:1;">💾 Lưu</button>
+                <button class="btn-small btn-cancel" onclick="closeModal('editMenuItemModal')" style="flex:1;">Hủy</button>
+            </div>
+            <div id="editMenuItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+        </div>
+    </div>
+</div>
+<!-- MODAL SỬA NGUYÊN LIỆU (POPUP) -->
+<div class="modal" id="editIngredientModal">
+    <div class="modal-content" style="max-width:450px;">
+        <div class="modal-header">
+            <span class="modal-title" id="editIngredientModalTitle">✏️ Sửa nguyên liệu</span>
+            <span class="modal-close" onclick="closeModal('editIngredientModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="editIngredientModalBody">
+            <input type="text" id="editIngredientName" class="form-input" placeholder="Tên nguyên liệu">
+            <input type="text" id="editIngredientUnit" class="form-input" placeholder="Đơn vị (VD: kg, lít, cái)" style="margin-top:6px;">
+            <input type="number" id="editIngredientStock" class="form-input" placeholder="Tồn kho hiện tại" style="margin-top:6px;" step="0.1">
+            <input type="number" id="editIngredientMinStock" class="form-input" placeholder="Cảnh báo tồn tối thiểu" style="margin-top:6px;" step="0.1">
+            
+            <!-- Conversion fields -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <strong style="font-size:13px;">🔄 Quy đổi đơn vị</strong>
+                <div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:#64748b;">1</span>
+                    <input type="text" id="editIngredientConvFrom" class="form-input" placeholder="VD: kg" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                    <span style="font-size:12px;color:#64748b;">→</span>
+                    <input type="number" id="editIngredientConvRate" class="form-input" placeholder="SL" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;" step="0.1">
+                    <input type="text" id="editIngredientConvTo" class="form-input" placeholder="VD: ml" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                </div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:4px;">VD: 1 kg → 1600 ml (để trống nếu không quy đổi)</div>
+            </div>
+            
+            <!-- Nhập kho nhanh -->
+            <div style="margin-top:8px;padding:8px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0;">
+                <strong style="font-size:13px;color:#16a34a;">📥 Nhập kho nhanh</strong>
+                <div style="display:flex;gap:6px;margin-top:4px;align-items:center;">
+                    <input type="number" id="editIngredientAddStock" class="form-input" placeholder="Số lượng nhập" style="flex:1;padding:6px 8px;font-size:12px;" step="0.1" min="0">
+                    <button class="btn-small" style="background:#16a34a;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;" onclick="handleIngredientQuickImport()">➕ Nhập</button>
+                </div>
+                <div style="font-size:11px;color:#64748b;margin-top:4px;">Nhập số lượng và bấm "Nhập" để thêm tồn kho</div>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn-small btn-save" onclick="handleEditIngredientSave()" style="flex:1;">💾 Lưu</button>
+                <button class="btn-small btn-cancel" onclick="closeModal('editIngredientModal')" style="flex:1;">Hủy</button>
+            </div>
+            <div id="editIngredientError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+        </div>
+    </div>
+</div>
 <!-- MODAL CHI TIẾT KHÁCH -->
 <div class="modal" id="customerDetailModal">
     <div class="modal-content">
@@ -446,16 +845,119 @@
         <div class="modal-body" id="customerDetailContent"></div>
     </div>
 </div>
+<!-- MODAL XÁC NHẬN ĐƠN NHÁP -->
+<div class="modal" id="draftConfirmModal">
+    <div class="modal-content" style="max-width: 380px;">
+        <div class="modal-header">
+            <span class="modal-title">📋 Xác nhận đơn nháp</span>
+            <span class="modal-close" onclick="closeModal('draftConfirmModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="draftConfirmContent">
+            <!-- Nội dung sẽ được render bằng JS -->
+        </div>
+    </div>
+</div>
+<!-- MODAL QUẢN LÝ NHÂN VIÊN (ADMIN) -->
+<div class="modal" id="staffManagerModal">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-header">
+            <span class="modal-title">👥 Quản lý nhân viên</span>
+            <span class="modal-close" onclick="closeModal('staffManagerModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <button class="btn-save" onclick="showAddStaffForm()" style="margin-bottom:12px;">➕ Thêm nhân viên</button>
+            
+            <!-- Form thêm nhân viên -->
+            <div id="addStaffForm" style="display:none;margin-bottom:12px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                <div class="auth-field" style="margin-bottom:8px;">
+                    <label style="font-size:12px;">Tên đăng nhập</label>
+                    <input type="text" id="newStaffUsername" class="form-input" placeholder="Tên đăng nhập">
+                </div>
+                <div class="auth-field" style="margin-bottom:8px;">
+                    <label style="font-size:12px;">Mật khẩu</label>
+                    <input type="password" id="newStaffPassword" class="form-input" placeholder="Mật khẩu (ít nhất 4 ký tự)">
+                </div>
+                <div class="auth-field" style="margin-bottom:8px;">
+                    <label style="font-size:12px;">Tên hiển thị</label>
+                    <input type="text" id="newStaffDisplayName" class="form-input" placeholder="Tên hiển thị (không bắt buộc)">
+                </div>
+                <div class="auth-error" id="addStaffError" style="font-size:12px;margin-bottom:8px;"></div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn-save" onclick="handleAddStaff()" style="flex:1;">💾 Lưu</button>
+                    <button class="btn-cancel" onclick="hideAddStaffForm()" style="flex:1;">Hủy</button>
+                </div>
+            </div>
+            
+            <!-- Danh sách nhân viên -->
+            <div id="staffList">
+                <div class="empty-text">Đang tải...</div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- MODAL LỊCH SỬ SỬ DỤNG NGUYÊN LIỆU -->
+<div class="modal" id="ingredientUsageModal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <span class="modal-title" id="ingredientUsageTitle">🧂 Lịch sử sử dụng</span>
+            <span class="modal-close" onclick="closeModal('ingredientUsageModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="ingredientUsageContent">
+            <!-- Tabs -->
+            <div class="ing-usage-tabs" id="ingUsageTabs">
+                <span class="ing-usage-tab active" data-tab="usage" onclick="switchIngUsageTab('usage')">📊 Sử dụng</span>
+                <span class="ing-usage-tab" data-tab="transactions" onclick="switchIngUsageTab('transactions')">📋 Nhập/Xuất</span>
+            </div>
+            <!-- Usage tab -->
+            <div class="ing-usage-tab-content" id="ingUsageTabUsage">
+                <div class="ing-usage-summary" id="ingUsageSummary"></div>
+                <div class="ing-usage-dates" id="ingUsageDates"></div>
+            </div>
+            <!-- Transactions tab -->
+            <div class="ing-usage-tab-content" id="ingUsageTabTransactions" style="display:none;">
+                <div class="ing-tx-filter">
+                    <div class="ing-tx-filter-row">
+                        <div class="ing-tx-filter-group">
+                            <label class="ing-tx-filter-label">Từ ngày</label>
+                            <input type="date" class="ing-tx-filter-input" id="ingTxFilterFrom" onchange="showIngredientUsage(window._currentIngId)">
+                        </div>
+                        <div class="ing-tx-filter-group">
+                            <label class="ing-tx-filter-label">Đến ngày</label>
+                            <input type="date" class="ing-tx-filter-input" id="ingTxFilterTo" onchange="showIngredientUsage(window._currentIngId)">
+                        </div>
+                        <button class="ing-tx-filter-clear" onclick="document.getElementById('ingTxFilterFrom').value='';document.getElementById('ingTxFilterTo').value='';showIngredientUsage(window._currentIngId)">✕</button>
+                    </div>
+                </div>
+                <div class="ing-tx-list" id="ingTxList"></div>
+            </div>
+        </div>
+    </div>
+</div>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
     <script src="db.js"></script>
-    <script src="pos.js"></script>
-    <script src="manager.js"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        if (typeof initManager === 'function') initManager();
-    });
-</script>
+    <!-- Auth module (đăng nhập/đăng ký) -->
+    <script src="auth.js"></script>
+    <!-- Core modules (tách từ pos.js) -->
+    <script src="app.js"></script>
+    <script src="realtime.js"></script>
+    <script src="ingredients.js"></script>
+    <script src="report.js"></script>
+    <!-- Expense module (thay thế cost.js + staff-cost.js) -->
+    <script src="expense.js"></script>
+    <!-- Fund Reconciliation module -->
+    <script src="fund-reconciliation.js"></script>
+    <!-- Feature modules -->
+    <script src="order.js"></script>
+    <script src="tables.js"></script>
+    <script src="split-transfer-merge.js"></script>
+    <script src="customers.js"></script>
+    <script src="history.js"></script>
+    <script src="print.js"></script>
+    <!-- Draft Orders module -->
+    <script src="draft-orders.js"></script>
+    <!-- Inventory Manager module (Menu - Tồn kho) -->
+    <script src="inventory-manager.js"></script>
 </body>
 </html>

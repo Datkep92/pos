@@ -28,16 +28,31 @@
 
     // Constants
     var STORE_NAME = 'pos_data';
-    var CURRENT_SHOP_ID = 'shop_default';
+    // Đọc shopId từ localStorage, mặc định 'shop_default' nếu chưa có
+    var CURRENT_SHOP_ID = localStorage.getItem('current_shop_id') || 'shop_default';
     var CURRENT_DEVICE_ID = localStorage.getItem('device_id') || ('device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
     localStorage.setItem('device_id', CURRENT_DEVICE_ID);
+    
+    // Biến lưu thông tin user hiện tại
+    var currentUser = null;
+    // Đọc session từ localStorage nếu có
+    var savedSession = localStorage.getItem('pos_session');
+    if (savedSession) {
+        try { currentUser = JSON.parse(savedSession); } catch(e) { localStorage.removeItem('pos_session'); }
+    }
 
     var localDB = null;
     var dbReady = null;
     var syncQueue = [];
     var isOnline = navigator.onLine;
     var listeners = {};
-    var analyticsStarted = false;
+    
+    // OPTIMIZE: Memory cache layer - tránh đọc IndexedDB liên tục
+    var memoryCache = {};
+    var cacheVersion = {};
+    
+    // FIX: Local callbacks - notify UI ngay sau khi ghi local, không chờ Firebase
+    var _localCallbacks = {};
 
     // Helper: toDateKey
     function toDateKey(value) {
@@ -64,11 +79,34 @@
         return norm;
     }
 
+    // FIX: Notify local subscribers ngay lập tức từ memoryCache
+    function _notifyLocal(collection) {
+        var cbs = _localCallbacks[collection];
+        if (!cbs || cbs.length === 0) return;
+        var data = [];
+        if (memoryCache[collection]) {
+            for (var key in memoryCache[collection]) {
+                if (memoryCache[collection].hasOwnProperty(key)) {
+                    data.push(memoryCache[collection][key]);
+                }
+            }
+        }
+        for (var i = 0; i < cbs.length; i++) {
+            try { cbs[i](data); } catch(e) { console.error('Local callback error:', e); }
+        }
+    }
+
     // IndexedDB operations
     function saveToLocal(collection, data) {
         return dbReady.then(function() {
             if (!localDB) throw new Error('DB not ready');
             if (!localDB.objectStoreNames.contains(collection)) throw new Error('Store ' + collection + ' not found');
+            // Cập nhật memory cache ngay lập tức
+            if (!memoryCache[collection]) memoryCache[collection] = {};
+            memoryCache[collection][data.id] = data;
+            cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
+            // FIX: Notify local subscribers ngay, không chờ Firebase
+            _notifyLocal(collection);
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readwrite');
                 var store = tx.objectStore(collection);
@@ -83,16 +121,48 @@
         return dbReady.then(function() {
             if (!localDB) return id !== undefined ? null : [];
             if (!localDB.objectStoreNames.contains(collection)) return id !== undefined ? null : [];
+            
+            // OPTIMIZE: Memory cache - tránh đọc IndexedDB liên tục
+            if (id !== undefined && id !== null) {
+                if (memoryCache[collection] && memoryCache[collection][id] !== undefined) {
+                    return memoryCache[collection][id];
+                }
+            } else {
+                if (memoryCache[collection]) {
+                    var cachedArr = [];
+                    for (var key in memoryCache[collection]) {
+                        if (memoryCache[collection].hasOwnProperty(key)) {
+                            cachedArr.push(memoryCache[collection][key]);
+                        }
+                    }
+                    if (cachedArr.length > 0) return cachedArr;
+                }
+            }
+            
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readonly');
                 var store = tx.objectStore(collection);
                 if (id !== undefined && id !== null) {
                     var req = store.get(String(id));
-                    req.onsuccess = function() { resolve(req.result || null); };
+                    req.onsuccess = function() {
+                        var result = req.result || null;
+                        if (result) {
+                            if (!memoryCache[collection]) memoryCache[collection] = {};
+                            memoryCache[collection][result.id] = result;
+                        }
+                        resolve(result);
+                    };
                     req.onerror = function() { reject(req.error); };
                 } else {
                     var req = store.getAll();
-                    req.onsuccess = function() { resolve(req.result || []); };
+                    req.onsuccess = function() {
+                        var results = req.result || [];
+                        if (!memoryCache[collection]) memoryCache[collection] = {};
+                        for (var i = 0; i < results.length; i++) {
+                            memoryCache[collection][results[i].id] = results[i];
+                        }
+                        resolve(results);
+                    };
                     req.onerror = function() { reject(req.error); };
                 }
             });
@@ -103,6 +173,13 @@
         return dbReady.then(function() {
             if (!localDB) return;
             if (!localDB.objectStoreNames.contains(collection)) return;
+            // Xóa khỏi memory cache ngay
+            if (memoryCache[collection]) {
+                delete memoryCache[collection][id];
+                cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
+            }
+            // FIX: Notify local subscribers ngay, không chờ Firebase
+            _notifyLocal(collection);
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readwrite');
                 var store = tx.objectStore(collection);
@@ -241,6 +318,18 @@
         var type = options.type || 'all';
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
+            // OPTIMIZE: Memory cache - tránh đọc IndexedDB
+            if (memoryCache.transactions) {
+                var allTx = [];
+                for (var key in memoryCache.transactions) {
+                    if (memoryCache.transactions.hasOwnProperty(key)) {
+                        allTx.push(memoryCache.transactions[key]);
+                    }
+                }
+                var filtered = allTx.filter(function(t) { return t.dateKey === dateKey; });
+                if (type !== 'all') filtered = filtered.filter(function(t) { return t.type === type; });
+                return filtered;
+            }
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction(['transactions'], 'readonly');
                 var store = tx.objectStore('transactions');
@@ -266,6 +355,12 @@
     }
 
    function subscribeToCollection(collection, callback) {
+    // FIX: Đăng ký local callback để UI nhận notify ngay sau ghi local
+    if (callback) {
+        if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
+        _localCallbacks[collection].push(callback);
+    }
+    
     var ref = db.ref(CURRENT_SHOP_ID + '/' + collection);
     var useIncremental = (collection === 'transactions' || collection === 'reports');
     if (useIncremental) {
@@ -276,12 +371,13 @@
             setTimeout(function() {
                 updateScheduled = false;
                 loadFromLocal(collection).then(function(localData) {
+                    // FIX: Firebase callback - gọi sau local callback, tránh trùng
                     if (callback) callback(localData);
                     var evt = document.createEvent('CustomEvent');
                     evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
                     window.dispatchEvent(evt);
                 });
-            }, 50);
+            }, 200);
         };
         var onAdded = function(snapshot) {
             if (!snapshot.exists()) return;
@@ -314,7 +410,6 @@
             ref.off('child_removed', onRemoved);
         };
     } else {
-        var lastStr = '';
         var scheduled = false;
         var handler = ref.on('value', function(snapshot) {
             var remote = snapshot.val() || {};
@@ -345,19 +440,16 @@
                 return Promise.all(delPromises.concat(savePromises)).then(function() {
                     return loadFromLocal(collection);
                 }).then(function(newData) {
-                    var newStr = JSON.stringify(newData);
-                    if (newStr !== lastStr) {
-                        lastStr = newStr;
-                        if (scheduled) return;
-                        scheduled = true;
-                        setTimeout(function() {
-                            scheduled = false;
-                            if (callback) callback(newData);
-                            var evt = document.createEvent('CustomEvent');
-                            evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: newData } });
-                            window.dispatchEvent(evt);
-                        }, 50);
-                    }
+                    if (scheduled) return;
+                    scheduled = true;
+                    setTimeout(function() {
+                        scheduled = false;
+                        // FIX: Firebase callback - gọi sau local callback, tránh trùng
+                        if (callback) callback(newData);
+                        var evt = document.createEvent('CustomEvent');
+                        evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: newData } });
+                        window.dispatchEvent(evt);
+                    }, 200);
                 });
             });
         });
@@ -389,7 +481,7 @@
     function initLocalDB() {
         if (dbReady) return dbReady;
         dbReady = new Promise(function(resolve, reject) {
-            var request = indexedDB.open(STORE_NAME, 10);
+            var request = indexedDB.open(STORE_NAME, 13);
             request.onerror = function(e) { reject(e.target.error); };
             request.onsuccess = function(e) {
                 localDB = e.target.result;
@@ -402,7 +494,9 @@
     'tables', 'customers', 'menu', 'menu_categories',
     'ingredients', 'transactions', 'reports', 'sync_queue', 'staffs',
     'cost_categories', 'cost_transactions', 'cost_transactions_admin',
-    'admin_cost_categories', 'daily_balances'   // ← thêm dòng này
+    'admin_cost_categories', 'daily_balances',
+    'inventory_transactions', 'manager_cash_pickups',
+    'ingredient_transactions'
 ];
                 for (var i = 0; i < stores.length; i++) {
                     if (!db.objectStoreNames.contains(stores[i])) {
@@ -427,12 +521,57 @@
         req.onsuccess = function() { syncQueue = req.result || []; };
     }
 
+    // Seed dữ liệu cho POS mặc định (shop_default) nếu chưa có shop_registry
+    function seedDefaultShop() {
+        return db.ref('shop_registry/123123').once('value').then(function(snapshot) {
+            if (snapshot.exists()) return; // Đã có rồi, không cần seed
+            
+            console.log('🌱 Seeding default shop data...');
+            var staffId = 'staff_admin_' + Date.now().toString(36);
+            var updates = {};
+            
+            // Tạo shop_registry cho mã 123123 -> shop_default
+            updates['shop_registry/123123'] = {
+                shopId: 'shop_default',
+                shopName: 'POS Cafe',
+                shopCode: '123123',
+                createdAt: Date.now()
+            };
+            
+            // Tạo staff admin cho shop_default
+            updates['shop_default/staffs/' + staffId] = {
+                id: staffId,
+                username: 'admin123123',
+                password: '123123',
+                displayName: 'Admin',
+                role: 'admin',
+                createdAt: Date.now(),
+                createdBy: 'system'
+            };
+            
+            updates['shop_default/info'] = {
+                name: 'POS Cafe',
+                code: '123123',
+                createdAt: Date.now()
+            };
+            
+            return db.ref().update(updates).then(function() {
+                console.log('✅ Default shop seeded: mã 123123, user admin123123, pass 123123');
+            });
+        }).catch(function(err) {
+            console.error('Seed error:', err);
+        });
+    }
+
     // Init Database
     function initDatabase() {
         return initLocalDB().then(function() {
             initNetwork();
             if (isOnline) return syncHistorical();
             return Promise.resolve();
+        }).then(function() {
+            // Seed dữ liệu mặc định nếu chưa có
+            return seedDefaultShop();
         }).then(function() {
             // Subscribe to essential collections (real-time)
             subscribeToCollection('tables');
@@ -463,6 +602,254 @@
         setTimeout(function() { toast.remove(); }, 2500);
     }
 
+    // ========== AUTH METHODS ==========
+    
+    // Xóa toàn bộ dữ liệu local (IndexedDB + memory cache) khi chuyển POS
+    function clearLocalData() {
+        // Xóa memory cache
+        memoryCache = {};
+        cacheVersion = {};
+        
+        // Xóa tất cả object stores trong IndexedDB
+        if (!localDB) return Promise.resolve();
+        
+        var storeNames = [];
+        for (var i = 0; i < localDB.objectStoreNames.length; i++) {
+            storeNames.push(localDB.objectStoreNames[i]);
+        }
+        var promises = [];
+        for (var i = 0; i < storeNames.length; i++) {
+            var name = storeNames[i];
+            if (name === 'sync_queue') continue; // Giữ lại sync queue
+            promises.push(new Promise(function(resolve, reject) {
+                var tx = localDB.transaction([name], 'readwrite');
+                var store = tx.objectStore(name);
+                var req = store.clear();
+                req.onsuccess = function() { resolve(); };
+                req.onerror = function() { reject(req.error); };
+            }));
+        }
+        return Promise.all(promises).then(function() {
+            console.log('🗑️ Cleared all local data for shop switch');
+        });
+    }
+    
+    // Đổi shopId (khi đăng nhập vào POS khác)
+    function setShopId(shopId) {
+        if (!shopId) return;
+        CURRENT_SHOP_ID = shopId;
+        localStorage.setItem('current_shop_id', shopId);
+        console.log('🔄 Switched to shop:', shopId);
+    }
+    
+    // Lấy shopId hiện tại
+    function getShopId() {
+        return CURRENT_SHOP_ID;
+    }
+    
+    // Đăng nhập: kiểm tra shopCode -> lấy shopId -> verify staff credentials
+    function login(shopCode, username, password) {
+        if (!shopCode || !username || !password) {
+            return Promise.reject(new Error('Vui lòng nhập đầy đủ thông tin'));
+        }
+        // Tra cứu shopCode trong shop_registry
+        return db.ref('shop_registry/' + shopCode).once('value').then(function(snapshot) {
+            if (!snapshot.exists()) {
+                throw new Error('Mã POS không tồn tại');
+            }
+            var shopInfo = snapshot.val();
+            var shopId = shopInfo.shopId;
+            
+            // Kiểm tra staff credentials trong shops/{shopId}/staffs
+            return db.ref(shopId + '/staffs').once('value').then(function(staffSnapshot) {
+                var staffs = staffSnapshot.val() || {};
+                var foundStaff = null;
+                for (var key in staffs) {
+                    if (staffs.hasOwnProperty(key)) {
+                        var s = staffs[key];
+                        if (s.username === username && s.password === password) {
+                            foundStaff = s;
+                            foundStaff.id = key;
+                            break;
+                        }
+                    }
+                }
+                if (!foundStaff) {
+                    throw new Error('Sai tên đăng nhập hoặc mật khẩu');
+                }
+                
+                // Xóa dữ liệu local cũ trước khi chuyển POS
+                return clearLocalData().then(function() {
+                    // Lưu session
+                    currentUser = {
+                        id: foundStaff.id,
+                        username: foundStaff.username,
+                        displayName: foundStaff.displayName || foundStaff.username,
+                        role: foundStaff.role || 'staff',
+                        shopId: shopId,
+                        shopCode: shopCode,
+                        shopName: shopInfo.shopName || ''
+                    };
+                    localStorage.setItem('pos_session', JSON.stringify(currentUser));
+                    
+                    // Cập nhật shopId
+                    setShopId(shopId);
+                    
+                    return currentUser;
+                });
+            });
+        });
+    }
+    
+    // Đăng ký POS mới (tạo shop + admin)
+    function registerShop(shopName, shopCode, adminUser, adminPass) {
+        if (!shopName || !shopCode || !adminUser || !adminPass) {
+            return Promise.reject(new Error('Vui lòng nhập đầy đủ thông tin'));
+        }
+        if (shopCode.length < 3) {
+            return Promise.reject(new Error('Mã POS phải có ít nhất 3 ký tự'));
+        }
+        if (adminPass.length < 4) {
+            return Promise.reject(new Error('Mật khẩu phải có ít nhất 4 ký tự'));
+        }
+        
+        // Kiểm tra shopCode đã tồn tại chưa
+        return db.ref('shop_registry/' + shopCode).once('value').then(function(snapshot) {
+            if (snapshot.exists()) {
+                throw new Error('Mã POS này đã được đăng ký');
+            }
+            
+            // Tạo shopId
+            var shopId = 'shop_' + shopCode.toLowerCase();
+            
+            // Tạo staff admin
+            var staffId = 'staff_' + Date.now().toString(36);
+            var staffData = {
+                id: staffId,
+                username: adminUser,
+                password: adminPass,
+                displayName: adminUser,
+                role: 'admin',
+                createdAt: Date.now(),
+                createdBy: 'system'
+            };
+            
+            // Tạo shop_registry entry
+            var registryData = {
+                shopId: shopId,
+                shopName: shopName,
+                shopCode: shopCode,
+                createdAt: Date.now()
+            };
+            
+            // Batch write: shop_registry + shop data + staff
+            var updates = {};
+            updates['shop_registry/' + shopCode] = registryData;
+            updates[shopId + '/staffs/' + staffId] = staffData;
+            updates[shopId + '/info'] = {
+                name: shopName,
+                code: shopCode,
+                createdAt: Date.now()
+            };
+            
+            return db.ref().update(updates).then(function() {
+                // Xóa dữ liệu local cũ trước khi chuyển POS mới
+                return clearLocalData();
+            }).then(function() {
+                // Tự động đăng nhập sau khi đăng ký
+                currentUser = {
+                    id: staffId,
+                    username: adminUser,
+                    displayName: adminUser,
+                    role: 'admin',
+                    shopId: shopId,
+                    shopCode: shopCode,
+                    shopName: shopName
+                };
+                localStorage.setItem('pos_session', JSON.stringify(currentUser));
+                setShopId(shopId);
+                return currentUser;
+            });
+        });
+    }
+    
+    // Tạo nhân viên mới (chỉ admin)
+    function createStaff(staffData) {
+        if (!currentUser || currentUser.role !== 'admin') {
+            return Promise.reject(new Error('Chỉ admin mới có thể tạo nhân viên'));
+        }
+        if (!staffData.username || !staffData.password) {
+            return Promise.reject(new Error('Vui lòng nhập tên đăng nhập và mật khẩu'));
+        }
+        
+        var staffId = 'staff_' + Date.now().toString(36);
+        var data = {
+            id: staffId,
+            username: staffData.username,
+            password: staffData.password,
+            displayName: staffData.displayName || staffData.username,
+            role: staffData.role || 'staff',
+            createdAt: Date.now(),
+            createdBy: currentUser.id
+        };
+        
+        var ref = db.ref(CURRENT_SHOP_ID + '/staffs/' + staffId);
+        return ref.set(data).then(function() {
+            // Lưu vào IndexedDB local
+            return saveToLocal('staffs', data);
+        }).then(function() {
+            return data;
+        });
+    }
+    
+    // Lấy danh sách nhân viên
+    function getStaffs() {
+        return db.ref(CURRENT_SHOP_ID + '/staffs').once('value').then(function(snapshot) {
+            var data = snapshot.val() || {};
+            var list = [];
+            for (var key in data) {
+                if (data.hasOwnProperty(key)) {
+                    var item = data[key];
+                    item.id = key;
+                    list.push(item);
+                }
+            }
+            // Cập nhật local cache
+            for (var i = 0; i < list.length; i++) {
+                saveToLocal('staffs', list[i]);
+            }
+            return list;
+        }).catch(function() {
+            // Fallback: đọc từ local
+            return getAll('staffs');
+        });
+    }
+    
+    // Đăng xuất
+    function logout() {
+        currentUser = null;
+        localStorage.removeItem('pos_session');
+        // Reset về shop mặc định
+        CURRENT_SHOP_ID = 'shop_default';
+        localStorage.setItem('current_shop_id', 'shop_default');
+        console.log('👋 Logged out');
+    }
+    
+    // Lấy thông tin user hiện tại
+    function getCurrentUser() {
+        return currentUser;
+    }
+    
+    // Kiểm tra đã đăng nhập chưa
+    function isLoggedIn() {
+        return currentUser !== null;
+    }
+    
+    // Kiểm tra có phải admin không
+    function isAdmin() {
+        return currentUser && currentUser.role === 'admin';
+    }
+
     // Export
     window.DB = {
         init: initDatabase,
@@ -476,6 +863,18 @@
         isOnline: function() { return isOnline; },
         getDeviceId: function() { return CURRENT_DEVICE_ID; },
         processSyncQueue: processSyncQueue,
-        getSyncQueue: function() { return syncQueue; }
+        getSyncQueue: function() { return syncQueue; },
+        // Auth methods
+        setShopId: setShopId,
+        getShopId: getShopId,
+        login: login,
+        registerShop: registerShop,
+        createStaff: createStaff,
+        getStaffs: getStaffs,
+        logout: logout,
+        getCurrentUser: getCurrentUser,
+        isLoggedIn: isLoggedIn,
+        isAdmin: isAdmin,
+        clearLocalData: clearLocalData
     };
 })();

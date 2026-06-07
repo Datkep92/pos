@@ -1,206 +1,250 @@
-// ========== QUẢN LÝ NGUYÊN LIỆU (ĐỒNG BỘ FIREBASE) ==========
-let ingredients = [];
+// ingredients.js - Kiểm tra tồn kho, trừ/hoàn nguyên liệu
+// Tách từ pos.js - ES5, tương thích Android 6, iOS 12
 
-async function initIngredients() {
-    ingredients = await DB.getAll('ingredients') || [];
-    window.ingredients = ingredients;
-    renderIngredients();
-    console.log(`✅ Đã tải ${ingredients.length} nguyên liệu`);
-}
+// OPTIMIZE: Build lookup maps để tránh nested loops (4 cấp -> 2 cấp)
+var _menuLookup = null;
+var _ingredientLookup = null;
 
-function renderIngredients() {
-    ingredients = window.ingredients || [];
-    const container = document.getElementById('ingredientsList');
-    if (!container) return;
-    if (ingredients.length === 0) {
-        container.innerHTML = `<div class="empty-state">📦 Chưa có nguyên liệu</div><button class="btn-add-ingredient" onclick="openIngredientModal()">+ Thêm</button>`;
-        return;
+function _buildLookups() {
+    if (_menuLookup && _ingredientLookup) return;
+    _menuLookup = {};
+    _ingredientLookup = {};
+    for (var i = 0; i < menuItems.length; i++) {
+        _menuLookup[menuItems[i].id] = menuItems[i];
+        _menuLookup[menuItems[i].name] = menuItems[i];
     }
-    const minStock = parseInt(localStorage.getItem('settingMinStock') || '10');
-    container.innerHTML = ingredients.map(ing => {
-        const isLow = ing.stock <= (ing.minStock || minStock);
-        return `
-            <div class="ingredient-card" onclick="showIngredientDetail('${ing.id}')">
-                <div class="ingredient-info">
-                    <div class="ingredient-name">${escapeHtml(ing.name)}</div>
-                </div>
-                <div class="ingredient-stock ${isLow ? 'low' : ''}">📦 ${ing.stock.toLocaleString()} ${ing.unit}</div>
-                <div class="ingredient-price">💰 ${formatMoney(ing.price)} / ${ing.unit}</div>
-            </div>
-        `;
-    }).join('');
-}
-
-// Hiển thị chi tiết nguyên liệu (popup)
-async function showIngredientDetail(id) {
-    const ing = ingredients.find(i => i.id === id);
-    if (!ing) return;
-    document.getElementById('ingredientDetailId').value = ing.id;
-    document.getElementById('ingredientDetailName').value = ing.name;
-    document.getElementById('ingredientDetailUnit').value = ing.unit;
-    document.getElementById('ingredientDetailStock').value = ing.stock;
-    document.getElementById('ingredientDetailPrice').value = ing.price;
-    document.getElementById('ingredientDetailMinStock').value = ing.minStock || 10;
-    document.getElementById('ingredientDetailModal').style.display = 'flex';
-}
-
-// Lưu nguyên liệu từ popup chi tiết
-async function saveIngredientDetail() {
-    const id = document.getElementById('ingredientDetailId').value;
-    const name = document.getElementById('ingredientDetailName').value.trim();
-    const unit = document.getElementById('ingredientDetailUnit').value;
-    const stock = parseFloat(document.getElementById('ingredientDetailStock').value) || 0;
-    const price = parseFloat(document.getElementById('ingredientDetailPrice').value) || 0;
-    const minStock = parseFloat(document.getElementById('ingredientDetailMinStock').value) || 10;
-    if (!name) {
-        showToast('Vui lòng nhập tên nguyên liệu!', 'warning');
-        return;
-    }
-    const index = ingredients.findIndex(i => i.id === id);
-    if (index !== -1) {
-        const updatedIng = { ...ingredients[index], name, unit, stock, price, minStock };
-        await DB.update('ingredients', id, updatedIng);
-        ingredients[index] = updatedIng;
-        window.ingredients = ingredients;
-        renderIngredients();
-        closeModal('ingredientDetailModal');
-        showToast(`Đã cập nhật "${name}"`, 'success');
+    for (var j = 0; j < ingredients.length; j++) {
+        _ingredientLookup[ingredients[j].id] = ingredients[j];
     }
 }
 
-// Xóa nguyên liệu từ popup chi tiết
-async function deleteIngredientDetail() {
-    const id = document.getElementById('ingredientDetailId').value;
-    if (!confirm('Xóa nguyên liệu này?')) return;
-    await DB.remove('ingredients', id);
-    ingredients = ingredients.filter(i => i.id !== id);
-    window.ingredients = ingredients;
-    renderIngredients();
-    closeModal('ingredientDetailModal');
-    showToast('Đã xóa nguyên liệu', 'success');
+function _invalidateLookups() {
+    _menuLookup = null;
+    _ingredientLookup = null;
 }
 
-// Mở modal thêm mới nguyên liệu (giữ nguyên)
-function openIngredientModal() {
-    document.getElementById('ingredientModalTitle').innerText = '➕ Thêm nguyên liệu';
-    document.getElementById('ingredientId').value = '';
-    document.getElementById('ingredientName').value = '';
-    document.getElementById('ingredientUnit').value = 'kg';
-    document.getElementById('ingredientStock').value = 0;
-    document.getElementById('ingredientPrice').value = 0;
-    document.getElementById('ingredientMinStock').value = 10;
-    document.getElementById('ingredientModal').style.display = 'flex';
-}
-
-async function saveIngredient() {
-    const id = document.getElementById('ingredientId').value;
-    const name = document.getElementById('ingredientName').value.trim();
-    const unit = document.getElementById('ingredientUnit').value;
-    const stock = parseFloat(document.getElementById('ingredientStock').value) || 0;
-    const price = parseFloat(document.getElementById('ingredientPrice').value) || 0;
-    const minStock = parseFloat(document.getElementById('ingredientMinStock').value) || 10;
-    if (!name) {
-        showToast('Vui lòng nhập tên nguyên liệu!', 'warning');
-        return;
+// Helper: tính số lượng thực tế cần trừ/hoàn dựa trên quy đổi
+// Nếu nguyên liệu có conversionRate (VD: 1 kg = 1600 ml),
+// và recipe yêu cầu 10 ml, thì lượng cần trừ = 10 / 1600 = 0.00625 kg
+function _getConvertedQuantity(ingredient, recipeQuantity) {
+    if (!ingredient) return recipeQuantity;
+    var rate = parseFloat(ingredient.conversionRate) || 0;
+    if (rate > 0 && ingredient.conversionTo && ingredient.conversionFrom) {
+        // Recipe quantity is in conversionTo unit (e.g., ml)
+        // Stock is in conversionFrom unit (e.g., kg)
+        // Convert: stock to deduct = recipe quantity / conversion rate
+        return recipeQuantity / rate;
     }
-    if (id) {
-        const index = ingredients.findIndex(i => i.id === id);
-        if (index !== -1) {
-            const updatedIng = { ...ingredients[index], name, unit, stock, price, minStock };
-            await DB.update('ingredients', id, updatedIng);
-            ingredients[index] = updatedIng;
+    // No conversion: recipe quantity is in same unit as stock
+    return recipeQuantity;
+}
+
+// ========== NGUYÊN LIỆU ==========
+function checkStock(items) {
+    _buildLookups();
+    return new Promise(function(resolve) {
+        for (var i = 0; i < items.length; i++) {
+            var orderItem = items[i];
+            var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+            var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
+            if (menuItem && menuItem.ingredients) {
+                for (var k = 0; k < menuItem.ingredients.length; k++) {
+                    var req = menuItem.ingredients[k];
+                    var ing = _ingredientLookup[req.ingredientId];
+                    if (ing) {
+                        var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                        if (ing.stock < needed) {
+                            showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
+                            resolve(false);
+                            return;
+                        }
+                    }
+                }
+            }
         }
-    } else {
-        const newId = Date.now().toString();
-        const newIng = {
-            id: newId, name, unit, stock, price, minStock,
-            createdAt: Date.now()
-        };
-        await DB.create('ingredients', newIng);
-        ingredients.push(newIng);
-    }
-    window.ingredients = ingredients;
-    renderIngredients();
-    closeModal('ingredientModal');
-    showToast(`Đã lưu nguyên liệu "${name}"`, 'success');
+        resolve(true);
+    });
 }
 
-// Xóa nguyên liệu (cũ, có thể giữ nhưng không dùng)
-async function deleteIngredient(id) {
-    if (confirm('Xóa nguyên liệu này?')) {
-        await DB.remove('ingredients', id);
-        ingredients = ingredients.filter(i => i.id !== id);
-        window.ingredients = ingredients;
-        renderIngredients();
-        showToast('Đã xóa nguyên liệu', 'success');
+// Helper: lấy danh sách nguyên liệu cho một menu item, hỗ trợ variant
+function _getIngredientsForItem(menuItem, orderItem) {
+    if (!menuItem) return [];
+    
+    // Get variant data from either variants or sizes field
+    var variantData = (menuItem.variants && menuItem.variants.length > 0) ? menuItem.variants : (menuItem.sizes || []);
+    
+    // Nếu orderItem có variant (id chứa '_'), tìm variant-specific ingredients
+    if (orderItem.id && orderItem.id.indexOf('_') !== -1 && variantData.length) {
+        var variantName = orderItem.id.split('_').slice(1).join('_');
+        for (var v = 0; v < variantData.length; v++) {
+            if (variantData[v].name === variantName && variantData[v].ingredients && variantData[v].ingredients.length) {
+                return variantData[v].ingredients;
+            }
+        }
     }
+    
+    // Fallback: dùng ingredients chung của menu item
+    return menuItem.ingredients || [];
 }
 
-// Kiểm tra tồn kho thấp
-function checkLowStock() {
-    const minStock = parseInt(localStorage.getItem('settingMinStock') || '10');
-    const lowItems = ingredients.filter(i => i.stock <= (i.minStock || minStock));
-    if (lowItems.length === 0) {
-        showToast('✅ Tất cả nguyên liệu đều đủ tồn kho!', 'success');
-    } else {
-        showToast(`⚠️ Tồn kho thấp: ${lowItems.map(i => i.name).join(', ')}`, 'warning');
-    }
-}
-
-// Trừ nguyên liệu khi bán hàng
-async function deductIngredients(orderItems) {
-    if (!orderItems || orderItems.length === 0) return;
-    const menuItems = window.menuItems || [];
-    for (const orderItem of orderItems) {
-        const menuItem = menuItems.find(m => m.name === orderItem.name);
-        if (menuItem && menuItem.ingredients && menuItem.ingredients.length) {
-            for (const req of menuItem.ingredients) {
-                const ing = ingredients.find(i => i.id === req.ingredientId);
+function deductIngredients(items) {
+    _buildLookups();
+    var updates = [];
+    for (var i = 0; i < items.length; i++) {
+        var orderItem = items[i];
+        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+        var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
+        if (menuItem) {
+            var ings = _getIngredientsForItem(menuItem, orderItem);
+            for (var k = 0; k < ings.length; k++) {
+                var req = ings[k];
+                var ing = _ingredientLookup[req.ingredientId];
                 if (ing) {
-                    const newStock = ing.stock - (req.quantity * orderItem.qty);
-                    ing.stock = Math.max(0, newStock);
-                    await DB.update('ingredients', ing.id, { stock: ing.stock });
+                    var deductQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                    var oldStock = ing.stock || 0;
+                    ing.stock -= deductQty;
+                    if (ing.stock < 0) ing.stock = 0;
+                    updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
+                    
+                    // Log export transaction
+                    var unit = ing.unit || '';
+                    var note = 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (-' + Math.round(deductQty * 1000) / 1000 + ' ' + unit + ')';
+                    _logIngredientTransaction(ing.id, 'export', Math.round(deductQty * 1000) / 1000, unit, note).catch(function(err) {
+                        console.error('Log export error:', err);
+                    });
                 }
             }
         }
     }
-    window.ingredients = ingredients;
-    renderIngredients();
+    return Promise.all(updates);
 }
 
-async function checkStockForItems(orderItems) {
-    const menuItems = window.menuItems || [];
-    const ingredients = window.ingredients || [];
-    for (const orderItem of orderItems) {
-        const menuItem = menuItems.find(m => m.name === orderItem.name);
-        if (!menuItem) continue;
-        const formula = menuItem.ingredients || [];
-        for (const req of formula) {
-            const ing = ingredients.find(i => i.id === req.ingredientId);
-            if (!ing) {
-                showToast(`Nguyên liệu không tồn tại cho món ${orderItem.name}`, 'error');
-                return false;
-            }
-            const needed = (req.quantity || 0) * (orderItem.qty || 0);
-            if (ing.stock < needed) {
-                showToast(`⚠️ Nguyên liệu "${ing.name}" không đủ cho món ${orderItem.name} (cần ${needed} ${ing.unit}, còn ${ing.stock})`, 'error');
-                return false;
+function restoreIngredients(items) {
+    _buildLookups();
+    var updates = [];
+    for (var i = 0; i < items.length; i++) {
+        var orderItem = items[i];
+        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+        var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
+        if (menuItem) {
+            var ings = _getIngredientsForItem(menuItem, orderItem);
+            for (var k = 0; k < ings.length; k++) {
+                var req = ings[k];
+                var ing = _ingredientLookup[req.ingredientId];
+                if (ing) {
+                    var restoreQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                    var oldStock = ing.stock || 0;
+                    ing.stock += restoreQty;
+                    updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
+                    
+                    // Log import transaction (hoàn lại)
+                    var unit = ing.unit || '';
+                    var note = 'Hoàn: ' + orderItem.name + ' x' + orderItem.qty + ' (+' + Math.round(restoreQty * 1000) / 1000 + ' ' + unit + ')';
+                    _logIngredientTransaction(ing.id, 'import', Math.round(restoreQty * 1000) / 1000, unit, note).catch(function(err) {
+                        console.error('Log restore error:', err);
+                    });
+                }
             }
         }
     }
-    return true;
+    return Promise.all(updates);
 }
 
-// Xuất global
-window.ingredients = ingredients;
-window.initIngredients = initIngredients;
-window.renderIngredients = renderIngredients;
-window.openIngredientModal = openIngredientModal;
-window.saveIngredient = saveIngredient;
-window.deleteIngredient = deleteIngredient;
-window.checkLowStock = checkLowStock;
-window.deductIngredients = deductIngredients;
-window.checkStockForItems = checkStockForItems;
-window.showIngredientDetail = showIngredientDetail;
-window.saveIngredientDetail = saveIngredientDetail;
-window.deleteIngredientDetail = deleteIngredientDetail;
+// ========== LỊCH SỬ GIAO DỊCH NGUYÊN LIỆU ==========
+// Lưu lại mỗi lần nhập/xuất nguyên liệu để dễ dàng theo dõi
+function _logIngredientTransaction(ingredientId, type, quantity, unit, note) {
+    // type: 'import' (nhập kho) or 'export' (xuất kho - bán/hao hụt)
+    var now = new Date();
+    var dateKey = now.getFullYear() + '-' +
+        ('0' + (now.getMonth() + 1)).slice(-2) + '-' +
+        ('0' + now.getDate()).slice(-2);
+    var timeStr = ('0' + now.getHours()).slice(-2) + ':' +
+        ('0' + now.getMinutes()).slice(-2) + ':' +
+        ('0' + now.getSeconds()).slice(-2);
+    
+    var tx = {
+        ingredientId: String(ingredientId),
+        type: type,
+        quantity: quantity,
+        unit: unit || '',
+        note: note || '',
+        dateKey: dateKey,
+        time: timeStr,
+        createdAt: now.getTime()
+    };
+    
+    return DB.create('ingredient_transactions', tx);
+}
+
+// Ghi log nhập kho (mua thêm, bổ sung)
+function logIngredientImport(ingredientId, quantity, unit, note) {
+    return _logIngredientTransaction(ingredientId, 'import', quantity, unit, note);
+}
+
+// Ghi log xuất kho (bán, sử dụng, hao hụt)
+function logIngredientExport(ingredientId, quantity, unit, note) {
+    return _logIngredientTransaction(ingredientId, 'export', quantity, unit, note);
+}
+
+// Lấy lịch sử giao dịch của một nguyên liệu
+function getIngredientTransactions(ingredientId) {
+    return DB.getAll('ingredient_transactions').then(function(all) {
+        if (!all || !all.length) return [];
+        var result = [];
+        var searchId = String(ingredientId);
+        for (var i = 0; i < all.length; i++) {
+            if (String(all[i].ingredientId) === searchId) {
+                result.push(all[i]);
+            }
+        }
+        // Sort newest first
+        result.sort(function(a, b) {
+            return (b.createdAt || 0) - (a.createdAt || 0);
+        });
+        return result;
+    });
+}
+
+// ========== THÊM TỒN KHO NGUYÊN LIỆU ==========
+function addIngredientStock(ingredientId, quantity) {
+    _buildLookups();
+    var ing = _ingredientLookup[ingredientId];
+    if (!ing) {
+        // Fallback: tìm trong mảng ingredients
+        for (var i = 0; i < ingredients.length; i++) {
+            if (ingredients[i].id === ingredientId) {
+                ing = ingredients[i];
+                break;
+            }
+        }
+    }
+    if (!ing) {
+        return Promise.reject(new Error('Không tìm thấy nguyên liệu: ' + ingredientId));
+    }
+
+    var oldStock = ing.stock || 0;
+    ing.stock = oldStock + quantity;
+    if (ing.stock < 0) ing.stock = 0;
+
+    // Invalidate lookups để lần sau rebuild
+    _invalidateLookups();
+
+    // Log transaction
+    var unit = ing.unit || '';
+    var note = '';
+    if (quantity > 0) {
+        note = 'Nhập kho: +' + quantity + ' ' + unit + ' (tồn: ' + Math.round(oldStock * 10) / 10 + ' -> ' + Math.round(ing.stock * 10) / 10 + ')';
+        _logIngredientTransaction(ingredientId, 'import', quantity, unit, note);
+    } else if (quantity < 0) {
+        note = 'Xuất kho: ' + quantity + ' ' + unit + ' (tồn: ' + Math.round(oldStock * 10) / 10 + ' -> ' + Math.round(ing.stock * 10) / 10 + ')';
+        _logIngredientTransaction(ingredientId, 'export', Math.abs(quantity), unit, note);
+    }
+
+    return DB.update('ingredients', ing.id, { stock: ing.stock });
+}
+
+// Export global
+window.addIngredientStock = addIngredientStock;
+window.logIngredientImport = logIngredientImport;
+window.logIngredientExport = logIngredientExport;
+window.getIngredientTransactions = getIngredientTransactions;
