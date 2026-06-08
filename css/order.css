@@ -81,13 +81,14 @@
 /* ========== MODAL ORDER ========== */
 .modal-content.modal-large {
     max-width: 1200px;
-    width: 90vw;
-    max-height: 85vh;
-    height: auto;
+    width: 100%;
+    height: 80vh;
+    max-height: 80vh;
     display: flex;
     flex-direction: column;
     border-radius: 20px;
     overflow: hidden;
+    margin: 20px auto;
 }
 
 .modal-body.order-modal-body {
@@ -1030,4 +1031,82 @@ div[style*="display: flex"][style*="gap: 6px"] .action-btn {
     color: white !important;
     border-color: #f97316 !important;
     font-weight: 600;
+}
+
+/* ========== MOBILE DỌC: chuyển layout 3 cột thành dọc ========== */
+@media (max-width: 480px) and (orientation: portrait) {
+    .modal-content.modal-large {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        margin: 0 !important;
+        border-radius: 0;
+    }
+    .order-three-columns {
+        flex-direction: column;
+        padding: 8px;
+        gap: 6px;
+    }
+    .order-categories-column {
+        width: 100%;
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 4px 0;
+        gap: 4px;
+        flex-shrink: 0;
+    }
+    .order-categories-column .category-item {
+        flex: 0 0 auto;
+        min-width: 60px;
+        padding: 6px 8px;
+        margin: 2px;
+        flex-direction: row;
+        gap: 4px;
+    }
+    .order-categories-column .category-item .cat-icon {
+        font-size: 16px;
+        margin-bottom: 0;
+    }
+    .order-categories-column .category-item span:last-child {
+        font-size: 10px;
+    }
+    .order-menu-column {
+        flex: 1;
+        min-height: 0;
+    }
+    .order-cart-column {
+        width: 100%;
+        min-width: 0;
+        max-height: 40vh;
+    }
+    .menu-grid {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        gap: 4px;
+        padding: 6px;
+    }
+    .menu-card {
+        padding: 6px 4px;
+    }
+    .menu-card .menu-name {
+        font-size: 10px;
+    }
+    .menu-card .menu-price {
+        font-size: 9px;
+    }
+    .cart-header {
+        font-size: 11px;
+        padding: 6px 8px;
+    }
+    .cart-total-section {
+        padding: 6px;
+    }
+    .total-row span:last-child {
+        font-size: 14px;
+    }
+    .action-btn {
+        padding: 6px;
+        font-size: 10px;
+    }
 }

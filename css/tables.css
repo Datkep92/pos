@@ -102,6 +102,11 @@
     padding: 3px 8px;
     border-radius: 20px;
     white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.table-time:hover {
+    background: #e2e8f0;
 }
 
 .table-stats {
@@ -122,41 +127,12 @@
     font-size: 16px;
 }
 
-.table-actions {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    margin-top: auto;
-}
-
-.table-action {
-    background: #f8fafc;
-    border: 1px solid var(--border);
-    border-radius: 30px;
-    padding: 6px 0;
-    text-align: center;
-    font-size: 16px;
-    cursor: pointer;
-    width: 44px;
-    flex-shrink: 0;
-    transition: 0.05s linear;
-    -webkit-appearance: none;
-}
-
-.table-action:first-child { margin-right: auto; margin-left: 4px; }
-.table-action:last-child { margin-left: auto; }
-
-.table-action:active {
-    background: #eef2f6;
-    transform: scale(0.94);
-}
 
 /* Responsive table card */
 @media (max-width: 480px) {
     .table-card { padding: 10px; min-height: 100px; }
     .table-name { font-size: 13px; }
     .table-total { font-size: 14px; }
-    .table-action { width: 38px; font-size: 14px; }
 }
 
 /* Tablet dọc */
@@ -171,7 +147,6 @@
     .table-card { padding: 14px 12px; min-height: 140px; }
     .table-name { font-size: 15px; }
     .table-total { font-size: 18px; }
-    .table-action { width: 48px; height: 36px; font-size: 18px; }
 }
 
 /* Desktop */
@@ -179,7 +154,6 @@
     .table-card { padding: 16px; min-height: 150px; }
     .table-name { font-size: 16px; }
     .table-total { font-size: 20px; }
-    .table-action { width: 50px; height: 38px; font-size: 18px; }
 }
 
 .table-card {
@@ -192,28 +166,79 @@
 }
 
 .table-actions {
-    margin-top: 4px;  /* Giảm khoảng cách */
-}
-
-.table-action {
-    padding: 3px 0;  /* Nút nhỏ hơn */
-    width: 36px;
-}
-
-/* Cách 2: Giữ nguyên flex nhưng căn trái */
-.table-actions {
     display: flex;
-    justify-content: flex-start;  /* Căn trái thay vì space-between */
-    gap: 8px;
-    margin-top: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 2px 6px;
+    margin-top: 4px;
+    align-items: center;
 }
 
-.table-action {
-    width: 36px;
-    margin: 0;  /* Bỏ margin auto */
+/* ===== HIỆU ỨNG 30S CHO TABLE CARD MỚI TẠO ===== */
+.table-card.table-new {
+    animation: tableNewGlow 30s ease-in-out forwards;
 }
 
-.table-action:first-child { 
-    margin-right: 0; 
-    margin-left: 0; 
+@keyframes tableNewGlow {
+    0% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0), 0 4px 12px rgba(0,0,0,0.1);
+        border-color: var(--primary);
+    }
+    2% {
+        box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.35), 0 6px 20px rgba(0,0,0,0.12);
+        border-color: #22c55e;
+    }
+    10% {
+        box-shadow: 0 0 25px 6px rgba(34, 197, 94, 0.3), 0 6px 20px rgba(0,0,0,0.12);
+        border-color: #22c55e;
+    }
+    30% {
+        box-shadow: 0 0 15px 3px rgba(34, 197, 94, 0.18), 0 4px 14px rgba(0,0,0,0.1);
+        border-color: #86efac;
+    }
+    60% {
+        box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.08), 0 3px 10px rgba(0,0,0,0.08);
+        border-color: #bbf7d0;
+    }
+    100% {
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        border-color: var(--primary);
+    }
+}
+
+/* ===== RECENT ADDS - LỊCH SỬ THÊM MÓN GẦN NHẤT ===== */
+.table-recent-adds {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    width: 100%;
+    min-width: 0;
+}
+
+.recent-add-entry {
+    font-size: 9px;
+    color: #16a34a;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    display: inline-block;
+}
+
+.recent-add-entry:before {
+    content: '🆕';
+    font-size: 7px;
+    margin-right: 1px;
+}
+
+.recent-add-time {
+    font-size: 8px;
+    color: #94a3b8;
+    font-weight: 400;
+    margin-left: 2px;
 }

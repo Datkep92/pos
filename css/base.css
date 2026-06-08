@@ -1383,3 +1383,438 @@ body {
     font-weight: 700;
     color: #1e293b;
 }
+
+/* ============================================================
+   NOTIFICATION COMPONENTS
+   ============================================================ */
+
+/* Header Notification Bar - Scrolling */
+.header-notification-bar {
+    background: linear-gradient(90deg, #f97316, #ea580c);
+    color: #fff;
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    height: 32px;
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+}
+
+.header-notification-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 500;
+    animation: scrollText 35s linear infinite;
+}
+
+@keyframes scrollText {
+    0% { transform: translateX(100%); }
+    10% { transform: translateX(0); }
+    90% { transform: translateX(-100%); }
+    100% { transform: translateX(-100%); }
+}
+
+.header-notification-close {
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    opacity: 0.8;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.header-notification-close:hover {
+    opacity: 1;
+}
+
+/* Lunar Calendar Notification Banner */
+.lunar-notification-banner {
+    background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+    border: 1px solid #ffcc80;
+    border-radius: 10px;
+    margin: 8px 12px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.15);
+}
+
+.lunar-notification-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.lunar-notification-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.lunar-notification-text {
+    font-size: 13px;
+    color: #e65100;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.lunar-notification-btn {
+    background: #f97316;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.lunar-notification-btn:hover {
+    background: #ea580c;
+}
+
+.lunar-notification-btn:active {
+    transform: scale(0.96);
+}
+
+/* Notification Toggle Switch */
+.notification-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    margin-bottom: 8px;
+}
+
+.notification-toggle-row span {
+    font-size: 14px;
+    font-weight: 500;
+    color: #1e293b;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #cbd5e1;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #10b981;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+/* Notification Input Row */
+.notification-input-row {
+    padding: 4px 0;
+}
+
+.notification-input-row textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 40px;
+    background: #fff;
+    color: #1e293b;
+}
+
+.notification-input-row textarea:focus {
+    outline: none;
+    border-color: #f97316;
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
+}
+
+/* Notification History List */
+.notification-history-list {
+    transition: max-height 0.3s ease;
+    overflow-y: auto;
+}
+
+.notification-history-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.notification-history-item:last-child {
+    border-bottom: none;
+}
+
+.notification-history-item .notif-content {
+    color: #1e293b;
+    margin-bottom: 2px;
+}
+
+.notification-history-item .notif-time {
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+.notification-history-item .notif-status {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
+.notif-status.active {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.notif-status.inactive {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* Card toggle header */
+.toggle-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-header .toggle-icon {
+    font-size: 12px;
+    transition: transform 0.2s;
+}
+
+.toggle-header.active .toggle-icon {
+    transform: rotate(180deg);
+}
+
+/* ========== NÚT MỆNH GIÁ THANH TOÁN NHANH ========== */
+.denom-actions {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.denom-btn {
+    flex: 1;
+    padding: 10px 4px;
+    border-radius: 10px;
+    border: 2px solid #e2e8f0;
+    background: #f8fafc;
+    color: #334155;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    transition: all 0.15s ease;
+    text-align: center;
+}
+.denom-btn:active {
+    transform: scale(0.95);
+}
+.denom-btn:nth-child(1) { border-color: #f59e0b; background: #fef3c7; color: #92400e; }
+.denom-btn:nth-child(2) { border-color: #3b82f6; background: #dbeafe; color: #1e40af; }
+.denom-btn:nth-child(3) { border-color: #10b981; background: #d1fae5; color: #065f46; }
+.denom-btn:nth-child(4) { border-color: #ec4899; background: #fce7f3; color: #9d174d; }
+
+/* ========== CART ACTION BUTTONS - cách đáy ========== */
+.cart-action-buttons {
+    padding-bottom: 20px !important;
+}
+
+/* ========== ORDER MODAL - cách đáy popup 15-20px ========== */
+.order-menu-column,
+.cart-total-section {
+    padding-bottom: 15px;
+}
+
+/* ========== ORDER MENU & CART - cách đáy popup 15-20px ========== */
+.order-menu-column,
+.cart-total-section {
+    padding-bottom: 15px;
+}
+
+/* ========== CART ITEM 1 DÒNG + SWIPE TO DELETE ========== */
+.cart-item-row {
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid #f1f5f9;
+    touch-action: pan-y;
+}
+.cart-item-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #fff;
+    position: relative;
+    z-index: 2;
+    transition: transform 0.2s ease;
+}
+.cart-item-row.swiping .cart-item-content {
+    transform: translateX(-80px);
+}
+.cart-item-name {
+    font-weight: 500;
+    font-size: 13px;
+    color: #1e293b;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cart-item-time {
+    font-size: 10px;
+    color: #94a3b8;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.cart-item-qty {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.cart-item-qty .cart-qty-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-appearance: none;
+    padding: 0;
+    line-height: 1;
+}
+.cart-item-qty .cart-qty-num {
+    min-width: 24px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13px;
+}
+.cart-item-total {
+    font-weight: 700;
+    color: #f97316;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+}
+.cart-item-delete-bg {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 80px;
+    height: 100%;
+    background: #ef4444;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 0 10px 10px 0;
+    z-index: 1;
+    cursor: pointer;
+    -webkit-appearance: none;
+}
+
+/* ========== TOAST SỐ TIỀN DƯ (nổi bật) ========== */
+.change-toast {
+    position: fixed;
+    bottom: calc(180px + var(--safe-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1300;
+    background: linear-gradient(135deg, #065f46, #047857);
+    border-radius: 20px;
+    padding: 20px 28px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    max-width: 380px;
+    width: 90%;
+    text-align: center;
+    animation: changeToastIn 0.3s ease-out;
+    border: 2px solid #34d399;
+}
+@keyframes changeToastIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(30px) scale(0.9); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.change-toast .change-label {
+    color: #6ee7b7;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+}
+.change-toast .change-given {
+    color: #fbbf24;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.change-toast .change-amount {
+    color: #fff;
+    font-size: 36px;
+    font-weight: 900;
+    line-height: 1.2;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.change-toast .change-hint {
+    color: #a7f3d0;
+    font-size: 12px;
+    margin-top: 6px;
+    opacity: 0.8;
+}
