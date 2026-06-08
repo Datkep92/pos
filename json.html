@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Nhập JSON ngân hàng & Xuất Excel | Sao kê tự động</title>
+    <!-- SheetJS (XLSX) Core Library -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #eef2f7;
+            font-family: 'Segoe UI', Roboto, 'Noto Sans', system-ui, sans-serif;
+            padding: 2rem 1.5rem;
+        }
+
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+
+        /* card */
+        .card {
+            background: #ffffff;
+            border-radius: 1.75rem;
+            box-shadow: 0 20px 35px -12px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            transition: all 0.2s;
+        }
+
+        .card-header {
+            background: #0b2b3b;
+            color: white;
+            padding: 1.5rem 2rem;
+        }
+
+        .card-header h1 {
+            font-weight: 600;
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card-header p {
+            opacity: 0.8;
+            margin-top: 6px;
+            font-size: 0.9rem;
+        }
+
+        .card-body {
+            padding: 2rem;
+        }
+
+        /* upload zone */
+        .upload-area {
+            background: #f8fafd;
+            border: 2px dashed #cbd5e1;
+            border-radius: 1.2rem;
+            padding: 2.2rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1.8rem;
+        }
+
+        .upload-area:hover {
+            background: #f1f5f9;
+            border-color: #2c7da0;
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #2c7da0;
+            color: #2c7da0;
+            padding: 0.5rem 1.2rem;
+            border-radius: 2rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 12px;
+            display: inline-block;
+        }
+
+        .btn-outline:hover {
+            background: #e6f0f5;
+        }
+
+        .info-badge {
+            background: #e9ecef;
+            padding: 0.3rem 1rem;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            color: #1e4a6b;
+        }
+
+        /* preview info */
+        .info-preview {
+            background: #f1f6fa;
+            border-radius: 1.2rem;
+            padding: 1.2rem 1.5rem;
+            margin: 1rem 0 1.5rem 0;
+            border-left: 5px solid #2c7da0;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.6rem 1.5rem;
+            margin-top: 10px;
+        }
+
+        .info-item {
+            display: flex;
+            gap: 6px;
+            font-size: 0.85rem;
+            flex-wrap: wrap;
+        }
+
+        .info-label {
+            font-weight: 700;
+            color: #0f4c5f;
+            min-width: 100px;
+        }
+
+        .stats-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: space-between;
+            align-items: center;
+            margin: 1rem 0;
+        }
+
+        .btn-excel {
+            background: #1f7b4d;
+            border: none;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 0.85rem 2rem;
+            border-radius: 3rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: 0.2s;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .btn-excel:hover {
+            background: #0f5e3a;
+            transform: translateY(-1px);
+        }
+
+        .btn-excel:disabled {
+            background: #9ab3a5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 1rem;
+            border: 1px solid #e2edf2;
+            margin-top: 1.2rem;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            font-family: 'Courier New', 'Segoe UI', monospace;
+        }
+
+        th {
+            background: #e2f0f5;
+            padding: 12px 8px;
+            position: sticky;
+            top: 0;
+            text-align: center;
+            font-weight: 600;
+            color: #1e4663;
+            border-bottom: 2px solid #cbdde6;
+        }
+
+        td {
+            padding: 8px 6px;
+            border-bottom: 1px solid #e9edf2;
+            text-align: right;
+        }
+
+        td:first-child, th:first-child { text-align: center; }
+        td:nth-child(4), th:nth-child(4) { text-align: left; }
+        td:nth-child(5), th:nth-child(5) { text-align: left; }
+
+        .no-data {
+            text-align: center;
+            padding: 2rem;
+            color: #6c7a8e;
+        }
+
+        .footer-note {
+            font-size: 0.7rem;
+            text-align: center;
+            color: #6b7c93;
+            margin-top: 1.8rem;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <div class="card-header">
+            <h1>📂 Import JSON & Xuất Excel</h1>
+            <p>Tải lên file JSON (cấu trúc chứa thong_tin_chung + du_lieu_sao_ke) → Tự động xuất file .xlsx chuẩn ngân hàng</p>
+        </div>
+        <div class="card-body">
+            <!-- Upload zone -->
+            <div id="uploadZone" class="upload-area">
+                <div class="upload-icon">📁🗂️</div>
+                <div style="font-weight:500; margin-bottom: 8px;">Kéo thả file JSON hoặc nhấn để chọn</div>
+                <div style="font-size: 0.75rem; color: #4b5563;">Yêu cầu: JSON có dạng { "thong_tin_chung": {...}, "du_lieu_sao_ke": [...] }</div>
+                <input type="file" id="fileInput" accept=".json,application/json" class="file-input">
+                <div>
+                    <button id="selectFileBtn" class="btn-outline">📎 Chọn file JSON</button>
+                </div>
+            </div>
+
+            <!-- thông tin tài khoản động -->
+            <div id="infoArea" class="info-preview" style="display: none;">
+                <h3 style="margin-bottom: 8px;">🏦 Thông tin tài khoản</h3>
+                <div id="infoGrid" class="info-grid"></div>
+            </div>
+
+            <!-- thống kê & nút export -->
+            <div class="stats-row" id="actionBar" style="display: none;">
+                <div id="statsText" class="info-badge">📊 0 giao dịch</div>
+                <button id="exportExcelBtn" class="btn-excel">📎 Xuất ra Excel (.xlsx)</button>
+            </div>
+
+            <!-- bảng xem trước -->
+            <div id="tablePreview" style="display: none;">
+                <div style="font-weight: 600; margin: 0.5rem 0 0.5rem 0;">📋 Danh sách giao dịch (xem trước)</div>
+                <div class="table-wrapper">
+                    <table id="transactionTable">
+                        <thead>
+                            <tr><th>STT</th><th>Ngày GD</th><th>Ngày giá trị</th><th>Số giao dịch</th><th>Nội dung</th><th>PS Nợ</th><th>PS Có</th><th>Số dư</th></tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr><td colspan="8" class="no-data">Chưa có dữ liệu</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="footer-note">
+                ⚡ Sau khi import, nhấn "Xuất ra Excel" → 2 sheets: "Thông tin chung" và "Chi tiết sao kê".<br>
+                Hỗ trợ định dạng số, ngày tháng giữ nguyên.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Biến lưu dữ liệu JSON hiện tại
+    let currentJsonData = null;     // lưu object gốc { thong_tin_chung, du_lieu_sao_ke }
+    
+    // DOM elements
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const selectBtn = document.getElementById('selectFileBtn');
+    const infoArea = document.getElementById('infoArea');
+    const infoGrid = document.getElementById('infoGrid');
+    const actionBar = document.getElementById('actionBar');
+    const statsText = document.getElementById('statsText');
+    const exportBtn = document.getElementById('exportExcelBtn');
+    const tablePreview = document.getElementById('tablePreview');
+    const tableBody = document.getElementById('tableBody');
+
+    // Helper: format số tiền với dấu phẩy (nhưng export giữ nguyên số)
+    function formatCurrency(value) {
+        if (value === undefined || value === null) return '0';
+        let num = typeof value === 'number' ? value : parseFloat(value);
+        if (isNaN(num)) return value.toString();
+        return num.toLocaleString('vi-VN');
+    }
+
+    // hiển thị thông tin chung
+    function renderInfoGeneral(info) {
+        if (!info) return;
+        const items = [
+            { label: "Số tài khoản", value: info.so_tai_khoan || '—' },
+            { label: "Chủ tài khoản", value: info.ten_tai_khoan || '—' },
+            { label: "Loại hình", value: info.loai_hinh || '—' },
+            { label: "Đơn vị", value: info.don_vi || '—' },
+            { label: "Loại tiền", value: info.loai_tien || 'VND' },
+            { label: "Từ ngày", value: info.tu_ngay || '—' },
+            { label: "Đến ngày", value: info.den_ngay || '—' }
+        ];
+        infoGrid.innerHTML = items.map(item => `
+            <div class="info-item">
+                <span class="info-label">${item.label}:</span>
+                <span class="info-value">${item.value}</span>
+            </div>
+        `).join('');
+        infoArea.style.display = 'block';
+    }
+
+    // hiển thị bảng giao dịch
+    function renderTransactionTable(transactions) {
+        if (!transactions || transactions.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="no-data">Không có giao dịch nào trong JSON</td></tr>';
+            return;
+        }
+        let html = '';
+        transactions.forEach(tx => {
+            html += `<tr>
+                <td style="text-align:center">${tx.stt ?? '—'}</td>
+                <td style="text-align:center">${tx.ngay_giao_dich || ''}</td>
+                <td style="text-align:center">${tx.ngay_gia_tri || ''}</td>
+                <td style="text-align:left; font-family: monospace;">${tx.so_giao_dich || ''}</td>
+                <td style="text-align:left; max-width:280px;">${tx.noi_dung || ''}</td>
+                <td style="text-align:right">${formatCurrency(tx.phat_sinh_no)}</td>
+                <td style="text-align:right">${formatCurrency(tx.phat_sinh_co)}</td>
+                <td style="text-align:right; font-weight:500;">${formatCurrency(tx.so_du)}</td>
+            </tr>`;
+        });
+        tableBody.innerHTML = html;
+        tablePreview.style.display = 'block';
+    }
+
+    // cập nhật thống kê & enable export
+    function updateStatsAndExport(transactions) {
+        if (!transactions) {
+            statsText.innerHTML = '📊 0 giao dịch';
+            exportBtn.disabled = true;
+            return;
+        }
+        const total = transactions.length;
+        let totalDebit = 0, totalCredit = 0;
+        transactions.forEach(t => {
+            totalDebit += (typeof t.phat_sinh_no === 'number' ? t.phat_sinh_no : parseFloat(t.phat_sinh_no) || 0);
+            totalCredit += (typeof t.phat_sinh_co === 'number' ? t.phat_sinh_co : parseFloat(t.phat_sinh_co) || 0);
+        });
+        statsText.innerHTML = `📊 ${total} giao dịch | Tổng nợ: ${formatCurrency(totalDebit)} | Tổng có: ${formatCurrency(totalCredit)}`;
+        exportBtn.disabled = false;
+    }
+
+    // Load và xử lý file JSON
+    function processJSON(jsonObject) {
+        // Kiểm tra cấu trúc cơ bản
+        if (!jsonObject || typeof jsonObject !== 'object') {
+            alert('File JSON không hợp lệ: không phải object.');
+            return false;
+        }
+        // Có thể thiếu thong_tin_chung hoặc du_lieu_sao_ke nhưng vẫn cố gắng xử lý
+        const general = jsonObject.thong_tin_chung || {};
+        let transactions = jsonObject.du_lieu_sao_ke;
+        if (!transactions || !Array.isArray(transactions)) {
+            alert('JSON thiếu mảng "du_lieu_sao_ke" hoặc không phải mảng. Vui lòng kiểm tra cấu trúc.');
+            return false;
+        }
+        
+        // Chuẩn hóa dữ liệu số (phòng trường hợp string)
+        const cleanTransactions = transactions.map((item, idx) => {
+            const newItem = { ...item };
+            // ép kiểu số cho các trường tiền
+            ['phat_sinh_no', 'phat_sinh_co', 'so_du'].forEach(field => {
+                if (newItem[field] !== undefined && newItem[field] !== null) {
+                    let val = typeof newItem[field] === 'number' ? newItem[field] : parseFloat(String(newItem[field]).replace(/,/g, ''));
+                    if (isNaN(val)) val = 0;
+                    newItem[field] = val;
+                } else {
+                    newItem[field] = 0;
+                }
+            });
+            // Đảm bảo có stt nếu thiếu
+            if (newItem.stt === undefined || newItem.stt === null) {
+                newItem.stt = idx + 1;
+            }
+            return newItem;
+        });
+        
+        // Lưu vào biến toàn cục
+        currentJsonData = {
+            thong_tin_chung: { ...general },
+            du_lieu_sao_ke: cleanTransactions
+        };
+        
+        // Render giao diện
+        renderInfoGeneral(general);
+        renderTransactionTable(cleanTransactions);
+        updateStatsAndExport(cleanTransactions);
+        actionBar.style.display = 'flex';
+        return true;
+    }
+
+    // Đọc file từ Blob
+    function readAndProcess(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const content = e.target.result;
+                const jsonData = JSON.parse(content);
+                processJSON(jsonData);
+            } catch (err) {
+                alert('Lỗi phân tích JSON: ' + err.message);
+                console.error(err);
+            }
+        };
+        reader.onerror = function() {
+            alert('Không thể đọc file.');
+        };
+        reader.readAsText(file, 'UTF-8');
+    }
+
+    // Sự kiện click chọn file
+    selectBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            readAndProcess(e.target.files[0]);
+        }
+    });
+
+    // Kéo thả file
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.style.background = '#eef2ff';
+        uploadZone.style.borderColor = '#2c7da0';
+    });
+    uploadZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        uploadZone.style.background = '#f8fafd';
+        uploadZone.style.borderColor = '#cbd5e1';
+    });
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.style.background = '#f8fafd';
+        uploadZone.style.borderColor = '#cbd5e1';
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            readAndProcess(files[0]);
+        }
+    });
+    uploadZone.addEventListener('click', (e) => {
+        // tránh click vào button con bị double
+        if (e.target === uploadZone || e.target.closest('.upload-area') && !e.target.closest('#selectFileBtn')) {
+            fileInput.click();
+        }
+    });
+
+    // Hàm xuất Excel sử dụng SheetJS
+    function exportToExcel() {
+        if (!currentJsonData) {
+            alert('Chưa có dữ liệu JSON. Hãy import file trước.');
+            return;
+        }
+        const generalInfo = currentJsonData.thong_tin_chung || {};
+        const transactions = currentJsonData.du_lieu_sao_ke || [];
+        
+        // Tạo sheet thông tin chung (dạng bảng 2 cột)
+        const infoRows = [
+            ["Thông tin", "Giá trị"],
+            ["Số tài khoản", generalInfo.so_tai_khoan || ""],
+            ["Tên tài khoản", generalInfo.ten_tai_khoan || ""],
+            ["Loại hình", generalInfo.loai_hinh || ""],
+            ["Đơn vị", generalInfo.don_vi || ""],
+            ["Loại tiền", generalInfo.loai_tien || "VND"],
+            ["Từ ngày", generalInfo.tu_ngay || ""],
+            ["Đến ngày", generalInfo.den_ngay || ""],
+            ["Ngày xuất", new Date().toLocaleDateString('vi-VN')]
+        ];
+        const infoSheet = XLSX.utils.aoa_to_sheet(infoRows);
+        infoSheet['!cols'] = [{wch:25},{wch:45}];
+        
+        // Tạo sheet chi tiết giao dịch
+        const transactionData = transactions.map(tx => ({
+            "STT": tx.stt,
+            "Ngày giao dịch": tx.ngay_giao_dich || "",
+            "Ngày giá trị": tx.ngay_gia_tri || "",
+            "Số giao dịch": tx.so_giao_dich || "",
+            "Nội dung": tx.noi_dung || "",
+            "Phát sinh nợ": tx.phat_sinh_no,
+            "Phát sinh có": tx.phat_sinh_co,
+            "Số dư": tx.so_du
+        }));
+        const transSheet = XLSX.utils.json_to_sheet(transactionData);
+        transSheet['!cols'] = [
+            {wch:6},{wch:12},{wch:12},{wch:22},{wch:38},{wch:14},{wch:14},{wch:16}
+        ];
+        
+        // Tạo workbook và thêm sheets
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, infoSheet, "Thông tin chung");
+        XLSX.utils.book_append_sheet(workbook, transSheet, "Chi tiết sao kê");
+        
+        // Xuất file
+        const fileName = `SaoKe_${generalInfo.so_tai_khoan || 'account'}_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+    }
+    
+    exportBtn.addEventListener('click', exportToExcel);
+    
+    // Khởi tạo trạng thái ban đầu không có data
+    function init() {
+        currentJsonData = null;
+        infoArea.style.display = 'none';
+        actionBar.style.display = 'none';
+        tablePreview.style.display = 'none';
+        exportBtn.disabled = true;
+        statsText.innerHTML = '📊 0 giao dịch';
+    }
+    init();
+    
+    // Tự động demo nếu muốn hướng dẫn? không cần, nhưng để tiện có thể nhúng sẵn file mẫu?
+    // Có thể thêm thông báo hướng dẫn.
+    console.log("Ready - Import JSON & Export Excel");
+</script>
+</body>
+</html>

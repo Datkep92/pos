@@ -1,6 +1,9 @@
 // order.js - Tạo đơn hàng, thêm món, giỏ hàng
 // BỐ CỤC 3 CỘT: Danh mục | Menu | Giỏ hàng
 
+var _menuCategoryIds = []; // Danh sách category IDs để vuốt chuyển danh mục
+var _menuSwipeStartY = 0;
+
 // OPTIMIZE: Clone nhanh thay vì JSON.parse(JSON.stringify(...)) - chậm trên Android 6
 function _cloneArr(arr) {
     if (!arr) return [];
@@ -59,6 +62,9 @@ function openOrderModal() {
     }
     
     document.getElementById('orderModal').style.display = 'flex';
+    
+    // Khởi tạo vuốt chuyển danh mục
+    _initMenuSwipe();
 }
 
 // ========== RENDER CỘT DANH MỤC (dọc) ==========
@@ -76,12 +82,18 @@ function renderOrderCategoriesColumn() {
     if (window.menuCategories && window.menuCategories.length) {
         for (var i = 0; i < window.menuCategories.length; i++) {
             var cat = window.menuCategories[i];
-            categories.push({ 
-                id: cat.id, 
-                icon: cat.icon || '📌', 
-                name: cat.name 
+            categories.push({
+                id: cat.id,
+                icon: cat.icon || '📌',
+                name: cat.name
             });
         }
+    }
+    
+    // Cập nhật danh sách category IDs để vuốt chuyển
+    _menuCategoryIds = [];
+    for (var i = 0; i < categories.length; i++) {
+        _menuCategoryIds.push(categories[i].id);
     }
     
     var html = '';
@@ -150,6 +162,48 @@ function renderMenuByCategory(categoryId) {
     }
 }
 
+// ========== VUỐT LÊN/XUỐNG CHUYỂN DANH MỤC ==========
+function _initMenuSwipe() {
+    var el = document.querySelector('.order-menu-column');
+    if (!el) return;
+    // Xoá event cũ để tránh dup
+    el.removeEventListener('touchstart', _menuSwipeStart);
+    el.removeEventListener('touchend', _menuSwipeEnd);
+    el.addEventListener('touchstart', _menuSwipeStart);
+    el.addEventListener('touchend', _menuSwipeEnd);
+}
+function _menuSwipeStart(e) {
+    _menuSwipeStartY = e.touches[0].clientY;
+}
+function _menuSwipeEnd(e) {
+    if (_menuCategoryIds.length < 2) return;
+    var endY = e.changedTouches[0].clientY;
+    var diff = _menuSwipeStartY - endY;
+    // Ngưỡng 50px để tránh vuốt vô tình
+    if (Math.abs(diff) < 50) return;
+    
+    var currentIdx = -1;
+    for (var i = 0; i < _menuCategoryIds.length; i++) {
+        if (_menuCategoryIds[i] === currentMenuCategory) {
+            currentIdx = i;
+            break;
+        }
+    }
+    if (currentIdx === -1) return;
+    
+    var nextIdx;
+    if (diff > 0) {
+        // Vuốt lên → danh mục tiếp theo
+        nextIdx = currentIdx + 1;
+        if (nextIdx >= _menuCategoryIds.length) nextIdx = 0;
+    } else {
+        // Vuốt xuống → danh mục trước đó
+        nextIdx = currentIdx - 1;
+        if (nextIdx < 0) nextIdx = _menuCategoryIds.length - 1;
+    }
+    renderMenuByCategory(_menuCategoryIds[nextIdx]);
+}
+
 // ========== RENDER HEADER ACTIONS (landscape only) ==========
 function renderOrderHeaderActions() {
     var headerActions = document.getElementById('orderHeaderActions');
@@ -212,27 +266,27 @@ function renderCartColumn() {
             timeStr = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
         }
         
-        // UI MỚI: 2 DÒNG
-        html += '<div class="cart-item-compact" data-idx="' + i + '" style="margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">' +
-            /* DÒNG 1: Tên món + Giá */
-            '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">' +
-                '<span style="font-weight: 500; font-size: 14px;">' + escapeHtml(item.name) + '</span>' +
-                '<span style="font-weight: 600; color: #f97316; font-size: 14px;">' + formatMoney(itemTotal) + '</span>' +
-            '</div>' +
-            /* DÒNG 2: Giờ + Điều khiển số lượng */
-            '<div style="display: flex; justify-content: space-between; align-items: center;">' +
-                '<span style="font-size: 10px; color: #94a3b8;">' + (timeStr ? '🕒 ' + timeStr : '') + '</span>' +
-                '<div style="display: flex; align-items: center; gap: 8px;">' +
-                    '<button class="cart-qty-btn" onclick="updateCartQty(' + i + ', -1)" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer;">−</button>' +
-                    '<span style="min-width: 28px; text-align: center; font-weight: 500;">' + item.qty + '</span>' +
-                    '<button class="cart-qty-btn" onclick="updateCartQty(' + i + ', 1)" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer;">+</button>' +
-                    '<button class="cart-remove-btn" onclick="removeFromCart(' + i + ')" style="background: none; border: none; color: #ef4444; font-size: 16px; cursor: pointer; width: 28px;">✖</button>' +
+        // UI 1 DÒNG: Tên 🕒 thời gian [- 2 +] Thành tiền
+        // Vuốt phải để xoá món (swipe-to-delete)
+        html += '<div class="cart-item-row" data-idx="' + i + '">' +
+            '<div class="cart-item-content">' +
+                '<span class="cart-item-name">' + escapeHtml(item.name) + '</span>' +
+                (timeStr ? '<span class="cart-item-time">🕒 ' + timeStr + '</span>' : '') +
+                '<div class="cart-item-qty">' +
+                    '<button class="cart-qty-btn" onclick="updateCartQty(' + i + ', -1)">−</button>' +
+                    '<span class="cart-qty-num">' + item.qty + '</span>' +
+                    '<button class="cart-qty-btn" onclick="updateCartQty(' + i + ', 1)">+</button>' +
                 '</div>' +
+                '<span class="cart-item-total">' + formatMoney(itemTotal) + '</span>' +
             '</div>' +
+            '<div class="cart-item-delete-bg" onclick="removeFromCart(' + i + ')">🗑️ Xoá</div>' +
         '</div>';
     }
     container.innerHTML = html;
     if (totalSpan) totalSpan.innerText = formatMoney(total);
+    
+    // Gắn swipe-to-delete cho các cart item
+    _initCartSwipe();
     
     // Render nút action (giữ nguyên phần này)
     if (actionsDiv) {
@@ -245,7 +299,13 @@ function renderCartColumn() {
                     '<span style="font-size: 12px; color: #475569; text-align: center; flex: 1;">' + itemCount + ' món</span>' +
                     '<span style="font-weight: 600; color: #f97316; flex: 1; text-align: right;">' + formatMoney(total) + '</span>' +
                 '</div>' +
-                // Trong hàm renderCartColumn(), tìm dòng này:
+                // Nút mệnh giá thanh toán nhanh tiền mặt
+'<div class="denom-actions" style="display: flex; gap: 4px; margin-bottom: 4px;">' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(50000)" style="flex:1;padding:8px 2px;font-size:12px;">50.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(100000)" style="flex:1;padding:8px 2px;font-size:12px;">100.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(200000)" style="flex:1;padding:8px 2px;font-size:12px;">200.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(500000)" style="flex:1;padding:8px 2px;font-size:12px;">500.000đ</button>' +
+'</div>' +
 '<div style="display: flex; gap: 6px; flex-wrap: wrap;">' +
     '<button class="action-btn btn-cash" onclick="handleTakeawayPayment(\'cash\')" style="flex: 1; padding: 12px 4px; font-size: 14px;">💰 TM</button>' +
     '<button class="action-btn btn-transfer" onclick="handleTakeawayPayment(\'transfer\')" style="flex: 1; padding: 12px 4px; font-size: 14px;">💳 CK</button>' +
@@ -395,6 +455,9 @@ function handleCreateNewTable() {
         
         var now = new Date();
         var tableId = Date.now().toString();
+        var initTotal = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+        // Lưu danh sách món vừa thêm
+        var initItems = tempOrder.map(function(item) { return { name: item.name, qty: item.qty }; });
         var newTable = {
             id: tableId,
             name: tableName,
@@ -402,9 +465,10 @@ function handleCreateNewTable() {
             time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
             startTime: now.toISOString(),
             items: _cloneArr(tempOrder),
-            total: tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0),
+            total: initTotal,
             customerId: selectedCustomer ? selectedCustomer.id : null,
-            customerName: selectedCustomer ? selectedCustomer.name : null
+            customerName: selectedCustomer ? selectedCustomer.name : null,
+            recentAdds: [{ items: initItems, time: now.toISOString() }]
         };
         
         DB.create('tables', newTable, tableId).then(function() {
@@ -422,7 +486,11 @@ function handleCreateNewTable() {
             selectedCustomer = null;
             currentDraftId = null;
             closeModal('orderModal');
-            renderTables();
+            return renderTables();
+        }).then(function() {
+            // Thêm class table-new để chạy hiệu ứng glow 30s
+            var card = document.querySelector('.table-card[data-id="' + tableId + '"]');
+            if (card) card.classList.add('table-new');
             showToast('✅ Đã tạo ' + tableName, 'success');
         }).catch(function(err) {
             DB.remove('tables', tableId);
@@ -475,9 +543,18 @@ function handleAddToExistingTable() {
                 return sum + (item.price * item.qty); 
             }, 0);
             
+            // Cập nhật recentAdds: thêm entry mới (danh sách món vừa thêm), giữ tối đa 2 entry
+            var recentAdds = table.recentAdds || [];
+            var now = new Date();
+            var addedItems = tempOrder.map(function(item) { return { name: item.name, qty: item.qty }; });
+            recentAdds.push({ items: addedItems, time: now.toISOString() });
+            if (recentAdds.length > 2) recentAdds.shift();
+            
+            // Giữ nguyên startTime ban đầu, chỉ cập nhật items, total, recentAdds
             return DB.update('tables', String(currentAddToTableId), {
                 items: existingItems,
-                total: newTotal
+                total: newTotal,
+                recentAdds: recentAdds
             });
         }).then(function() {
             // Xóa draft nếu đang chỉnh sửa draft
@@ -489,7 +566,11 @@ function handleAddToExistingTable() {
             selectedCustomer = null;
             currentDraftId = null;
             closeModal('orderModal');
-            renderTables();
+            return renderTables();
+        }).then(function() {
+            // Thêm class table-new để chạy hiệu ứng glow 30s
+            var card = document.querySelector('.table-card[data-id="' + currentAddToTableId + '"]');
+            if (card) card.classList.add('table-new');
             showToast('✅ Đã thêm món vào bàn', 'success');
         }).catch(function(err) {
             showToast(err.message || 'Lỗi khi thêm món!', 'error');
@@ -497,12 +578,26 @@ function handleAddToExistingTable() {
     });
 }
 
+// Biến lưu trạng thái toast tiền dư cho takeaway
+var _takeawayChangeToastEl = null;
+
 // ========== XỬ LÝ THANH TOÁN MANG ĐI ==========
 function handleTakeawayPayment(method) {
     if (!tempOrder.length) {
         showToast('Chưa có món nào trong giỏ!', 'warning');
         return;
     }
+    
+    if (method === 'cash') {
+        // Tiền mặt: ẩn toast tiền dư (nếu có) rồi thanh toán luôn
+        _hideTakeawayChangeToast();
+    }
+    
+    _processTakeawayDirect(method);
+}
+
+function _processTakeawayDirect(method) {
+    if (!tempOrder.length) return;
     
     var items = _cloneArr(tempOrder);
     var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
@@ -550,6 +645,51 @@ function handleTakeawayPayment(method) {
     }).catch(function(err) {
         showToast(err.message || 'Lỗi khi thanh toán!', 'error');
     });
+}
+
+// ========== HIỂN THỊ SỐ TIỀN DƯ KHI CHỌN MỆNH GIÁ (MANG ĐI) ==========
+// Click nút mệnh giá → chỉ toast số tiền dư cần trả, KHÔNG thanh toán
+// Click TM hoặc nút trong toast → thanh toán và ẩn toast
+// Click ✕ → đóng toast (đổi PTTT)
+function takeawayCashPayWithDenom(givenAmount) {
+    if (!tempOrder.length) {
+        showToast('Chưa có món nào trong giỏ!', 'warning');
+        return;
+    }
+    var total = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+    if (givenAmount < total) {
+        showToast('❌ Số tiền ' + formatMoney(givenAmount) + ' không đủ!', 'error');
+        return;
+    }
+    var change = givenAmount - total;
+    // Xóa toast cũ nếu có
+    _hideTakeawayChangeToast();
+    // Tạo toast đặc biệt to, nổi bật
+    var toast = document.createElement('div');
+    toast.className = 'change-toast';
+    toast.id = 'changeToast';
+    toast.innerHTML =
+        '<div class="change-label">💵 TIỀN DƯ</div>' +
+        '<div class="change-given">Khách đưa: ' + formatMoney(givenAmount) + '</div>' +
+        '<div class="change-amount">' + formatMoney(change) + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:10px;">' +
+            '<button onclick="_takeawayChangeToastPay()" style="flex:1;padding:10px;border-radius:40px;border:none;background:#f97316;color:#fff;font-weight:700;font-size:14px;cursor:pointer;-webkit-appearance:none;">✅ Thanh toán</button>' +
+            '<button onclick="_hideTakeawayChangeToast()" style="padding:10px 16px;border-radius:40px;border:none;background:#475569;color:#fff;font-size:13px;cursor:pointer;-webkit-appearance:none;">✕</button>' +
+        '</div>';
+    document.body.appendChild(toast);
+    _takeawayChangeToastEl = toast;
+}
+
+function _takeawayChangeToastPay() {
+    _hideTakeawayChangeToast();
+    handleTakeawayPayment('cash');
+}
+
+function _hideTakeawayChangeToast() {
+    if (_takeawayChangeToastEl) {
+        if (_takeawayChangeToastEl.parentNode) _takeawayChangeToastEl.remove();
+        _takeawayChangeToastEl = null;
+    }
 }
 
 // ========== XỬ LÝ ĐƠN GRAB ==========
@@ -680,6 +820,66 @@ window.handleAddToExistingTable = handleAddToExistingTable;
 window.handleTakeawayPayment = handleTakeawayPayment;
 window.handleGrabOrder = handleGrabOrder;
 window.handleDebtOrder = handleDebtOrder;
+
+// ========== SWIPE TO DELETE CHO CART ITEM ==========
+function _initCartSwipe() {
+    var rows = document.querySelectorAll('.cart-item-row');
+    for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        // Xóa event cũ để tránh dup
+        row.removeEventListener('touchstart', _swipeHandler);
+        row.removeEventListener('touchmove', _swipeHandler);
+        row.removeEventListener('touchend', _swipeHandler);
+        row.removeEventListener('touchcancel', _swipeHandler);
+        // Gắn handler mới
+        row.addEventListener('touchstart', _swipeHandler);
+        row.addEventListener('touchmove', _swipeHandler);
+        row.addEventListener('touchend', _swipeHandler);
+        row.addEventListener('touchcancel', _swipeHandler);
+    }
+}
+
+function _swipeHandler(e) {
+    var row = e.currentTarget;
+    if (e.type === 'touchstart') {
+        row._swipeStartX = e.touches[0].clientX;
+        row._swipeStartY = e.touches[0].clientY;
+        row._swipeDeltaX = 0;
+        row._swipeActive = true;
+        return;
+    }
+    if (!row._swipeActive) return;
+    
+    if (e.type === 'touchmove') {
+        var dx = e.touches[0].clientX - row._swipeStartX;
+        var dy = e.touches[0].clientY - row._swipeStartY;
+        // Chỉ swipe ngang, bỏ qua nếu vuốt dọc nhiều
+        if (Math.abs(dy) > Math.abs(dx) * 2) {
+            row._swipeActive = false;
+            row.classList.remove('swiping');
+            return;
+        }
+        row._swipeDeltaX = dx;
+        if (dx < -20) {
+            row.classList.add('swiping');
+        } else {
+            row.classList.remove('swiping');
+        }
+        return;
+    }
+    
+    // touchend / touchcancel
+    row._swipeActive = false;
+    if (row._swipeDeltaX < -60) {
+        // Vuốt đủ xa -> xoá món
+        var idx = parseInt(row.getAttribute('data-idx'));
+        if (!isNaN(idx)) {
+            removeFromCart(idx);
+        }
+    } else {
+        row.classList.remove('swiping');
+    }
+}
 // ========== EXPORT GLOBAL ==========
 window.addToCart = addToCart;
 window.addToCartWithVariant = addToCartWithVariant;

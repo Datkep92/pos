@@ -481,7 +481,7 @@
     function initLocalDB() {
         if (dbReady) return dbReady;
         dbReady = new Promise(function(resolve, reject) {
-            var request = indexedDB.open(STORE_NAME, 13);
+            var request = indexedDB.open(STORE_NAME, 14);
             request.onerror = function(e) { reject(e.target.error); };
             request.onsuccess = function(e) {
                 localDB = e.target.result;
@@ -496,7 +496,7 @@
     'cost_categories', 'cost_transactions', 'cost_transactions_admin',
     'admin_cost_categories', 'daily_balances',
     'inventory_transactions', 'manager_cash_pickups',
-    'ingredient_transactions'
+    'ingredient_transactions', 'notifications'
 ];
                 for (var i = 0; i < stores.length; i++) {
                     if (!db.objectStoreNames.contains(stores[i])) {

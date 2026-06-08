@@ -51,8 +51,10 @@ function renderHistoryByDate(dateObj) {
             
             // Thông tin vị trí
             var location = '';
-            if (tx.tableName) location = '🪑 ' + escapeHtml(tx.tableName);
-            else if (tx.type === 'takeaway') location = '🛵 Mang đi';
+            if (tx.tableName) {
+                var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
+                location = '🪑 ' + escapeHtml(displayLabel);
+            } else if (tx.type === 'takeaway') location = '🛵 Mang đi';
             else if (tx.type === 'grab') location = '🚕 Grab';
             else location = '🍽️ Tại chỗ';
 
@@ -102,7 +104,7 @@ function renderHistoryByDate(dateObj) {
             else if (isDebtPayment) itemClass += ' debt-payment';
 
             // Dấu +/- cho số tiền
-            var amountSign = isRefunded ? '-' : '+';
+            var amountSign = isRefunded ? '-' : (isDebtRecord ? '📝' : '+');
             var amountClass = 'history-amount';
             if (isRefunded) amountClass += ' refunded-amount';
             else if (isDebtRecord) amountClass += ' debt-record-amount';
@@ -180,8 +182,7 @@ function showTransactionDetail(transactionId) {
                 '<div class="detail-row"><span>🕒 Thời gian:</span><span>' + dateStr + '</span></div>' +
                 '<div class="detail-row"><span>🍽️ Loại:</span><span>' + typeName + '</span></div>' +
                 '<div class="detail-row"><span>💳 Thanh toán:</span><span>' + paymentMethodText + '</span></div>' +
-                (tx.tableName ? '<div class="detail-row"><span>🪑 Bàn:</span><span>' + escapeHtml(tx.tableName) + '</span></div>' : '') +
-                (tx.customer ? '<div class="detail-row"><span>👤 Khách:</span><span>' + escapeHtml(tx.customer.name) + '</span></div>' : '') +
+                (tx.tableName ? '<div class="detail-row"><span>🪑 Bàn:</span><span>' + escapeHtml(tx.customer && tx.customer.name ? tx.customer.name : tx.tableName) + '</span></div>' : '') +
                 '<div class="detail-row"><span>💰 Tổng tiền:</span><span class="detail-amount">' + formatMoney(tx.amount) + '</span></div>' +
                 (tx.note ? '<div class="detail-row"><span>📝 Ghi chú:</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
                 refundInfo +
@@ -213,16 +214,141 @@ function printTransactionDetail(transactionId) {
     });
 }
 
+// ========== LÝ DO HỦY MẪU ==========
+var REFUND_REASONS = [
+    'Nhầm món',
+    'Nhầm PTTT',
+    'Nhầm khách',
+    'Khác'
+];
+
+function showRefundReasonModal(callback) {
+    var modal = document.getElementById('refundReasonModal');
+    if (!modal) {
+        // Tạo modal nếu chưa có
+        modal = document.createElement('div');
+        modal.id = 'refundReasonModal';
+        modal.className = 'modal';
+        modal.innerHTML =
+            '<div class="modal-content" style="max-width:400px;">' +
+                '<div class="modal-header">📝 Lý do hủy</div>' +
+                '<div id="refundReasonList" style="padding:16px;display:flex;flex-direction:column;gap:8px;"></div>' +
+                '<div id="refundReasonOther" style="padding:0 16px 16px;display:none;">' +
+                    '<input type="text" id="refundReasonOtherInput" class="form-input" placeholder="Nhập lý do khác..." style="width:100%;">' +
+                '</div>' +
+                '<div class="form-actions" style="padding:0 16px 16px;">' +
+                    '<button class="btn-cancel" onclick="closeModal(\'refundReasonModal\')">Hủy</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(modal);
+    }
+    
+    var list = document.getElementById('refundReasonList');
+    var otherDiv = document.getElementById('refundReasonOther');
+    var otherInput = document.getElementById('refundReasonOtherInput');
+    if (otherInput) otherInput.value = '';
+    if (otherDiv) otherDiv.style.display = 'none';
+    
+    var html = '';
+    for (var i = 0; i < REFUND_REASONS.length; i++) {
+        (function(reason) {
+            html += '<button class="btn-save" data-reason="' + reason + '" style="width:100%;text-align:center;">' + reason + '</button>';
+        })(REFUND_REASONS[i]);
+    }
+    list.innerHTML = html;
+    
+    // Gắn sự kiện cho các nút
+    var btns = list.querySelectorAll('.btn-save');
+    for (var i = 0; i < btns.length; i++) {
+        (function(btn) {
+            btn.onclick = function() {
+                var reason = btn.getAttribute('data-reason');
+                if (reason === 'Khác') {
+                    var otherDiv = document.getElementById('refundReasonOther');
+                    var otherInput = document.getElementById('refundReasonOtherInput');
+                    if (otherDiv) otherDiv.style.display = 'block';
+                    if (otherInput) {
+                        otherInput.focus();
+                        otherInput.onkeydown = function(e) {
+                            if (e.key === 'Enter' && otherInput.value.trim()) {
+                                closeModal('refundReasonModal');
+                                callback(otherInput.value.trim());
+                            }
+                        };
+                        // Nút xác nhận cho "Khác"
+                        var confirmBtn = document.getElementById('refundReasonOtherConfirm');
+                        if (!confirmBtn) {
+                            confirmBtn = document.createElement('button');
+                            confirmBtn.id = 'refundReasonOtherConfirm';
+                            confirmBtn.className = 'btn-save';
+                            confirmBtn.innerText = 'Xác nhận';
+                            confirmBtn.style.marginTop = '8px';
+                            otherDiv.appendChild(confirmBtn);
+                        }
+                        confirmBtn.onclick = function() {
+                            if (otherInput.value.trim()) {
+                                closeModal('refundReasonModal');
+                                callback(otherInput.value.trim());
+                            }
+                        };
+                    }
+                } else {
+                    closeModal('refundReasonModal');
+                    callback(reason);
+                }
+            };
+        })(btns[i]);
+    }
+    
+    modal.style.display = 'flex';
+}
+
 function refundTransaction(transactionId) {
-    // Yêu cầu mật khẩu để hoàn tác
-    requirePassword('hoàn tác giao dịch', function() {
-        var reason = prompt('📝 Lý do hủy?');
-        if (!reason) return;
-        DB.get('transactions', transactionId).then(function(trans) {
-            if (!trans || trans.refunded) return;
+    // Kiểm tra xem giao dịch có thuộc bàn đang bị khóa không
+    DB.get('transactions', transactionId).then(function(trans) {
+        if (!trans || trans.refunded) return;
+        
+        var needPassword = false;
+        if (trans.tableId) {
+            // Tra bàn để kiểm tra khóa
+            return DB.get('tables', String(trans.tableId)).then(function(table) {
+                if (table && typeof isTableLocked === 'function' && isTableLocked(table)) {
+                    needPassword = true;
+                }
+                return proceedRefund(trans, needPassword);
+            });
+        } else {
+            // Không có tableId -> không cần mật khẩu
+            return proceedRefund(trans, false);
+        }
+    });
+}
+
+function proceedRefund(trans, needPassword) {
+    var transactionId = trans.id;
+    function doRefund() {
+        showRefundReasonModal(function(reason) {
+            if (!reason) return;
             restoreIngredients(trans.items).then(function() {
                 if (trans.type === 'debt_payment' && trans.customer) {
-                    addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
+                    if (trans.paymentMethod === 'debt') {
+                        // GHI NỢ: hoàn tác = trừ nợ (vì lúc ghi nợ đã cộng nợ)
+                        var c = null;
+                        for (var i = 0; i < customers.length; i++) {
+                            if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
+                        }
+                        if (c) {
+                            c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
+                            c.debtHistory = c.debtHistory || [];
+                            c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
+                            DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
+                                return DB.getAll('customers').then(function(newCusts) { customers = newCusts; });
+                            });
+                        }
+                    } else {
+                        // THANH TOÁN NỢ: hoàn tác = cộng lại nợ (vì lúc thanh toán đã trừ nợ)
+                        addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
+                    }
                 }
                 trans.refunded = true;
                 trans.refundReason = reason;
@@ -239,7 +365,13 @@ function refundTransaction(transactionId) {
                 });
             });
         });
-    });
+    }
+    
+    if (needPassword) {
+        requirePassword('hoàn tác giao dịch (bàn đang bị khóa)', doRefund);
+    } else {
+        doRefund();
+    }
 }
 
 function changeHistoryDate(delta) { var nd = new Date(currentHistoryDate); nd.setDate(nd.getDate() + delta); currentHistoryDate = nd; renderHistoryByDate(currentHistoryDate); }
@@ -256,6 +388,7 @@ function addHistory(transaction) {
         items: transaction.items || [],
         customer: transaction.customer || null,
         tableName: transaction.tableName || null,
+        tableId: transaction.tableId || null, // Lưu tableId để kiểm tra khoá khi hoàn tác
         note: transaction.note || '',
         refunded: false
     };

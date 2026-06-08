@@ -31,6 +31,10 @@ function initRealtime() {
         _renderNow('tables_render', function() {
             updateTablesDiff(newTables);
         });
+        // Đảm bảo timer luôn chạy khi ở tab tables
+        if (typeof startTableTimer === 'function') {
+            startTableTimer();
+        }
     });
     
     DB.subscribe('daily_balances', function() {
@@ -173,13 +177,22 @@ function initRealtime() {
             }, 100);
         }
     });
+    
+    // Notifications subscription - cập nhật thông báo header realtime
+    DB.subscribe('notifications', function(data) {
+        if (data && typeof loadHeaderNotification === 'function') {
+            _debounceRealtime('notifications', function() {
+                loadHeaderNotification();
+            }, 100);
+        }
+    });
 }
 
 function updateRecentToast() {
     var todayStr = new Date().toISOString().slice(0, 10);
     DB.getTransactionsByDate(todayStr).then(function(transactions) {
-        // Chỉ hiển thị giao dịch thuộc Bàn (có tableName)
-        var validTx = transactions.filter(function(tx) { return !tx.refunded && tx.tableName; });
+        // Hiển thị tất cả giao dịch không bị hoàn: bàn, CK, tiền mặt, grab, nợ
+        var validTx = transactions.filter(function(tx) { return !tx.refunded; });
         validTx.sort(function(a, b) {
             return new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date);
         });
@@ -188,26 +201,40 @@ function updateRecentToast() {
         if (!container) return;
         
         if (recent.length === 0) {
-            container.innerHTML = '<div style="font-size: 10px; color: #64748b; text-align:center;">🍽️ Chưa có giao dịch bàn</div>';
+            container.innerHTML = '<div style="font-size: 10px; color: #64748b; text-align:center;">📋 Chưa có giao dịch hôm nay</div>';
             return;
         }
         
         var html = '';
         for (var i = 0; i < recent.length; i++) {
             var tx = recent[i];
-            var timeDiff = Math.floor((Date.now() - new Date(tx.createdAt || tx.date)) / 60000);
+            var txTime = new Date(tx.createdAt || tx.date).getTime();
+            var timeDiff = Math.floor((Date.now() - txTime) / 60000);
             var timeText = '';
             if (timeDiff < 1) timeText = 'vừa xong';
             else if (timeDiff < 60) timeText = timeDiff + 'p';
             else timeText = Math.floor(timeDiff / 60) + 'h';
             
+            // Thông tin hiển thị: loại giao dịch + địa điểm
+            var shortInfo = '';
+            if (tx.tableName) {
+                // Nếu có customer name thì hiển thị tên khách thay vì số bàn
+                var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
+                shortInfo = '🍽️ ' + displayLabel;
+            } else if (tx.type === 'takeaway') {
+                shortInfo = '🛵 Mang đi';
+            } else if (tx.type === 'grab') {
+                shortInfo = '🚕 Grab';
+            } else {
+                shortInfo = '🍽️ Tại chỗ';
+            }
+            
+            // Thêm số món nếu có items
             var totalItems = 0;
             if (tx.items && tx.items.length) {
                 for (var j = 0; j < tx.items.length; j++) totalItems += tx.items[j].qty;
             }
-            
-            // Luôn có tableName vì đã filter, fallback đề phòng
-            var shortInfo = tx.tableName || 'Bàn';
+            var itemInfo = totalItems > 0 ? ' (' + totalItems + ' món)' : '';
             
             // Thêm phương thức thanh toán
             var methodIcon = '';
@@ -218,9 +245,9 @@ function updateRecentToast() {
             else methodIcon = '💵';
             
             html += `
-                <div class="recent-toast-item" onclick="showTransactionDetail('${tx.id}')">
+                <div class="recent-toast-item" onclick="showTransactionDetail('${tx.id}')" data-tx-time="${txTime}">
                     <span class="toast-time">${timeText}</span>
-                    <span class="toast-info">${shortInfo} (${totalItems} món) ${methodIcon}</span>
+                    <span class="toast-info">${shortInfo}${itemInfo} ${methodIcon}</span>
                     <span class="toast-amount">${formatMoney(tx.amount)}</span>
                 </div>
             `;
@@ -285,8 +312,16 @@ function updateTableCard(card, table) {
         var hours = Math.floor(diffMins / 60);
         var mins = diffMins % 60;
         timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + (hours ? hours + 'h' + mins + 'p' : mins + 'p');
-        isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+        // Sử dụng isTableLocked để check cả lock period 17h-5h30
+        if (typeof isTableLocked === 'function') {
+            isLocked = isTableLocked(table);
+        } else {
+            isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+        }
     }
+    
+    // Lưu startTime vào data attribute để timer cập nhật sau
+    card.setAttribute('data-start-time', table.startTime || '');
     
     var displayName = table.customerName ? escapeHtml(table.customerName) : escapeHtml(table.name);
     
@@ -302,12 +337,54 @@ function updateTableCard(card, table) {
     var totalSpan = card.querySelector('.table-total');
     if (totalSpan) totalSpan.innerHTML = formatMoney(table.total);
     
+    // Cập nhật recentAdds (nằm trong .table-actions)
+    var actionsEl = card.querySelector('.table-actions');
+    var recentAddsEl = actionsEl ? actionsEl.querySelector('.table-recent-adds') : null;
+    var newRecentHtml = _renderRecentAddsHtml(table.recentAdds);
+    if (recentAddsEl) {
+        recentAddsEl.outerHTML = newRecentHtml;
+    } else if (newRecentHtml && actionsEl) {
+        actionsEl.insertAdjacentHTML('beforeend', newRecentHtml);
+    }
+    
     // Thêm class locked nếu bàn bị khóa
     if (isLocked) {
         card.classList.add('table-locked');
     } else {
         card.classList.remove('table-locked');
     }
+}
+
+// Helper: rút gọn tên món (tối đa 15 ký tự)
+function _shortenName(name, maxLen) {
+    maxLen = maxLen || 15;
+    if (name.length <= maxLen) return name;
+    return name.substring(0, maxLen - 1) + '…';
+}
+
+// Helper: tạo HTML hiển thị recentAdds (tối đa 2 entry, hiển thị giờ + tên rút gọn)
+function _renderRecentAddsHtml(recentAdds) {
+    if (!recentAdds || !recentAdds.length) return '';
+    var html = '<div class="table-recent-adds">';
+    var startIdx = Math.max(0, recentAdds.length - 2);
+    for (var i = startIdx; i < recentAdds.length; i++) {
+        var entry = recentAdds[i];
+        // Hiển thị giờ: HH:MM
+        var d = new Date(entry.time);
+        var timeStr = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        // Rút gọn danh sách món
+        var itemsStr = '';
+        if (entry.items && entry.items.length) {
+            for (var j = 0; j < entry.items.length; j++) {
+                var it = entry.items[j];
+                if (j > 0) itemsStr += ', ';
+                itemsStr += _shortenName(it.name, 12) + (it.qty > 1 ? ' x' + it.qty : '');
+            }
+        }
+        html += '<span class="recent-add-entry" title="' + escapeHtml(itemsStr) + '">' + escapeHtml(itemsStr) + ' <span class="recent-add-time">' + timeStr + '</span></span>';
+    }
+    html += '</div>';
+    return html;
 }
 
 function createTableCard(table) {
@@ -326,7 +403,12 @@ function createTableCard(table) {
         var hours = Math.floor(diffMins / 60);
         var mins = diffMins % 60;
         timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + (hours ? hours + 'h' + mins + 'p' : mins + 'p');
-        isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+        // Sử dụng isTableLocked để check cả lock period 17h-5h30
+        if (typeof isTableLocked === 'function') {
+            isLocked = isTableLocked(table);
+        } else {
+            isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+        }
     }
     
     var displayName = table.customerName ? escapeHtml(table.customerName) : escapeHtml(table.name);
@@ -334,20 +416,115 @@ function createTableCard(table) {
     var div = document.createElement('div');
     div.className = 'table-card' + (isLocked ? ' table-locked' : '');
     div.setAttribute('data-id', table.id);
+    div.setAttribute('data-start-time', table.startTime || '');
     div.onclick = function(id) { return function() { showTableDetail(id); }; }(table.id);
     div.innerHTML =
         '<div class="table-header">' +
             '<span class="table-name" onclick="event.stopPropagation(); showCustomerSelectorForTable(\'' + table.id + '\')" style="cursor:pointer;">' + displayName + (isLocked ? ' 🔒' : '') + '</span>' +
-            '<span class="table-time">' + (isLocked ? '🔒 ' : '⏱️ ') + timeDisplay + '</span>' +
+            '<span class="table-time" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" style="cursor:pointer;">' + (isLocked ? '🔒 ' : '⏱️ ') + timeDisplay + '</span>' +
         '</div>' +
         '<div class="table-stats">' +
             '<span class="table-item-count">📦 ' + itemCount + ' món</span>' +
             '<span class="table-total">' + formatMoney(table.total) + '</span>' +
         '</div>' +
         '<div class="table-actions">' +
-            '<div class="table-action" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')">➕</div>' +
+            _renderRecentAddsHtml(table.recentAdds) +
         '</div>';
     return div;
+}
+
+// ========== TIMER CẬP NHẬT THỜI GIAN ==========
+// Tự động cập nhật thời gian hiển thị trên thẻ bàn và recent toast mỗi 1 giây (realtime)
+var _tableTimerId = null;
+
+function _updateRecentToastTimes() {
+    var container = document.getElementById('recentToastList');
+    if (!container) return;
+    var items = container.querySelectorAll('.recent-toast-item');
+    for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var txTime = item.getAttribute('data-tx-time');
+        if (!txTime) continue;
+        var timeDiff = Math.floor((Date.now() - parseInt(txTime)) / 60000);
+        var timeText = '';
+        if (timeDiff < 1) timeText = 'vừa xong';
+        else if (timeDiff < 60) timeText = timeDiff + 'p';
+        else timeText = Math.floor(timeDiff / 60) + 'h';
+        var timeSpan = item.querySelector('.toast-time');
+        if (timeSpan) timeSpan.textContent = timeText;
+    }
+}
+
+function startTableTimer() {
+    if (_tableTimerId) return; // Đã chạy rồi
+    _tableTimerId = setInterval(function() {
+        // Cập nhật thời gian thẻ bàn
+        var grid = document.getElementById('tablesGrid');
+        if (grid) {
+            var cards = grid.querySelectorAll('.table-card');
+            for (var i = 0; i < cards.length; i++) {
+                var card = cards[i];
+                var startTime = card.getAttribute('data-start-time');
+                if (!startTime) continue;
+                
+                var start = new Date(startTime);
+                var diffSecs = Math.floor((Date.now() - start) / 1000);
+                var hours = Math.floor(diffSecs / 3600);
+                var mins = Math.floor((diffSecs % 3600) / 60);
+                var secs = diffSecs % 60;
+                
+                // Format: giờ:phút:giây (đếm ngược realtime)
+                var hh = hours < 10 ? '0' + hours : '' + hours;
+                var mm = mins < 10 ? '0' + mins : '' + mins;
+                var ss = secs < 10 ? '0' + secs : '' + secs;
+                var timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + hh + ':' + mm + ':' + ss;
+                
+                // Kiểm tra locked - cần table object để gọi isTableLocked
+                // Dùng cachedTables để lấy table object
+                var isLocked = false;
+                var tableId = card.getAttribute('data-id');
+                if (tableId && cachedTables) {
+                    for (var j = 0; j < cachedTables.length; j++) {
+                        if (cachedTables[j].id === tableId) {
+                            if (typeof isTableLocked === 'function') {
+                                isLocked = isTableLocked(cachedTables[j]);
+                            } else {
+                                isLocked = diffSecs >= (TABLE_LOCK_HOURS || 5) * 3600;
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                var timeSpan = card.querySelector('.table-time');
+                if (timeSpan) timeSpan.innerHTML = (isLocked ? '🔒 ' : '⏱️ ') + timeDisplay;
+                
+                var nameSpan = card.querySelector('.table-name');
+                if (nameSpan) {
+                    // Cập nhật icon lock trên tên nếu cần
+                    var nameText = nameSpan.textContent.replace(/ 🔒$/, '');
+                    nameSpan.innerHTML = nameText + (isLocked ? ' 🔒' : '');
+                }
+                
+                // Cập nhật class locked
+                if (isLocked) {
+                    card.classList.add('table-locked');
+                } else {
+                    card.classList.remove('table-locked');
+                }
+            }
+        }
+        
+        // Cập nhật thời gian recent toast
+        _updateRecentToastTimes();
+    }, 1000); // 1 giây - realtime
+}
+
+function stopTableTimer() {
+    if (_tableTimerId) {
+        clearInterval(_tableTimerId);
+        _tableTimerId = null;
+    }
 }
 
 // FIX: renderTables luôn lấy data mới nhất từ memoryCache/IndexedDB
@@ -357,5 +534,9 @@ function renderTables() {
         cachedTables = tables;
         tablesCacheTime = Date.now();
         updateTablesDiff(tables);
+        // Bắt đầu timer cập nhật thời gian nếu đang ở tab tables
+        if (currentTab === 'tables' && typeof startTableTimer === 'function') {
+            startTableTimer();
+        }
     });
 }

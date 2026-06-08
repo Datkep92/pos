@@ -95,6 +95,11 @@
                 <span class="time" id="currentTime">--:--</span>
             </div>
         </div>
+        <!-- Header notification bar - chạy dọc header -->
+        <div class="header-notification-bar" id="headerNotificationBar" style="display:none;">
+            <div class="header-notification-text" id="headerNotificationText"></div>
+            <span class="header-notification-close" id="headerNotificationClose" onclick="dismissHeaderNotification()">✕</span>
+        </div>
 
         <div class="main-tabs">
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
@@ -107,7 +112,17 @@
         </div>
 
         <div class="main-content">
-            <div id="tablesView" class="tab-content active"><div class="tables-grid" id="tablesGrid"></div></div>
+            <div id="tablesView" class="tab-content active">
+                <!-- Banner thông báo lịch âm (mua hoa, cúng ông địa) -->
+                <div class="lunar-notification-banner" id="lunarNotificationBanner" style="display:none;">
+                    <div class="lunar-notification-content">
+                        <span class="lunar-notification-icon">🏮</span>
+                        <span class="lunar-notification-text" id="lunarNotificationText"></span>
+                    </div>
+                    <button class="lunar-notification-btn" id="lunarNotificationBtn" onclick="dismissLunarNotification()">✅ Đã mua</button>
+                </div>
+                <div class="tables-grid" id="tablesGrid"></div>
+            </div>
             <div id="customersView" class="tab-content">
                 <div class="customer-header">
                     <div class="debt-summary"><span>💰 Tổng công nợ</span><span id="totalDebtAmount">0đ</span></div>
@@ -224,6 +239,41 @@
             <span class="toggle-icon">▼</span>
         </div>
         <div class="card-body" id="managerDebtList"></div>
+    </div>
+
+    <!-- Quản lý thông báo -->
+    <div class="card">
+        <div class="card-header toggle-header" style="cursor: pointer;">
+            <h2>📢 Quản lý thông báo</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="card-body">
+            <!-- Toggle bật/tắt thông báo (chỉ admin mới thấy) -->
+            <div class="notification-toggle-row" id="notificationToggleRow">
+                <span>🔔 Bật thông báo</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="notificationToggle" checked onchange="toggleNotifications(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <!-- Form nhập thông báo + chọn màu -->
+            <div class="notification-input-row">
+                <div style="display:flex;gap:8px;margin-bottom:6px;">
+                    <input type="color" id="notificationColor" value="#f97316" style="width:40px;height:36px;border:1px solid #cbd5e1;border-radius:6px;padding:2px;cursor:pointer;flex-shrink:0;">
+                    <input type="text" id="notificationColorLabel" value="Cam" readonly style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:#f8fafc;color:#64748b;">
+                </div>
+                <textarea id="notificationInput" class="form-input" placeholder="Nhập nội dung thông báo..." rows="2" style="resize:vertical;"></textarea>
+                <button class="btn-save" onclick="saveNotification()" style="margin-top:6px;width:100%;">📨 Cập nhật thông báo</button>
+            </div>
+            <!-- Lịch sử thông báo -->
+            <div class="notification-history-header" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+                <span style="font-weight:600;font-size:13px;">📜 Lịch sử thông báo</span>
+                <button class="btn-small btn-outline" onclick="toggleNotificationHistory()" id="notificationHistoryToggleBtn">📂 Mở rộng</button>
+            </div>
+            <div id="notificationHistoryList" class="notification-history-list" style="max-height:0;overflow:hidden;transition:max-height 0.3s ease;">
+                <div class="empty-text" style="padding:8px;text-align:center;color:#94a3b8;">Chưa có thông báo</div>
+            </div>
+        </div>
     </div>
 </div>
             <!-- ========== TAB NHÂN VIÊN (ADMIN) ========== -->
@@ -471,64 +521,6 @@
         </div>
     </div>
 
-    <!-- MODAL THANH TOÁN (3 nút + in) -->
-    <div class="modal" id="paymentMethodModal">
-        <div class="modal-content" style="max-width:350px;">
-            <div class="modal-header"><span class="modal-title">💸 Chọn phương thức thanh toán</span><span class="modal-close" onclick="closeModal('paymentMethodModal')">&times;</span></div>
-            <div class="modal-body">
-                <div class="payment-modal-buttons">
-                    <button class="payment-cash" id="paymentCashBtn">💰 Tiền mặt</button>
-                    <button class="payment-transfer" id="paymentTransferBtn">💳 Chuyển khoản</button>
-                    <button class="payment-debt" id="paymentDebtBtn">💢 Ghi nợ</button>
-                </div>
-                <div class="payment-print-option" id="paymentPrintOption" style="margin-top:12px;display:none;">
-                    <label style="display:flex;align-items:center;gap:8px;justify-content:center;cursor:pointer;font-size:14px;">
-                        <input type="checkbox" id="printAfterPaymentCheck" checked> 🖨️ In hóa đơn sau khi thanh toán
-                    </label>
-                    <div style="display:flex;gap:6px;margin-top:8px;justify-content:center;">
-                        <button class="print-mode-btn active" id="printModeBrowser" onclick="setPrintMode('browser')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">🌐 In trình duyệt</button>
-                        <button class="print-mode-btn" id="printModeTcp" onclick="setPrintMode('tcp')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">🌍 In TCP (IP:9100)</button>
-                        <button class="print-mode-btn" id="printModeSunmi" onclick="setPrintMode('sunmi')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">📟 Sunmi (localhost:8001)</button>
-                        <button class="print-mode-btn" id="printModeBluetooth" onclick="setPrintMode('bluetooth')" style="flex:1;padding:6px 4px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer;">📡 Bluetooth</button>
-                    </div>
-                    <!-- Khu vực dò tìm máy in (chỉ hiện khi chọn TCP) -->
-                    <div id="tcpSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                            <span id="selectedPrinterDisplay" style="font-size:11px;color:#475569;flex:1;">🖨️ Chưa chọn máy in</span>
-                            <button onclick="scanPrinters(showPrinterList)" style="padding:4px 8px;border:1px solid #f97316;border-radius:6px;background:#fff;color:#f97316;font-size:10px;cursor:pointer;font-weight:600;">🔍 Dò tìm</button>
-                            <button onclick="setPrinterIP()" style="padding:4px 8px;border:1px solid #94a3b8;border-radius:6px;background:#fff;color:#475569;font-size:10px;cursor:pointer;">✏️ Nhập IP</button>
-                        </div>
-                        <div id="printerScanResult" style="max-height:120px;overflow-y:auto;"></div>
-                        <div style="text-align:center;margin-top:4px;">
-                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="testTCPConnection()">🔍 Kiểm tra kết nối máy in đã chọn</span>
-                        </div>
-                    </div>
-                    <!-- Khu vực Sunmi (chỉ hiện khi chọn Sunmi) -->
-                    <div id="sunmiSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                        <div id="sunmiStatus" style="font-size:11px;color:#475569;text-align:center;">
-                            <span>🔄 Đang kiểm tra...</span>
-                        </div>
-                        <div style="text-align:center;margin-top:4px;">
-                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="testSunmiService()">🔄 Kiểm tra lại</span>
-                            <span style="font-size:10px;color:#94a3b8;margin:0 4px;">|</span>
-                            <span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="window.open('http://localhost:8001','_blank')">🔗 Mở localhost:8001</span>
-                        </div>
-                    </div>
-                    <!-- Khu vực Bluetooth (chỉ hiện khi chọn Bluetooth) -->
-                    <div id="btSettings" style="display:none;margin-top:6px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-                            <span id="btStatus" style="font-size:11px;color:#475569;flex:1;">Chưa kết nối</span>
-                            <button onclick="connectBluetoothPrinter()" style="padding:4px 8px;border:1px solid #3b82f6;border-radius:6px;background:#3b82f6;color:#fff;font-size:10px;cursor:pointer;font-weight:600;">🔗 Kết nối</button>
-                            <button onclick="disconnectBluetooth()" style="padding:4px 8px;border:1px solid #ef4444;border-radius:6px;background:#fff;color:#ef4444;font-size:10px;cursor:pointer;">❌ Ngắt</button>
-                        </div>
-                        <div style="text-align:center;margin-top:4px;">
-                            <span style="font-size:10px;color:#94a3b8;">Kết nối Bluetooth đến InnerPrinter</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- MODAL CHỌN KHÁCH (ghi nợ) -->
     <div class="modal" id="customerSelectorModal">
@@ -959,5 +951,11 @@
     <script src="draft-orders.js"></script>
     <!-- Inventory Manager module (Menu - Tồn kho) -->
     <script src="inventory-manager.js"></script>
+    <!-- Lunar calendar library -->
+    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/dist/lunar.min.js"></script>
+    <!-- Telegram notification module -->
+    <script src="telegram.js"></script>
+    <!-- Notification module (thông báo admin + lịch âm) -->
+    <script src="notifications.js"></script>
 </body>
 </html>

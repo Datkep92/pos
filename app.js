@@ -49,6 +49,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }).then(function() {
         initEventListeners();
         renderCurrentTime();
+        // Khởi tạo module thông báo
+        if (typeof initNotifications === 'function') {
+            initNotifications();
+        }
         // OPTIMIZE: Cập nhật đồng hồ mỗi 30s thay vì mỗi 1s (Android 6 lag)
         setInterval(renderCurrentTime, 30000);
         showToast('POS sẵn sàng', 'success');
@@ -120,8 +124,10 @@ function renderRecentTransactions() {
             }
             
             var locationInfo = '';
-            if (tx.tableName) locationInfo = '🍽️ ' + tx.tableName;
-            else if (tx.type === 'takeaway') locationInfo = '🛵 Mang đi';
+            if (tx.tableName) {
+                var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
+                locationInfo = '🍽️ ' + displayLabel;
+            } else if (tx.type === 'takeaway') locationInfo = '🛵 Mang đi';
             else if (tx.type === 'grab') locationInfo = '🚕 Grab';
             else locationInfo = '🍽️ Tại chỗ';
             
@@ -186,32 +192,8 @@ function initEventListeners() {
     var confirmDebtBtn = document.getElementById('confirmDebtPaymentBtn');
     if (confirmDebtBtn) confirmDebtBtn.onclick = confirmDebtPayment;
 
-    var paymentCash = document.getElementById('paymentCashBtn');
-    if (paymentCash) paymentCash.onclick = function() {
-        if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'cash');
-        closeModal('paymentMethodModal');
-        // Ẩn tùy chọn in sau khi đóng modal
-        var printOption = document.getElementById('paymentPrintOption');
-        if (printOption) printOption.style.display = 'none';
-    };
-
-    var paymentTransfer = document.getElementById('paymentTransferBtn');
-    if (paymentTransfer) paymentTransfer.onclick = function() {
-        if (pendingPaymentTableId) paymentAtTable(pendingPaymentTableId, 'transfer');
-        closeModal('paymentMethodModal');
-        var printOption = document.getElementById('paymentPrintOption');
-        if (printOption) printOption.style.display = 'none';
-    };
-
-    var paymentDebt = document.getElementById('paymentDebtBtn');
-    if (paymentDebt) paymentDebt.onclick = function() {
-        if (pendingPaymentTableId) {
-            closeModal('paymentMethodModal');
-            debtAtTable(pendingPaymentTableId);
-        }
-        var printOption = document.getElementById('paymentPrintOption');
-        if (printOption) printOption.style.display = 'none';
-    };
+    // Các nút thanh toán cũ (paymentMethodModal) đã được thay thế bằng quickPayModal
+    // Thanh toán được xử lý trực tiếp từ showTableDetail() và quickPayConfirm()
 
     // Modal chia hóa đơn, chuyển món, xóa bàn
     var confirmSplit = document.getElementById('confirmSplitBtn');
@@ -245,7 +227,15 @@ function switchTab(tabId) {
         if (draftContainer) draftContainer.style.display = '';
         if (recentToast) recentToast.style.display = '';
         renderTables();
+        // Bắt đầu timer cập nhật thời gian bàn tự động
+        if (typeof startTableTimer === 'function') {
+            startTableTimer();
+        }
     } else {
+        // Dừng timer cập nhật thời gian bàn khi rời tab
+        if (typeof stopTableTimer === 'function') {
+            stopTableTimer();
+        }
         // Ẩn draft bubbles và recent toast khi không ở tab Bàn
         if (draftContainer) draftContainer.style.display = 'none';
         if (recentToast) recentToast.style.display = 'none';
@@ -288,7 +278,36 @@ function formatMoney(amount) {
     _moneyCache[key] = result;
     return result;
 }
-function showToast(message, type) { var toast = document.createElement('div'); toast.className = 'toast ' + type; toast.innerText = message; document.getElementById('toastContainer').appendChild(toast); setTimeout(function() { toast.remove(); }, 2500); }
+// Toast counter để tạo ID duy nhất
+var _toastCounter = 0;
+// Map lưu các toast đang hiển thị (id -> { element, timer })
+var _toastMap = {};
+
+function showToast(message, type, duration) {
+    if (duration === undefined) duration = 2500;
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.innerText = message;
+    document.getElementById('toastContainer').appendChild(toast);
+    var id = 'toast_' + (++_toastCounter);
+    toast.setAttribute('data-toast-id', id);
+    if (duration > 0) {
+        var timer = setTimeout(function() { toast.remove(); delete _toastMap[id]; }, duration);
+        _toastMap[id] = { element: toast, timer: timer };
+    } else {
+        _toastMap[id] = { element: toast, timer: null };
+    }
+    return id;
+}
+
+function hideToast(id) {
+    var entry = _toastMap[id];
+    if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        if (entry.element && entry.element.parentNode) entry.element.remove();
+        delete _toastMap[id];
+    }
+}
 function closeModal(modalId) { var m = document.getElementById(modalId); if (m) m.style.display = 'none'; }
 function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, function(m) { if (m === '&') return '&'; if (m === '<') return '<'; if (m === '>') return '>'; return m; }); }
 function formatDateDisplay(dateStr) { var d = new Date(dateStr); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }

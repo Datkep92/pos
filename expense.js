@@ -370,6 +370,18 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amo
         };
         return DB.create('cost_transactions', costData);
     }).then(function() {
+        // Gửi thông báo Telegram
+        if (typeof notifyExpenseToTelegram === 'function') {
+            notifyExpenseToTelegram({
+                type: 'ingredient',
+                amount: amount,
+                categoryName: ingredientName,
+                quantity: qty,
+                unitPrice: unitPrice,
+                fundSource: fundSource,
+                createdAt: new Date().toISOString()
+            });
+        }
         return loadExpenseData();
     }).then(function() {
         showToast('✅ Đã thêm chi phí nguyên liệu ' + formatMoney(amount), 'success');
@@ -441,6 +453,16 @@ function saveWasteExpense(categoryName, amount, fundSource) {
     }
 
     savePromise.then(function() {
+        // Gửi thông báo Telegram
+        if (typeof notifyExpenseToTelegram === 'function') {
+            notifyExpenseToTelegram({
+                type: 'waste',
+                amount: amount,
+                categoryName: categoryName,
+                fundSource: fundSource,
+                createdAt: new Date().toISOString()
+            });
+        }
         return loadExpenseData();
     }).then(function() {
         showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
