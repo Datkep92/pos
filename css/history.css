@@ -71,6 +71,16 @@
 
 .history-location { color: var(--text); }
 
+.history-table-time {
+    font-size: 11px;
+    color: #f59e0b;
+    background: #fef3c7;
+    padding: 1px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
 .history-method {
     font-size: 12px;
     padding: 2px 8px;

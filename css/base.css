@@ -788,17 +788,6 @@ body {
     .reconciliation-card {
         padding: 12px;
     }
-    .recon-input-group {
-        flex-direction: column;
-    }
-    .recon-save-btn {
-        width: 100%;
-        text-align: center;
-    }
-    .recon-close-btn {
-        width: 100%;
-        text-align: center;
-    }
 }
 
 /* ============================================================
@@ -1162,6 +1151,16 @@ body {
     font-size: 10px;
     color: #94a3b8;
     background: #e2e8f0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+    width: fit-content;
+}
+
+.inv-menu-size-badge {
+    font-size: 10px;
+    color: #92400e;
+    background: #fef3c7;
     padding: 2px 8px;
     border-radius: 10px;
     display: inline-block;
