@@ -21,6 +21,7 @@ function renderHistoryByDate(dateObj) {
                 if (filter === 'transfer') return t.paymentMethod === 'transfer';
                 if (filter === 'debt_payment') return t.type === 'debt_payment';
                 if (filter === 'cancelled') return t.refunded === true;
+                if (filter === 'credit') return t.type === 'credit';
                 return true;
             });
         }
@@ -49,11 +50,15 @@ function renderHistoryByDate(dateObj) {
             var txDate = new Date(tx.createdAt || tx.date);
             var time = txDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             
-            // Thông tin vị trí
+            // Thông tin vị trí + thời gian khách ngồi
             var location = '';
+            var tableTimeBadge = '';
             if (tx.tableName) {
                 var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
                 location = '🪑 ' + escapeHtml(displayLabel);
+                if (tx.tableTime) {
+                    tableTimeBadge = '<span class="history-table-time">⏱ ' + escapeHtml(tx.tableTime) + '</span>';
+                }
             } else if (tx.type === 'takeaway') location = '🛵 Mang đi';
             else if (tx.type === 'grab') location = '🚕 Grab';
             else location = '🍽️ Tại chỗ';
@@ -61,6 +66,7 @@ function renderHistoryByDate(dateObj) {
             // Phân biệt GHI NỢ (mua chịu) vs THANH TOÁN NỢ (trả tiền)
             var isDebtRecord = (tx.type === 'debt_payment' && tx.paymentMethod === 'debt');
             var isDebtPayment = (tx.type === 'debt_payment' && tx.paymentMethod === 'cash');
+            var isCredit = (tx.type === 'credit');
 
             // Phương thức thanh toán
             var method = '';
@@ -68,6 +74,9 @@ function renderHistoryByDate(dateObj) {
             if (isRefunded) {
                 method = '❌ Đã hủy';
                 methodClass = 'refunded-method';
+            } else if (isCredit) {
+                method = '💰 Tiền dư';
+                methodClass = 'credit-method';
             } else if (isDebtRecord) {
                 method = '📝 Ghi nợ';
                 methodClass = 'debt-record-method';
@@ -100,13 +109,15 @@ function renderHistoryByDate(dateObj) {
             // CSS class riêng cho item
             var itemClass = 'history-item';
             if (isRefunded) itemClass += ' refunded';
+            else if (isCredit) itemClass += ' credit-item';
             else if (isDebtRecord) itemClass += ' debt-record';
             else if (isDebtPayment) itemClass += ' debt-payment';
 
             // Dấu +/- cho số tiền
-            var amountSign = isRefunded ? '-' : (isDebtRecord ? '📝' : '+');
+            var amountSign = isRefunded ? '-' : (isDebtRecord ? '📝' : (isCredit ? '+' : '+'));
             var amountClass = 'history-amount';
             if (isRefunded) amountClass += ' refunded-amount';
+            else if (isCredit) amountClass += ' credit-amount';
             else if (isDebtRecord) amountClass += ' debt-record-amount';
             else if (isDebtPayment) amountClass += ' debt-payment-amount';
 
@@ -116,6 +127,7 @@ function renderHistoryByDate(dateObj) {
                     <div class="history-line1">
                         <span class="history-time">${time}</span>
                         <span class="history-location">${location}</span>
+                        ${tableTimeBadge}
                         <span class="history-item-count">📦 ${itemCount} món</span>
                         <span class="history-method ${methodClass}">${method}</span>
                         ${customerHtml}
@@ -142,16 +154,26 @@ function showTransactionDetail(transactionId) {
     DB.get('transactions', transactionId).then(function(tx) {
         if (!tx) return;
         
+        // YÊU CẦU 2: Hiển thị thời gian gốc và thời gian hoàn tác
         var dateStr = new Date(tx.date).toLocaleString('vi-VN');
+        var originalTimeStr = '';
+        var currentTimeStr = '';
+        
+        if (tx.refunded && tx.originalCreatedAt) {
+            originalTimeStr = new Date(tx.originalCreatedAt).toLocaleString('vi-VN');
+            currentTimeStr = new Date(tx.createdAt).toLocaleString('vi-VN');
+        }
         
         // Phân biệt Ghi nợ (mua chịu) vs Thanh toán nợ (trả tiền)
         var isDebtRecord = (tx.type === 'debt_payment' && tx.paymentMethod === 'debt');
         var isDebtPayment = (tx.type === 'debt_payment' && tx.paymentMethod === 'cash');
+        var isCredit = (tx.type === 'credit');
         
         var typeName = '';
         if (tx.type === 'dinein') typeName = 'Tại chỗ';
         else if (tx.type === 'takeaway') typeName = 'Mang đi';
         else if (tx.type === 'grab') typeName = 'Grab';
+        else if (isCredit) typeName = '💰 Tiền dư (trả trước)';
         else if (isDebtRecord) typeName = '📝 Ghi nợ (mua chịu)';
         else if (isDebtPayment) typeName = '💵 Thanh toán nợ (trả tiền)';
         
@@ -160,6 +182,7 @@ function showTransactionDetail(transactionId) {
         else if (tx.paymentMethod === 'transfer') paymentMethodText = '💳 Chuyển khoản';
         else if (tx.paymentMethod === 'debt') paymentMethodText = '📝 Ghi nợ';
         else if (tx.paymentMethod === 'grab') paymentMethodText = '🚕 Grab';
+        else if (tx.paymentMethod === 'credit') paymentMethodText = '💰 Tiền dư';
         
         var itemsHtml = '';
         if (tx.items && tx.items.length) {
@@ -177,23 +200,65 @@ function showTransactionDetail(transactionId) {
             refundInfo = '<div class="refund-info">❌ Đã hủy lúc: ' + new Date(tx.refundedAt).toLocaleString('vi-VN') + '<br>📝 Lý do: ' + escapeHtml(tx.refundReason || '') + '</div>';
         }
         
-        var html =
-            '<div class="detail-section">' +
-                '<div class="detail-row"><span>🕒 Thời gian:</span><span>' + dateStr + '</span></div>' +
+        // Xây dựng dòng thời gian
+        var timeHtml = '';
+        if (tx.refunded && tx.originalCreatedAt) {
+            timeHtml =
+                '<div class="detail-row"><span>🕒 Thời gian gốc:</span><span>' + originalTimeStr + '</span></div>' +
+                '<div class="detail-row"><span>🔄 Thời gian hoàn tác:</span><span>' + currentTimeStr + '</span></div>';
+        } else {
+            timeHtml = '<div class="detail-row"><span>🕒 Thời gian:</span><span>' + dateStr + '</span></div>';
+        }
+        
+        // Hàm render HTML hoàn chỉnh (dùng callback sau khi lấy thông tin bàn)
+        function renderDetail(tableTimeHtml) {
+            var infoHtml =
+                timeHtml +
                 '<div class="detail-row"><span>🍽️ Loại:</span><span>' + typeName + '</span></div>' +
                 '<div class="detail-row"><span>💳 Thanh toán:</span><span>' + paymentMethodText + '</span></div>' +
                 (tx.tableName ? '<div class="detail-row"><span>🪑 Bàn:</span><span>' + escapeHtml(tx.customer && tx.customer.name ? tx.customer.name : tx.tableName) + '</span></div>' : '') +
+                tableTimeHtml +
                 '<div class="detail-row"><span>💰 Tổng tiền:</span><span class="detail-amount">' + formatMoney(tx.amount) + '</span></div>' +
                 (tx.note ? '<div class="detail-row"><span>📝 Ghi chú:</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
-                refundInfo +
-            '</div>' +
-            '<div class="detail-section">' + itemsHtml + '</div>' +
-            '<div class="form-actions" style="margin-top:12px;">' +
-                '<button class="btn-save" onclick="printTransactionDetail(\'' + transactionId + '\')">🖨️ In hóa đơn</button>' +
-            '</div>';
+                refundInfo;
+            
+            var html =
+                '<div class="detail-section">' + infoHtml + '</div>' +
+                '<div class="detail-section">' + itemsHtml + '</div>' +
+                '<div class="form-actions" style="margin-top:12px;">' +
+                    '<button class="btn-save" onclick="printTransactionDetail(\'' + transactionId + '\')">🖨️ In hóa đơn</button>' +
+                '</div>';
+            
+            document.getElementById('transactionDetailBody').innerHTML = html;
+            document.getElementById('transactionDetailModal').style.display = 'flex';
+        }
         
-        document.getElementById('transactionDetailBody').innerHTML = html;
-        document.getElementById('transactionDetailModal').style.display = 'flex';
+        // YÊU CẦU 1: Lấy thông tin thời gian hoạt động của bàn
+        if (tx.tableId) {
+            DB.get('tables', String(tx.tableId)).then(function(table) {
+                var tableTimeHtml = '';
+                if (table && table.startTime) {
+                    var startTime = new Date(table.startTime);
+                    var endTime = table.endTime ? new Date(table.endTime) : new Date(tx.createdAt || tx.date);
+                    var startStr = startTime.toLocaleString('vi-VN');
+                    var endStr = endTime.toLocaleString('vi-VN');
+                    
+                    // Tính thời gian hoạt động
+                    var elapsed = endTime.getTime() - startTime.getTime();
+                    var hours = Math.floor(elapsed / 3600000);
+                    var mins = Math.floor((elapsed % 3600000) / 60000);
+                    var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
+                    
+                    tableTimeHtml =
+                        '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
+                        '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
+                        '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
+                }
+                renderDetail(tableTimeHtml);
+            });
+        } else {
+            renderDetail('');
+        }
     });
 }
 
@@ -304,21 +369,27 @@ function showRefundReasonModal(callback) {
 }
 
 function refundTransaction(transactionId) {
-    // Kiểm tra xem giao dịch có thuộc bàn đang bị khóa không
+    // Kiểm tra xem giao dịch có thuộc ngày hôm nay không
+    var todayStr = new Date().toISOString().slice(0, 10);
+    
     DB.get('transactions', transactionId).then(function(trans) {
         if (!trans || trans.refunded) return;
         
-        var needPassword = false;
+        // YÊU CẦU 1: Chặn hoàn tác giao dịch ngày trước đó
+        var transDate = trans.dateKey || trans.date.slice(0, 10);
+        if (transDate !== todayStr) {
+            showToast('❌ Không thể hoàn tác giao dịch của ngày trước đó', 'error');
+            return;
+        }
+        
+        // YÊU CẦU 2: Tất cả giao dịch thanh toán (dinein có tableId) đều phải nhập mật khẩu
         if (trans.tableId) {
-            // Tra bàn để kiểm tra khóa
             return DB.get('tables', String(trans.tableId)).then(function(table) {
-                if (table && typeof isTableLocked === 'function' && isTableLocked(table)) {
-                    needPassword = true;
-                }
-                return proceedRefund(trans, needPassword);
+                // Bàn đã thanh toán -> luôn yêu cầu mật khẩu để hoàn tác
+                return proceedRefund(trans, true);
             });
         } else {
-            // Không có tableId -> không cần mật khẩu
+            // Không có tableId (takeaway, grab, debt) -> không cần mật khẩu
             return proceedRefund(trans, false);
         }
     });
@@ -350,9 +421,16 @@ function proceedRefund(trans, needPassword) {
                         addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
                     }
                 }
+                
+                // YÊU CẦU 2: Lưu thời gian gốc trước khi cập nhật createdAt
+                if (!trans.originalCreatedAt) {
+                    trans.originalCreatedAt = trans.createdAt;
+                }
+                trans.createdAt = new Date().toISOString(); // Cập nhật để nổi lên đầu sort
                 trans.refunded = true;
                 trans.refundReason = reason;
                 trans.refundedAt = Date.now();
+                
                 DB.update('transactions', transactionId, trans).then(function() {
                     showToast('✅ Đã hủy giao dịch', 'success');
                     // Cập nhật lại lịch sử và báo cáo
@@ -368,7 +446,7 @@ function proceedRefund(trans, needPassword) {
     }
     
     if (needPassword) {
-        requirePassword('hoàn tác giao dịch (bàn đang bị khóa)', doRefund);
+        requirePassword('hoàn tác giao dịch thanh toán', doRefund);
     } else {
         doRefund();
     }
@@ -390,7 +468,8 @@ function addHistory(transaction) {
         tableName: transaction.tableName || null,
         tableId: transaction.tableId || null, // Lưu tableId để kiểm tra khoá khi hoàn tác
         note: transaction.note || '',
-        refunded: false
+        refunded: false,
+        tableTime: transaction.tableTime || '' // Thời gian khách ngồi (vd: "2h15p")
     };
     return DB.create('transactions', newTrans).then(function() {
         // KHÔNG gọi render trực tiếp nữa, để realtime subscription tự cập nhật

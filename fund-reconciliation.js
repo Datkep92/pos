@@ -35,12 +35,21 @@ function openManagerPickupModal() {
 }
 
 // ========== LƯU LẦN NHẬN TIỀN ==========
+var _savingPickup = false;
 function saveManagerPickup() {
+    if (_savingPickup) return;
+    _savingPickup = true;
+
+    var btn = document.getElementById('saveManagerPickupBtn');
+    if (btn) btn.disabled = true;
+
     var amount = parseInt(document.getElementById('managerPickupAmount').value) || 0;
     var note = document.getElementById('managerPickupNote').value.trim();
 
     if (amount <= 0) {
         showToast('Số tiền phải lớn hơn 0!', 'warning');
+        _savingPickup = false;
+        if (btn) btn.disabled = false;
         return;
     }
 
@@ -58,18 +67,16 @@ function saveManagerPickup() {
     };
 
     DB.create('manager_cash_pickups', data).then(function() {
-        managerCashPickups.push(data);
         showToast('✅ Đã lưu: ' + formatMoney(amount), 'success');
-        document.getElementById('managerPickupAmount').value = '';
-        document.getElementById('managerPickupNote').value = '';
-        renderManagerPickupHistory();
-        // Cập nhật lại khu vực đối soát nếu đang mở
-        if (typeof renderReconciliation === 'function') {
-            renderReconciliation(dateKey);
-        }
+        // Đóng popup - realtime subscription sẽ tự cập nhật stat-row và đối soát
+        closeModal('managerCashPickupModal');
+        _savingPickup = false;
+        if (btn) btn.disabled = false;
     }).catch(function(err) {
         console.error('Save pickup error:', err);
         showToast('Lỗi khi lưu!', 'error');
+        _savingPickup = false;
+        if (btn) btn.disabled = false;
     });
 }
 
@@ -92,6 +99,7 @@ function renderManagerPickupHistory() {
         return;
     }
 
+    var isAdmin = typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin();
     var total = 0;
     var html = '';
     for (var i = 0; i < todayPickups.length; i++) {
@@ -110,11 +118,31 @@ function renderManagerPickupHistory() {
                 '<span class="pickup-item-note">' + escapeHtml(p.note || '') + '</span>' +
             '</div>' +
             '<span class="pickup-item-amount">' + formatMoney(p.amount) + '</span>' +
+            (isAdmin ? '<button class="pickup-delete-btn" onclick="deleteManagerPickup(\'' + p.id + '\')">🗑️</button>' : '') +
         '</div>';
     }
 
     html += '<div class="pickup-total">Tổng: ' + formatMoney(total) + '</div>';
     container.innerHTML = html;
+}
+
+// ========== XÓA LẦN NHẬN TIỀN (ADMIN) ==========
+function deleteManagerPickup(id) {
+    if (!confirm('Xóa lần nhận tiền này?')) return;
+    DB.remove('manager_cash_pickups', id).then(function() {
+        // Cập nhật danh sách
+        managerCashPickups = managerCashPickups.filter(function(p) { return p.id !== id; });
+        renderManagerPickupHistory();
+        // Cập nhật lại khu vực đối soát
+        var today = new Date().toISOString().slice(0, 10);
+        if (typeof renderReconciliation === 'function') {
+            renderReconciliation(today);
+        }
+        showToast('✅ Đã xóa', 'success');
+    }).catch(function(err) {
+        console.error('Delete pickup error:', err);
+        showToast('Lỗi khi xóa!', 'error');
+    });
 }
 
 // ========== LẤY SỐ DƯ ĐẦU KỲ ==========
@@ -172,7 +200,6 @@ function calculateExpectedClosing(dateStr) {
         }
 
         var expectedClosing = openingBalance + cashRevenue - posCashExpense - managerPickupTotal;
-        if (expectedClosing < 0) expectedClosing = 0;
 
         return {
             openingBalance: openingBalance,
@@ -185,11 +212,25 @@ function calculateExpectedClosing(dateStr) {
 }
 
 // ========== LẤY TRẠNG THÁI ĐỐI SOÁT ==========
-function getReconciliationStatus(diffPercent) {
-    if (diffPercent <= 0.5) {
-        return { status: 'ok', label: '✅ Khớp quỹ', color: '#10b981' };
+function getReconciliationStatus(diffPercent, difference) {
+    // Nếu expectedClosing = 0 mà có difference => lệch tuyệt đối, báo lỗi luôn
+    if (diffPercent === 0 && difference !== 0) {
+        if (difference < 0) {
+            return { status: 'error', label: '🔴 Thiếu ' + formatMoney(Math.abs(difference)) + ' - Rà soát kiểm tra lại chi phí - Giải trình (ghi rõ note)', color: '#ef4444' };
+        } else {
+            return { status: 'warning', label: '🟡 Lệch dư +' + formatMoney(difference) + ' - Kiểm tra lại coi có đơn nào nhập thiếu hay ghi nhận chuyển khoản thay tiền mặt không?', color: '#f59e0b' };
+        }
+    }
+    if (diffPercent <= 1) {
+        return { status: 'ok', label: '✅ Hoàn thành', color: '#10b981' };
     } else if (diffPercent <= 2) {
-        return { status: 'warning', label: '🟡 Cần kiểm tra', color: '#f59e0b' };
+        if (difference < 0) {
+            // Thiếu: difference < 0 => actualClosing < expectedClosing
+            return { status: 'error', label: '🔴 Thiếu - Rà soát kiểm tra lại chi phí - Giải trình (ghi rõ note)', color: '#ef4444' };
+        } else {
+            // Dư: difference >= 0 => actualClosing >= expectedClosing
+            return { status: 'warning', label: '🟡 Lệch dư - Kiểm tra lại coi có đơn nào nhập thiếu hay ghi nhận chuyển khoản thay tiền mặt không?', color: '#f59e0b' };
+        }
     } else {
         return { status: 'error', label: '🔴 Sai lệch quỹ', color: '#ef4444' };
     }
@@ -207,84 +248,124 @@ function renderReconciliation(dateStr) {
         return DB.get('daily_balances', dateStr).then(function(dailyBalance) {
             var savedBalance = dailyBalance || {};
 
-            var actualClosing = savedBalance.actualClosing || 0;
+            // Kiểm tra đã lưu actualClosing hay chưa (phân biệt undefined/null vs 0)
+            var hasActualClosing = savedBalance.actualClosing !== undefined && savedBalance.actualClosing !== null;
+            var actualClosing = hasActualClosing ? savedBalance.actualClosing : 0;
+            var isClosed = savedBalance.isClosed || false;
+            
+            // Tính toán sau khi có actualClosing
             var difference = actualClosing - result.expectedClosing;
             var diffPercent = result.expectedClosing > 0
                 ? Math.abs(difference) / result.expectedClosing * 100
                 : 0;
-            var statusInfo = getReconciliationStatus(diffPercent);
-
-            var isClosed = savedBalance.isClosed || false;
+            var statusInfo = getReconciliationStatus(diffPercent, difference);
+            
+            // Đã lưu hay chưa? (dùng hasActualClosing thay vì isSaved để tránh nhầm với actualClosing=0)
+            var isSaved = hasActualClosing;
 
             var html = '<div class="reconciliation-card">' +
-                '<div class="recon-title">📊 ĐỐI SOÁT QUỸ</div>' +
+                '<div class="recon-title">📊 ĐỐI SOÁT QUỸ</div>';
 
-                // Các dòng tự động
-                '<div class="recon-row auto">' +
-                    '<span>Số dư đầu kỳ</span>' +
-                    '<span>' + formatMoney(result.openingBalance) + '</span>' +
-                '</div>' +
-                '<div class="recon-row auto">' +
-                    '<span>Doanh thu tiền mặt</span>' +
-                    '<span>' + formatMoney(result.cashRevenue) + '</span>' +
-                '</div>' +
-                '<div class="recon-row auto">' +
-                    '<span>Chi phí từ Két POS</span>' +
-                    '<span class="recon-expense">-' + formatMoney(result.posCashExpense) + '</span>' +
-                '</div>' +
-                '<div class="recon-row">' +
-                    '<span>Tiền quản lý nhận</span>' +
-                    '<span>' +
-                        '<span class="recon-pickup-amount">' + formatMoney(result.managerPickupTotal) + '</span>' +
-                        '<button class="recon-pickup-btn" onclick="openManagerPickupModal()">✏️</button>' +
-                    '</span>' +
-                '</div>' +
-
-                '<div class="recon-divider"></div>' +
-
-                // Dòng dự kiến
-                '<div class="recon-row expected">' +
-                    '<span>Số dư cuối kỳ dự kiến</span>' +
-                    '<span>' + formatMoney(result.expectedClosing) + '</span>' +
-                '</div>' +
-
-                // Nhập số dư thực tế
-                '<div class="recon-input-row">' +
-                    '<label>Tiền mặt thực tế cuối ngày:</label>' +
-                    '<div class="recon-input-group">' +
-                        '<input type="number" id="reconActualCashInput" class="recon-input" ' +
-                            'value="' + (actualClosing || '') + '" placeholder="0đ" step="1000" ' +
-                            (isClosed ? 'disabled' : '') + '>' +
-                        '<button class="recon-save-btn" id="reconSaveActualBtn" ' +
-                            (isClosed ? 'disabled' : '') + '>💾 Lưu</button>' +
+            // === PHẦN CHỈ HIỂN THỊ SAU KHI LƯU ===
+            if (isSaved || isClosed) {
+                html +=
+                    // Số dư đầu kỳ
+                    '<div class="recon-row">' +
+                        '<span>📂 Số dư đầu kỳ</span>' +
+                        '<span>' + formatMoney(result.openingBalance) + '</span>' +
                     '</div>' +
-                '</div>' +
-
-                // Kết quả so sánh
-                '<div class="recon-result ' + statusInfo.status + '">' +
-                    '<div class="recon-result-row">' +
-                        '<span>Chênh lệch:</span>' +
-                        '<span class="' + (difference >= 0 ? 'recon-positive' : 'recon-negative') + '">' +
-                            (difference >= 0 ? '+' : '') + formatMoney(difference) +
+                    // Doanh thu tiền mặt
+                    '<div class="recon-row">' +
+                        '<span>💵 Doanh thu tiền mặt</span>' +
+                        '<span>' + formatMoney(result.cashRevenue) + '</span>' +
+                    '</div>' +
+                    // Chi phí từ Két POS
+                    '<div class="recon-row">' +
+                        '<span>🏦 Tổng chi phí (Két POS)</span>' +
+                        '<span class="recon-expense">-' + formatMoney(result.posCashExpense) + '</span>' +
+                    '</div>' +
+                    // Tiền quản lý nhận
+                    '<div class="recon-row">' +
+                        '<span>💰 Tiền quản lý nhận</span>' +
+                        '<span>' +
+                            '<span class="recon-pickup-amount">' + formatMoney(result.managerPickupTotal) + '</span>' +
+                            (typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin()
+                                ? '<button class="recon-pickup-btn" onclick="openManagerPickupModal()">✏️</button>'
+                                : '') +
                         '</span>' +
                     '</div>' +
-                    '<div class="recon-result-row">' +
-                        '<span>Tỷ lệ:</span>' +
-                        '<span>' + diffPercent.toFixed(2) + '%</span>' +
-                    '</div>' +
-                    '<div class="recon-status" style="color:' + statusInfo.color + ';">' +
-                        statusInfo.label +
-                    '</div>' +
-                '</div>' +
+                    // Công thức tính
+                    '<div class="recon-formula">' +
+                        '<div class="recon-formula-label">📐 Công thức tính:</div>' +
+                        '<div class="recon-formula-text">' +
+                            '<span>Số dư đầu kỳ: <b>' + formatMoney(result.openingBalance) + '</b></span>' +
+                            '<span>+ Doanh thu TM: <b>' + formatMoney(result.cashRevenue) + '</b></span>' +
+                            '<span>- Chi phí Két POS: <b>' + formatMoney(result.posCashExpense) + '</b></span>' +
+                            '<span>- Tiền QL nhận: <b>' + formatMoney(result.managerPickupTotal) + '</b></span>' +
+                            '<span style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px;">= Dự kiến: <b>' + formatMoney(result.expectedClosing) + '</b></span>' +
+                        '</div>' +
+                    '</div>';
+            }
 
-                // Nút chốt ngày
-                '<div class="recon-actions">' +
-                    (isClosed
-                        ? '<div class="recon-closed-badge">🔒 Đã chốt ngày</div>'
-                        : '<button class="recon-close-btn" id="reconCloseDayBtn">🔒 Chốt ngày</button>'
-                    ) +
-                '</div>' +
-            '</div>';
+            // === NHẬP TIỀN MẶT + LƯU + CHỐT NGÀY TRÊN CÙNG 1 DÒNG ===
+            var inputValue = '';
+            var inputPlaceholder = '0đ';
+            var inputDisabled = isClosed;
+            if (isSaved && !isClosed) {
+                // Đã lưu nhưng chưa chốt: ẩn số tiền, vẫn có thể sửa lại
+                inputPlaceholder = '🔒 Đã lưu (nhập lại để sửa)';
+                inputValue = '';
+            } else if (isClosed) {
+                // Đã chốt: hiển thị số tiền, disabled
+                inputValue = actualClosing !== 0 ? formatMoney(actualClosing) : '0';
+                inputPlaceholder = '🔒 Đã chốt';
+                inputDisabled = true;
+            }
+            html +=
+                '<div class="recon-input-row">' +
+                    '<label>💵 Tiền mặt thực tế hiện tại:</label>' +
+                    '<div class="recon-input-group">' +
+                        '<input type="text" id="reconActualCashInput" class="recon-input" ' +
+                            'value="' + inputValue + '" placeholder="' + inputPlaceholder + '" inputmode="numeric" ' +
+                            (inputDisabled ? 'disabled' : '') + '>' +
+                        '<button class="recon-save-btn" id="reconSaveActualBtn" ' +
+                            (isClosed ? 'disabled' : '') + '>💾 Lưu</button>' +
+                        (isClosed
+                            ? ''
+                            : '<button class="recon-close-btn" id="reconCloseDayBtn" style="flex:0;padding:10px 16px;white-space:nowrap;">🔒 Chốt</button>'
+                        ) +
+                    '</div>' +
+                '</div>';
+
+            // === KẾT QUẢ SO SÁNH (chỉ hiển thị khi đã lưu) ===
+            if (isSaved || isClosed) {
+                html +=
+                    '<div class="recon-result ' + statusInfo.status + '">' +
+                        '<div class="recon-result-row">' +
+                            '<span>Chênh lệch:</span>' +
+                            '<span class="' + (difference >= 0 ? 'recon-positive' : 'recon-negative') + '">' +
+                                (difference >= 0 ? '+' : '') + formatMoney(difference) +
+                            '</span>' +
+                        '</div>' +
+                        '<div class="recon-result-row">' +
+                            '<span>Tỷ lệ:</span>' +
+                            '<span>' + diffPercent.toFixed(2) + '%</span>' +
+                        '</div>' +
+                        '<div class="recon-status" style="background:' + statusInfo.color + '22;color:' + statusInfo.color + ';">' +
+                            statusInfo.label +
+                        '</div>' +
+                    '</div>';
+            }
+
+            // === ĐÃ CHỐT NGÀY ===
+            if (isClosed) {
+                html +=
+                    '<div class="recon-actions">' +
+                        '<div class="recon-closed-badge">🔒 Đã chốt ngày</div>' +
+                    '</div>';
+            }
+
+            html += '</div>';
 
             container.innerHTML = html;
 
@@ -313,12 +394,19 @@ function attachReconciliationEvents(dateStr, expectedClosing) {
         };
     }
 
-    // Preview realtime
+    // Format số hiển thị dạng 1.450.000 khi nhập
     var actualInput = document.getElementById('reconActualCashInput');
     if (actualInput) {
         actualInput.addEventListener('input', function() {
-            var val = parseInt(this.value) || 0;
-            previewReconciliation(expectedClosing, val);
+            var raw = this.value.replace(/\./g, '').replace(/[^0-9]/g, '');
+            if (raw === '') {
+                this.value = '';
+                return;
+            }
+            var num = parseInt(raw);
+            if (!isNaN(num)) {
+                this.value = num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+            }
         });
     }
 }
@@ -327,51 +415,72 @@ function attachReconciliationEvents(dateStr, expectedClosing) {
 function previewReconciliation(expectedClosing, actualClosing) {
     var difference = actualClosing - expectedClosing;
     var diffPercent = expectedClosing > 0 ? Math.abs(difference) / expectedClosing * 100 : 0;
-    var statusInfo = getReconciliationStatus(diffPercent);
+    var statusInfo = getReconciliationStatus(diffPercent, difference);
 
-    var resultEl = document.querySelector('.recon-result');
-    if (!resultEl) return;
-
-    resultEl.className = 'recon-result ' + statusInfo.status;
-
-    var rows = resultEl.querySelectorAll('.recon-result-row');
-    if (rows.length >= 2) {
-        var diffSpan = rows[0].querySelector('span:last-child');
-        if (diffSpan) {
-            diffSpan.className = difference >= 0 ? 'recon-positive' : 'recon-negative';
-            diffSpan.innerText = (difference >= 0 ? '+' : '') + formatMoney(difference);
-        }
-        var pctSpan = rows[1].querySelector('span:last-child');
-        if (pctSpan) {
-            pctSpan.innerText = diffPercent.toFixed(2) + '%';
-        }
+    // Tìm hoặc tạo preview area
+    var previewEl = document.getElementById('reconPreviewArea');
+    if (!previewEl) {
+        // Tạo mới nếu chưa có
+        var inputRow = document.querySelector('.recon-input-row');
+        if (!inputRow) return;
+        previewEl = document.createElement('div');
+        previewEl.id = 'reconPreviewArea';
+        previewEl.className = 'recon-result';
+        inputRow.parentNode.insertBefore(previewEl, inputRow.nextSibling);
     }
 
-    var statusEl = resultEl.querySelector('.recon-status');
-    if (statusEl) {
-        statusEl.style.color = statusInfo.color;
-        statusEl.innerText = statusInfo.label;
-    }
+    previewEl.className = 'recon-result ' + statusInfo.status;
+    previewEl.innerHTML =
+        '<div class="recon-result-row">' +
+            '<span>Chênh lệch:</span>' +
+            '<span class="' + (difference >= 0 ? 'recon-positive' : 'recon-negative') + '">' +
+                (difference >= 0 ? '+' : '') + formatMoney(difference) +
+            '</span>' +
+        '</div>' +
+        '<div class="recon-result-row">' +
+            '<span>Tỷ lệ:</span>' +
+            '<span>' + diffPercent.toFixed(2) + '%</span>' +
+        '</div>' +
+        '<div class="recon-status" style="background:' + statusInfo.color + '22;color:' + statusInfo.color + ';">' +
+            statusInfo.label +
+        '</div>';
 }
 
 // ========== LƯU SỐ DƯ THỰC TẾ ==========
 function saveActualClosing(dateStr, expectedClosing) {
-    var actualClosing = parseInt(document.getElementById('reconActualCashInput').value) || 0;
+    var inputEl = document.getElementById('reconActualCashInput');
+    if (!inputEl) return;
+    
+    var rawValue = inputEl.value.replace(/\./g, '').replace(/[^0-9]/g, '');
+    if (rawValue === '') {
+        showToast('Vui lòng nhập số tiền mặt thực tế!', 'warning');
+        return;
+    }
+    var actualClosing = parseInt(rawValue);
 
     if (actualClosing < 0) {
         showToast('Số dư thực tế không hợp lệ!', 'warning');
         return;
     }
 
+    // Cảnh báo trước khi lưu
+    var msg = '⚠️ XÁC NHẬN LƯU\n\n' +
+              '💵 Nhập chính xác số tiền mặt hiện có tại quầy.\n' +
+              '📌 Kiểm tra kỹ trước khi bấm Lưu!\n\n' +
+              'Số tiền: ' + formatMoney(actualClosing);
+    if (!confirm(msg)) return;
+
     var difference = actualClosing - expectedClosing;
     var diffPercent = expectedClosing > 0 ? Math.abs(difference) / expectedClosing * 100 : 0;
-    var statusInfo = getReconciliationStatus(diffPercent);
+    var statusInfo = getReconciliationStatus(diffPercent, difference);
 
     // Lấy daily_balances hiện tại để giữ cashKept và cashReceived cũ
     DB.get('daily_balances', dateStr).then(function(existing) {
         var data = existing || { id: dateStr };
+        var prevActualClosing = data.actualClosing; // Lưu lần 1
 
         data.actualClosing = actualClosing;
+        data.expectedClosing = expectedClosing;
         data.difference = difference;
         data.diffPercent = diffPercent;
         data.status = statusInfo.status;
@@ -382,9 +491,72 @@ function saveActualClosing(dateStr, expectedClosing) {
             data.cashKept = actualClosing;
         }
 
-        return DB.create('daily_balances', data, dateStr);
+        // Lưu lịch sử các lần lưu
+        if (!data.saveHistory) data.saveHistory = [];
+        data.saveHistory.push({
+            actualClosing: actualClosing,
+            difference: difference,
+            diffPercent: diffPercent,
+            status: statusInfo.status,
+            savedAt: Date.now()
+        });
+
+        return DB.create('daily_balances', data, dateStr).then(function() {
+            // Kiểm tra: lần 2 khớp nhưng lần 1 lệch => gửi cảnh báo cho quản lý
+            var isRetrySave = (prevActualClosing !== undefined && prevActualClosing !== null);
+            var prevDiff = prevActualClosing - expectedClosing;
+            var prevDiffPercent = expectedClosing > 0 ? Math.abs(prevDiff) / expectedClosing * 100 : 0;
+            var prevStatus = getReconciliationStatus(prevDiffPercent, prevDiff);
+            var prevWasError = (prevStatus.status !== 'ok');
+            var nowIsOk = (statusInfo.status === 'ok');
+
+            if (isRetrySave && prevWasError && nowIsOk && typeof sendTelegramMessage === 'function') {
+                // Lấy lịch sử giao dịch trong ngày để gửi kèm
+                DB.getTransactionsByDate(dateStr).then(function(transactions) {
+                    var validTx = transactions.filter(function(t) { return !t.refunded; });
+                    validTx.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+
+                    var txList = '';
+                    for (var i = 0; i < validTx.length; i++) {
+                        var t = validTx[i];
+                        txList += (i + 1) + '. ' + (t.customerName || '') + ' - ' + formatMoney(t.amount) +
+                                  ' (' + (t.paymentMethod || '') + ')' +
+                                  (t.refunded ? ' [HOÀN]' : '') + '\n';
+                        if (txList.length > 1500) { // Giới hạn độ dài
+                            txList += '... và ' + (validTx.length - i - 1) + ' giao dịch khác\n';
+                            break;
+                        }
+                    }
+
+                    var alertMsg = '⚠️ CẢNH BÁO: NHÂN VIÊN ĐIỀU CHỈNH SỐ DƯ\n\n' +
+                                   '📅 Ngày: ' + formatDateDisplay(dateStr) + '\n' +
+                                   '📌 Lần 1 (lệch): ' + formatMoney(prevActualClosing) + '\n' +
+                                   '   Chênh lệch: ' + (prevDiff >= 0 ? '+' : '') + formatMoney(prevDiff) + '\n' +
+                                   '   Tỷ lệ: ' + prevDiffPercent.toFixed(2) + '%\n' +
+                                   '   Trạng thái: ' + prevStatus.label + '\n\n' +
+                                   '📌 Lần 2 (khớp): ' + formatMoney(actualClosing) + '\n' +
+                                   '   Chênh lệch: ' + (difference >= 0 ? '+' : '') + formatMoney(difference) + '\n' +
+                                   '   Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                                   '   Trạng thái: ' + statusInfo.label + '\n\n' +
+                                   '📋 LỊCH SỬ GIAO DỊCH TRONG NGÀY:\n' + txList;
+                    sendTelegramMessage(alertMsg);
+                });
+            } else {
+                // Gửi thông báo bình thường
+                if (typeof sendTelegramMessage === 'function') {
+                    var icon = statusInfo.status === 'ok' ? '✅' : '⚠️';
+                    var normalMsg = icon + ' ĐỐI SOÁT QUỸ ' + formatDateDisplay(dateStr) + '\n' +
+                              '💰 Dự kiến: ' + formatMoney(expectedClosing) + '\n' +
+                              '💵 Thực tế: ' + formatMoney(actualClosing) + '\n' +
+                              '📊 Chênh lệch: ' + (difference >= 0 ? '+' : '') + formatMoney(difference) + '\n' +
+                              '📈 Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                              '🔴 Trạng thái: ' + statusInfo.label;
+                    sendTelegramMessage(normalMsg);
+                }
+            }
+        });
     }).then(function() {
-        showToast('✅ Đã lưu số dư thực tế', 'success');
+        showToast('🔒 Chốt ngày sau khi lưu để hoàn tất', 'warning');
         renderReconciliation(dateStr);
     }).catch(function(err) {
         console.error('Save actual closing error:', err);
@@ -394,31 +566,92 @@ function saveActualClosing(dateStr, expectedClosing) {
 
 // ========== CHỐT NGÀY ==========
 function closeDay(dateStr) {
-    if (!confirm('Bạn có chắc muốn chốt ngày ' + formatDateDisplay(dateStr) + '?')) return;
+    // Lấy số dư thực tế từ input (đã lưu trước đó)
+    DB.get('daily_balances', dateStr).then(function(saved) {
+        if (!saved || saved.actualClosing === undefined || saved.actualClosing === null) {
+            showToast('Vui lòng lưu số dư thực tế trước khi chốt ngày!', 'warning');
+            return;
+        }
 
-    // Kiểm tra đã nhập số dư thực tế chưa
-    var actualClosing = parseInt(document.getElementById('reconActualCashInput').value) || 0;
-    if (actualClosing <= 0) {
-        if (!confirm('Số dư thực tế đang là 0. Bạn có chắc muốn chốt ngày với số dư 0?')) return;
-    }
+        var actualClosing = saved.actualClosing;
+        var expectedClosing = saved.expectedClosing || 0;
+        // Dùng difference đã lưu, nếu chưa có thì tính lại (tránh lỗi khi difference = 0 bị || override)
+        var difference = (saved.difference !== undefined && saved.difference !== null) ? saved.difference : (actualClosing - expectedClosing);
+        var diffPercent = (saved.diffPercent !== undefined && saved.diffPercent !== null) ? saved.diffPercent : (expectedClosing > 0 ? Math.abs(difference) / expectedClosing * 100 : 0);
+        var statusInfo = getReconciliationStatus(diffPercent, difference);
 
-    DB.get('daily_balances', dateStr).then(function(existing) {
-        var data = existing || { id: dateStr };
+        // Xử lý theo loại lệch
+        var note = '';
+        if (statusInfo.status === 'ok') {
+            // HOÀN THÀNH: không cần cảnh báo hay giải trình
+        } else if (difference < 0) {
+            // THIẾU TIỀN: bắt buộc giải thích (bất kể %)
+            note = prompt(
+                '⚠️ CHỐT NGÀY - THIẾU TIỀN\n\n' +
+                'Chênh lệch: ' + formatMoney(difference) + '\n' +
+                'Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                'Trạng thái: ' + statusInfo.label + '\n\n' +
+                '📋 Yêu cầu:\n' +
+                '1. Kiểm tra lại lịch sử giao dịch trong ngày\n' +
+                '2. Kiểm tra lại số tiền mặt thực tế\n' +
+                '3. Nhập giải trình để hoàn tất chốt ngày\n\n' +
+                '📝 Nhập lý do / giải trình:',
+                saved.closeNote || ''
+            );
+            if (note === null) return; // Hủy chốt ngày
+            note = note.trim();
+            if (note === '') {
+                showToast('Vui lòng nhập giải trình trước khi chốt ngày!', 'warning');
+                return;
+            }
+        } else if (difference > 0) {
+            // DƯ TIỀN (bất kể %): chỉ cảnh báo nhắc nhở, ko cần giải trình
+            var dưMsg = '⚠️ CHỐT NGÀY - DƯ TIỀN\n\n' +
+                        'Chênh lệch: +' + formatMoney(difference) + '\n' +
+                        'Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                        'Trạng thái: ' + statusInfo.label + '\n\n' +
+                        '📌 CẨN THẬN: Nhập liệu chính xác hơn!\n' +
+                        '🔍 Xem lại có giao dịch nào thiếu chưa bấm máy không?\n' +
+                        '💰 Kiểm tra coi có đơn nào nhập thiếu hay ghi nhận chuyển khoản thay tiền mặt không.';
+            if (!confirm(dưMsg + '\n\nXác nhận chốt ngày?')) return;
+        }
 
-        // Cập nhật các trường chốt ngày
-        data.actualClosing = actualClosing;
-        data.cashKept = actualClosing; // Số dư để lại quán = actualClosing
-        data.isClosed = true;
-        data.closedAt = Date.now();
-        data.closedBy = window.currentDeviceId || '';
+        // Xác nhận lần cuối
+        var confirmMsg = '🔒 XÁC NHẬN CHỐT NGÀY\n\n' +
+                         'Ngày: ' + formatDateDisplay(dateStr) + '\n' +
+                         '💵 Dự kiến: ' + formatMoney(expectedClosing) + '\n' +
+                         '💰 Thực tế: ' + formatMoney(actualClosing) + '\n' +
+                         '📊 Chênh lệch: ' + (difference >= 0 ? '+' : '') + formatMoney(difference) + '\n' +
+                         '📈 Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                         '🔴 Trạng thái: ' + statusInfo.label;
+        if (note) confirmMsg += '\n📝 Lý do: ' + note;
+        confirmMsg += '\n\nSau khi chốt sẽ không thể chỉnh sửa. Xác nhận?';
+        if (!confirm(confirmMsg)) return;
 
-        // Nếu chưa có cashReceived, giữ nguyên
-        if (!data.cashReceived) data.cashReceived = 0;
+        // Cập nhật dữ liệu chốt ngày
+        saved.isClosed = true;
+        saved.closedAt = Date.now();
+        saved.closedBy = window.currentDeviceId || '';
+        if (note) saved.closeNote = note;
 
-        return DB.create('daily_balances', data, dateStr);
-    }).then(function() {
-        showToast('🔒 Đã chốt ngày ' + formatDateDisplay(dateStr), 'success');
-        renderReconciliation(dateStr);
+        return DB.create('daily_balances', saved, dateStr).then(function() {
+            showToast('🔒 Đã chốt ngày ' + formatDateDisplay(dateStr), 'success');
+            
+            // Luôn gửi Telegram khi chốt ngày (dù khớp hay lệch)
+            if (typeof sendTelegramMessage === 'function') {
+                var icon = statusInfo.status === 'ok' ? '✅' : '⚠️';
+                var msg = icon + ' CHỐT NGÀY ' + formatDateDisplay(dateStr) + '\n' +
+                          '💰 Dự kiến: ' + formatMoney(expectedClosing) + '\n' +
+                          '💵 Thực tế: ' + formatMoney(actualClosing) + '\n' +
+                          '📊 Chênh lệch: ' + (difference >= 0 ? '+' : '') + formatMoney(difference) + '\n' +
+                          '📈 Tỷ lệ: ' + diffPercent.toFixed(2) + '%\n' +
+                          '🔴 Trạng thái: ' + statusInfo.label;
+                if (note) msg += '\n📝 Lý do: ' + note;
+                sendTelegramMessage(msg);
+            }
+            
+            renderReconciliation(dateStr);
+        });
     }).catch(function(err) {
         console.error('Close day error:', err);
         showToast('Lỗi khi chốt ngày!', 'error');
@@ -452,6 +685,54 @@ function getCostsByType(dateStr) {
     });
 }
 
+// ========== AUTO CHỐT NGÀY LÚC 6H SÁNG N+1 ==========
+function autoCloseDay() {
+    var now = new Date();
+    var hour = now.getHours();
+    var min = now.getMinutes();
+    
+    // Chạy lúc 6:00-6:05 sáng
+    if (hour === 6 && min <= 5) {
+        // Lấy ngày hôm qua (N-1)
+        var yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        var dateStr = yesterday.toISOString().slice(0, 10);
+        
+        DB.get('daily_balances', dateStr).then(function(balance) {
+            if (!balance) return; // Chưa có dữ liệu
+            if (balance.isClosed) return; // Đã chốt rồi
+            if (balance.actualClosing === undefined || balance.actualClosing === null) return; // Chưa lưu số dư
+            
+            // Auto chốt ngày
+            balance.isClosed = true;
+            balance.closedAt = Date.now();
+            balance.closedBy = 'system_auto';
+            balance.closeNote = (balance.closeNote || '') + ' | Hệ thống tự động chốt lúc 6h sáng';
+            
+            DB.create('daily_balances', balance, dateStr).then(function() {
+                console.log('✅ Auto closed day:', dateStr);
+                // Gửi Telegram thông báo
+                if (typeof sendTelegramMessage === 'function') {
+                    var diff = balance.difference || 0;
+                    var pct = balance.diffPercent || 0;
+                    var msg = '🤖 HỆ THỐNG TỰ ĐỘNG CHỐT NGÀY\n' +
+                              '📅 Ngày: ' + formatDateDisplay(dateStr) + '\n' +
+                              '💰 Dự kiến: ' + formatMoney(balance.expectedClosing || 0) + '\n' +
+                              '💵 Thực tế: ' + formatMoney(balance.actualClosing) + '\n' +
+                              '📊 Chênh lệch: ' + (diff >= 0 ? '+' : '') + formatMoney(diff) + '\n' +
+                              '📈 Tỷ lệ: ' + pct.toFixed(2) + '%';
+                    sendTelegramMessage(msg);
+                }
+            });
+        });
+    }
+}
+
+// Kiểm tra mỗi 60 giây
+setInterval(autoCloseDay, 60000);
+// Chạy lần đầu sau 5 giây
+setTimeout(autoCloseDay, 5000);
+
 // Export global
 window.openManagerPickupModal = openManagerPickupModal;
 window.saveManagerPickup = saveManagerPickup;
@@ -463,5 +744,6 @@ window.closeDay = closeDay;
 window.saveActualClosing = saveActualClosing;
 window.getCostsByType = getCostsByType;
 window.loadFundReconciliationData = loadFundReconciliationData;
+window.deleteManagerPickup = deleteManagerPickup;
 window.managerCashPickups = managerCashPickups;
 window.inventoryTransactions = inventoryTransactions;

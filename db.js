@@ -53,6 +53,12 @@
     
     // FIX: Local callbacks - notify UI ngay sau khi ghi local, không chờ Firebase
     var _localCallbacks = {};
+    
+    // OPTIMIZE: Cơ chế suppress realtime notifications khi batch operations
+    // Khi _suppressRealtime > 0, _notifyLocal sẽ không gọi callbacks
+    // Dùng cho thanh toán, nhập hàng loạt, etc.
+    var _suppressRealtime = 0;
+    var _pendingNotifyCollections = {};
 
     // Helper: toDateKey
     function toDateKey(value) {
@@ -81,6 +87,11 @@
 
     // FIX: Notify local subscribers ngay lập tức từ memoryCache
     function _notifyLocal(collection) {
+        // OPTIMIZE: Nếu đang suppress, ghi nhận collection cần notify sau
+        if (_suppressRealtime > 0) {
+            _pendingNotifyCollections[collection] = true;
+            return;
+        }
         var cbs = _localCallbacks[collection];
         if (!cbs || cbs.length === 0) return;
         var data = [];
@@ -93,6 +104,25 @@
         }
         for (var i = 0; i < cbs.length; i++) {
             try { cbs[i](data); } catch(e) { console.error('Local callback error:', e); }
+        }
+    }
+    
+    // OPTIMIZE: Bật/tắt suppress realtime notifications
+    // Dùng cho batch operations (thanh toán, nhập hàng loạt)
+    function _setSuppressRealtime(suppress) {
+        if (suppress) {
+            _suppressRealtime++;
+        } else {
+            _suppressRealtime--;
+            if (_suppressRealtime <= 0) {
+                _suppressRealtime = 0;
+                // Flush tất cả các collection đang pending
+                var collections = Object.keys(_pendingNotifyCollections);
+                _pendingNotifyCollections = {};
+                for (var i = 0; i < collections.length; i++) {
+                    _notifyLocal(collections[i]);
+                }
+            }
         }
     }
 
@@ -214,39 +244,115 @@
     function processSyncQueue() {
         if (!isOnline) return Promise.resolve();
         var pending = syncQueue.filter(function(q) { return q.status === 'pending'; });
-        var chain = Promise.resolve();
+        if (pending.length === 0) return Promise.resolve();
+        
+        // OPTIMIZE: Batch các items cùng collection thành 1 Firebase update
+        // Gom các pending items theo collection để batch
+        var batches = {};
         for (var i = 0; i < pending.length; i++) {
-            chain = chain.then((function(item) {
-                return function() {
-                    return syncToFirebase(item).then(function() {
-                        item.status = 'synced';
-                        return saveToLocal('sync_queue', item).then(function() {
-                            return deleteFromLocal('sync_queue', item.id);
-                        }).then(function() {
-                            var idx = syncQueue.findIndex(function(q) { return q.id === item.id; });
-                            if (idx !== -1) syncQueue.splice(idx, 1);
-                            console.log('✅ Synced:', item.action, item.collection, item.targetId);
-                        });
-                    }).catch(function(err) {
-                        item.retryCount++;
-                        if (item.retryCount < 5) {
-                            item.status = 'pending';
-                            return new Promise(function(r) { setTimeout(r, 2000 * item.retryCount); }).then(function() {
-                                return syncToFirebase(item).then(function() {
-                                    item.status = 'synced';
-                                    return deleteFromLocal('sync_queue', item.id);
-                                }).catch(function() {});
-                            });
-                        } else {
-                            item.status = 'failed';
-                            console.error('Sync failed:', item.action, item.collection, item.targetId);
-                            return saveToLocal('sync_queue', item);
-                        }
-                    });
-                };
-            })(pending[i]));
+            var item = pending[i];
+            var key = item.collection + '|' + item.action;
+            if (!batches[key]) batches[key] = [];
+            batches[key].push(item);
         }
+        
+        var chain = Promise.resolve();
+        var batchKeys = Object.keys(batches);
+        
+        for (var b = 0; b < batchKeys.length; b++) {
+            chain = chain.then((function(batchItems) {
+                return function() {
+                    if (batchItems.length === 1) {
+                        // Chỉ 1 item - sync bình thường
+                        var item = batchItems[0];
+                        return syncToFirebase(item).then(function() {
+                            return _markItemSynced(item);
+                        }).catch(function(err) {
+                            return _handleSyncError(item, err);
+                        });
+                    } else {
+                        // Nhiều items cùng collection - batch thành 1 Firebase update
+                        return _batchSyncToFirebase(batchItems).then(function() {
+                            var chain2 = Promise.resolve();
+                            for (var j = 0; j < batchItems.length; j++) {
+                                chain2 = chain2.then((function(item) {
+                                    return function() { return _markItemSynced(item); };
+                                })(batchItems[j]));
+                            }
+                            return chain2;
+                        }).catch(function(err) {
+                            // Fallback: sync từng cái nếu batch fail
+                            var chain3 = Promise.resolve();
+                            for (var j = 0; j < batchItems.length; j++) {
+                                chain3 = chain3.then((function(item) {
+                                    return function() {
+                                        return syncToFirebase(item).then(function() {
+                                            return _markItemSynced(item);
+                                        }).catch(function(err2) {
+                                            return _handleSyncError(item, err2);
+                                        });
+                                    };
+                                })(batchItems[j]));
+                            }
+                            return chain3;
+                        });
+                    }
+                };
+            })(batches[batchKeys[b]]));
+        }
+        
         return chain;
+    }
+    
+    // OPTIMIZE: Batch sync nhiều items cùng collection lên Firebase trong 1 lần
+    function _batchSyncToFirebase(items) {
+        if (items.length === 0) return Promise.resolve();
+        var collection = items[0].collection;
+        var action = items[0].action;
+        var ref = db.ref(CURRENT_SHOP_ID + '/' + collection);
+        var batchData = {};
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var syncData = {};
+            for (var k in item.data) if (item.data.hasOwnProperty(k)) syncData[k] = item.data[k];
+            syncData._syncedAt = firebase.database.ServerValue.TIMESTAMP;
+            syncData._syncedBy = item.deviceId;
+            syncData._version = (item.data._version || 1);
+            if (action === 'delete') {
+                batchData[item.targetId] = null;
+            } else {
+                batchData[item.targetId] = syncData;
+            }
+        }
+        return ref.update(batchData);
+    }
+    
+    function _markItemSynced(item) {
+        item.status = 'synced';
+        return saveToLocal('sync_queue', item).then(function() {
+            return deleteFromLocal('sync_queue', item.id);
+        }).then(function() {
+            var idx = syncQueue.findIndex(function(q) { return q.id === item.id; });
+            if (idx !== -1) syncQueue.splice(idx, 1);
+            console.log('✅ Synced:', item.action, item.collection, item.targetId);
+        });
+    }
+    
+    function _handleSyncError(item, err) {
+        item.retryCount++;
+        if (item.retryCount < 5) {
+            item.status = 'pending';
+            return new Promise(function(r) { setTimeout(r, 2000 * item.retryCount); }).then(function() {
+                return syncToFirebase(item).then(function() {
+                    item.status = 'synced';
+                    return deleteFromLocal('sync_queue', item.id);
+                }).catch(function() {});
+            });
+        } else {
+            item.status = 'failed';
+            console.error('Sync failed:', item.action, item.collection, item.targetId);
+            return saveToLocal('sync_queue', item);
+        }
     }
 
     function syncToFirebase(item) {
@@ -864,6 +970,9 @@
         getDeviceId: function() { return CURRENT_DEVICE_ID; },
         processSyncQueue: processSyncQueue,
         getSyncQueue: function() { return syncQueue; },
+        // OPTIMIZE: Suppress realtime notifications cho batch operations
+        suppressRealtime: function() { _setSuppressRealtime(true); },
+        flushRealtime: function() { _setSuppressRealtime(false); },
         // Auth methods
         setShopId: setShopId,
         getShopId: getShopId,

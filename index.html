@@ -326,30 +326,22 @@
                 <span class="inv-pos-id" id="invPosId" style="font-size:12px;color:#94a3b8;font-weight:400;"></span>
             </div>
             <div class="card-body">
-                <!-- Danh mục -->
+                <!-- Danh mục + Món ăn chung 1 dòng -->
                 <div class="inv-section">
-                    <div class="inv-section-header">
-                        <span class="inv-section-title">📂 Danh mục</span>
-                        <button class="btn-small btn-outline" onclick="showAddCategoryForm()">+ Thêm</button>
+                    <div class="inv-section-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span class="inv-section-title" style="margin-right:auto;">📂 Danh mục</span>
+                        <button class="btn-small btn-outline" onclick="showAddCategoryForm()" style="font-size:11px;">+ Thêm danh mục</button>
+                        <button class="btn-small btn-outline" onclick="showAddMenuItemForm()" style="font-size:11px;">+ Thêm món</button>
                     </div>
                     <div id="invCategoryList" class="inv-category-list"></div>
-                    <!-- Form thêm/sửa danh mục -->
-                    <div id="addCategoryForm" style="display:none;margin-top:8px;padding:8px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                        <input type="text" id="invCategoryName" class="form-input" placeholder="Tên danh mục (VD: Cà phê)">
-                        <input type="number" id="invCategoryOrder" class="form-input" placeholder="Thứ tự (VD: 1)" style="margin-top:6px;">
-                        <div style="display:flex;gap:6px;margin-top:6px;">
-                            <button class="btn-small btn-save" onclick="handleSaveCategory()">💾 Lưu</button>
-                            <button class="btn-small btn-cancel" onclick="hideAddCategoryForm()">Hủy</button>
-                        </div>
-                        <div id="invCategoryError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
-                    </div>
+                    <!-- Form thêm/sửa danh mục (cũ, giữ để không lỗi) -->
+                    <div id="addCategoryForm" style="display:none;"></div>
                 </div>
                 
                 <!-- Món ăn -->
                 <div class="inv-section">
                     <div class="inv-section-header">
-                        <span class="inv-section-title">🍽️ Món ăn</span>
-                        <button class="btn-small btn-outline" onclick="showAddMenuItemForm()">+ Thêm món</button>
+                        <span class="inv-section-title">🍽️ Danh sách món</span>
                     </div>
                     <!-- Bộ lọc danh mục -->
                     <div class="inv-filter-row">
@@ -447,6 +439,7 @@
                         <option value="takeaway">🛵 Mang đi</option><option value="grab">🚕 Grab</option>
                         <option value="cash">💰 Tiền mặt</option><option value="transfer">💳 Chuyển khoản</option>
                         <option value="debt_payment">💢 Thanh toán nợ</option>
+                        <option value="credit">💰 Tiền dư</option>
                         <option value="cancelled">❌ Đã hủy</option>
                     </select>
                 </div>
@@ -458,9 +451,15 @@
         <div class="date-display">📅 <span id="reportDate">--/--/----</span></div>
         <button class="nav-btn" id="reportNextDayBtn">▶</button>
     </div>
-    <div class="report-stats" id="reportStats"></div>
-    <!-- Khu vực đối soát quỹ -->
-    <div id="reconciliationArea"></div>
+    <!-- Nút toggle đối soát trên mobile -->
+    <button class="recon-toggle-btn" id="reconToggleBtn" onclick="toggleReconciliation()">
+        📊 Đối soát quỹ <span class="toggle-icon">▼</span>
+    </button>
+    <div class="report-layout">
+        <!-- Khu vực đối soát quỹ - trên mobile hiển thị trước, trên tablet ngang ở cột phải -->
+        <div id="reconciliationArea"></div>
+        <div class="report-stats" id="reportStats"></div>
+    </div>
 </div>
         </div>
 
@@ -563,8 +562,15 @@
     <!-- MODAL THANH TOÁN NỢ -->
     <div class="modal" id="debtPaymentModal">
         <div class="modal-content"><div class="modal-header"><span class="modal-title">💸 Thanh toán nợ</span><span class="modal-close" onclick="closeModal('debtPaymentModal')">&times;</span></div>
-        <div class="modal-body"><p id="debtPaymentInfo"></p><input type="number" id="debtPaymentAmount" class="form-input" placeholder="Số tiền thanh toán" step="1000">
-        <div class="form-actions"><button class="btn-save" id="confirmDebtPaymentBtn">✅ Xác nhận</button><button class="btn-cancel" onclick="closeModal('debtPaymentModal')">Hủy</button></div></div></div>
+        <div class="modal-body">
+            <p id="debtPaymentInfo"></p>
+            <input type="number" id="debtPaymentAmount" class="form-input" placeholder="Số tiền thanh toán" step="1000">
+            <div style="display:flex;gap:6px;margin:8px 0;">
+                <button class="btn-payment-method" id="debtPayCashBtn" onclick="confirmDebtPayment('cash')" style="flex:1;padding:14px;border:2px solid #16a34a;border-radius:8px;background:#f0fdf4;font-weight:700;font-size:16px;cursor:pointer;">💰 TM</button>
+                <button class="btn-payment-method" id="debtPayTransferBtn" onclick="confirmDebtPayment('transfer')" style="flex:1;padding:14px;border:2px solid #e2e8f0;border-radius:8px;background:#fff;font-weight:700;font-size:16px;cursor:pointer;">💳 CK</button>
+            </div>
+            <div style="text-align:center;"><button class="btn-cancel" onclick="closeModal('debtPaymentModal')" style="padding:8px 24px;">Hủy</button></div>
+        </div></div>
     </div>
 
     <div class="toast-container" id="toastContainer"></div>
@@ -611,17 +617,17 @@
         <div class="modal-body expense-modal-body">
             <!-- CỘT TRÁI: Nhập liệu -->
             <div class="expense-form-col">
-                <!-- Chọn loại chi phí -->
-                <div class="expense-type-tabs">
-                    <button class="expense-type-tab active" id="expenseIngredientTab" onclick="switchExpenseType('ingredient')">🧂 Nguyên liệu</button>
-                    <button class="expense-type-tab" id="expenseWasteTab" onclick="switchExpenseType('waste')">📦 Hao phí</button>
-                </div>
-
                 <!-- Chọn nguồn tiền -->
                 <div class="fund-source-row">
                     <span class="fund-source-label">Nguồn tiền:</span>
                     <button class="fund-source-btn active" id="fundSourcePosBtn" onclick="switchFundSource('pos_cash')">🏦 Két POS</button>
                     <button class="fund-source-btn" id="fundSourceMgmtBtn" onclick="switchFundSource('management')">👔 QL TT</button>
+                </div>
+
+                <!-- Chọn loại chi phí -->
+                <div class="expense-type-tabs">
+                    <button class="expense-type-tab active" id="expenseIngredientTab" onclick="switchExpenseType('ingredient')">🧂 Nguyên liệu</button>
+                    <button class="expense-type-tab" id="expenseWasteTab" onclick="switchExpenseType('waste')">📦 Hao phí</button>
                 </div>
 
                 <!-- KHU VỰC NGUYÊN LIỆU -->
@@ -639,20 +645,16 @@
                             <label>Thành tiền</label>
                             <input type="number" id="expenseAmount" class="form-input" placeholder="0đ" step="1000">
                         </div>
-                        <div class="ingredient-field">
-                            <label>Đơn giá</label>
-                            <input type="number" id="expenseUnitPrice" class="form-input" placeholder="0đ" step="1000" readonly>
-                        </div>
                     </div>
                 </div>
 
                 <!-- KHU VỰC HAO PHÍ -->
                 <div id="expenseWasteArea" style="display:none;">
                     <div class="expense-section-title">📦 Chọn loại hao phí</div>
+                    <input type="text" id="expenseWasteSearch" class="form-input" placeholder="🔍 Tìm kiếm hoặc thêm hao phí mới...">
                     <div class="waste-grid" id="expenseWasteGrid"></div>
 
-                    <input type="text" id="expenseNameInput" class="form-input" placeholder="Tên chi phí">
-                    <input type="number" id="expenseAmount" class="form-input" placeholder="Số tiền" step="1000">
+                    <input type="number" id="expenseWasteAmount" class="form-input" placeholder="Số tiền" step="1000">
                 </div>
 
                 <button class="btn-save" id="saveExpenseBtn">💾 Lưu chi phí</button>
@@ -740,6 +742,98 @@
             <span class="modal-close" onclick="closeModal('menuItemDetailModal')">&times;</span>
         </div>
         <div class="modal-body" id="menuItemDetailContent">
+        </div>
+    </div>
+</div>
+<!-- MODAL THÊM MÓN ĂN (POPUP) -->
+<div class="modal" id="addMenuItemModal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <span class="modal-title" id="addMenuItemModalTitle">➕ Thêm món mới</span>
+            <span class="modal-close" onclick="closeModal('addMenuItemModal')">&times;</span>
+        </div>
+        <div class="modal-body" id="addMenuItemModalBody">
+            <input type="text" id="addModalItemName" class="form-input" placeholder="Tên món">
+            <input type="number" id="addModalItemPrice" class="form-input" placeholder="Giá bán" style="margin-top:6px;" step="1000">
+            <select id="invMenuItemCategoryModal" class="form-input" style="margin-top:6px;">
+                <option value="">-- Chọn danh mục --</option>
+            </select>
+            
+            <!-- Sizes -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <strong style="font-size:13px;">📏 Size món</strong>
+                    <button class="btn-small btn-outline" onclick="_addMenuItemSizeRow('','')" style="font-size:11px;">+ Thêm size</button>
+                </div>
+                <div id="addModalSizesContainer"></div>
+            </div>
+            
+            <!-- Ingredients (chung) -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <strong style="font-size:13px;">🧂 Nguyên liệu (chung)</strong>
+                    <button class="btn-small btn-outline" onclick="_addMenuItemIngredientRow('','','')" style="font-size:11px;">+ Thêm NL</button>
+                </div>
+                <div id="addModalIngredientsContainer"></div>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn-small btn-save" onclick="handleSaveMenuItem()" style="flex:1;">💾 Lưu</button>
+                <button class="btn-small btn-cancel" onclick="closeModal('addMenuItemModal')" style="flex:1;">Hủy</button>
+            </div>
+            <div id="addModalItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+        </div>
+    </div>
+</div>
+<!-- MODAL THÊM DANH MỤC (POPUP) -->
+<div class="modal" id="addCategoryModal">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-header">
+            <span class="modal-title" id="addCategoryModalTitle">➕ Thêm danh mục</span>
+            <span class="modal-close" onclick="closeModal('addCategoryModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="addModalCategoryName" class="form-input" placeholder="Tên danh mục (VD: Cà phê)">
+            <input type="number" id="addModalCategoryOrder" class="form-input" placeholder="Thứ tự (VD: 1)" style="margin-top:6px;">
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn-small btn-save" onclick="handleSaveCategory()" style="flex:1;">💾 Lưu</button>
+                <button class="btn-small btn-cancel" onclick="closeModal('addCategoryModal')" style="flex:1;">Hủy</button>
+            </div>
+            <div id="addModalCategoryError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+        </div>
+    </div>
+</div>
+<!-- MODAL THÊM NGUYÊN LIỆU (POPUP) -->
+<div class="modal" id="addIngredientModal">
+    <div class="modal-content" style="max-width:450px;">
+        <div class="modal-header">
+            <span class="modal-title" id="addIngredientModalTitle">➕ Thêm nguyên liệu</span>
+            <span class="modal-close" onclick="closeModal('addIngredientModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="addModalIngredientName" class="form-input" placeholder="Tên nguyên liệu">
+            <input type="text" id="addModalIngredientUnit" class="form-input" placeholder="Đơn vị (VD: kg, lít, cái)" style="margin-top:6px;">
+            <input type="number" id="addModalIngredientStock" class="form-input" placeholder="Tồn kho hiện tại" style="margin-top:6px;" step="0.1">
+            <input type="number" id="addModalIngredientMinStock" class="form-input" placeholder="Cảnh báo tồn tối thiểu" style="margin-top:6px;" step="0.1">
+            
+            <!-- Conversion fields -->
+            <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                <strong style="font-size:13px;">🔄 Quy đổi đơn vị</strong>
+                <div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:#64748b;">1</span>
+                    <input type="text" id="addModalIngredientConvFrom" class="form-input" placeholder="VD: kg" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                    <span style="font-size:12px;color:#64748b;">→</span>
+                    <input type="number" id="addModalIngredientConvRate" class="form-input" placeholder="SL" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;" step="0.1">
+                    <input type="text" id="addModalIngredientConvTo" class="form-input" placeholder="VD: ml" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                </div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:4px;">VD: 1 kg → 1600 ml (để trống nếu không quy đổi)</div>
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-top:8px;">
+                <button class="btn-small btn-save" onclick="handleSaveIngredient()" style="flex:1;">💾 Lưu</button>
+                <button class="btn-small btn-cancel" onclick="closeModal('addIngredientModal')" style="flex:1;">Hủy</button>
+            </div>
+            <div id="addModalIngredientError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
         </div>
     </div>
 </div>

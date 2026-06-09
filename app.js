@@ -186,11 +186,23 @@ function initEventListeners() {
     var quickAddCustomerBtn = document.getElementById('quickAddCustomerBtn');
     if (quickAddCustomerBtn) quickAddCustomerBtn.onclick = quickAddCustomer;
 
+    // Lọc khách hàng realtime khi gõ ô tìm kiếm
+    var customerSearchInput = document.getElementById('customerSearchInput');
+    if (customerSearchInput) {
+        customerSearchInput.oninput = function() {
+            renderCustomerList();
+        };
+        // Cho phép Enter để thêm nhanh nếu không tìm thấy
+        customerSearchInput.onkeydown = function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                quickAddCustomer();
+            }
+        };
+    }
+
     var createCustomerBtn = document.getElementById('createCustomerFromSelectorBtn');
     if (createCustomerBtn) createCustomerBtn.onclick = createCustomerFromInput;
-
-    var confirmDebtBtn = document.getElementById('confirmDebtPaymentBtn');
-    if (confirmDebtBtn) confirmDebtBtn.onclick = confirmDebtPayment;
 
     // Các nút thanh toán cũ (paymentMethodModal) đã được thay thế bằng quickPayModal
     // Thanh toán được xử lý trực tiếp từ showTableDetail() và quickPayConfirm()
@@ -244,10 +256,6 @@ function switchTab(tabId) {
             renderHistoryByDate(currentHistoryDate);
         } else if (tabId === 'report') {
             renderReport(currentReportDate);
-            if (typeof renderReconciliation === 'function') {
-                var dateStr = currentReportDate.toISOString().slice(0, 10);
-                renderReconciliation(dateStr);
-            }
         } else if (tabId === 'customers') {
             renderCustomerList();
         } else if (tabId === 'manager') {
@@ -268,14 +276,22 @@ function switchTab(tabId) {
     }
 }
 
-// OPTIMIZE: Cache formatMoney để tránh gọi toLocaleString('vi-VN') liên tục (chậm trên Android 6)
+// OPTIMIZE: Cache formatMoney với LRU đơn giản - giới hạn 1000 entry để tránh memory leak
 var _moneyCache = {};
+var _moneyCacheKeys = [];
+var _MONEY_CACHE_MAX = 1000;
 function formatMoney(amount) {
     var val = amount || 0;
     var key = String(val);
-    if (_moneyCache[key]) return _moneyCache[key];
+    if (_moneyCache[key] !== undefined) return _moneyCache[key];
     var result = val.toLocaleString('vi-VN') + 'đ';
+    // LRU: nếu cache quá lớn, xóa entry cũ nhất
+    if (_moneyCacheKeys.length >= _MONEY_CACHE_MAX) {
+        var oldestKey = _moneyCacheKeys.shift();
+        delete _moneyCache[oldestKey];
+    }
     _moneyCache[key] = result;
+    _moneyCacheKeys.push(key);
     return result;
 }
 // Toast counter để tạo ID duy nhất

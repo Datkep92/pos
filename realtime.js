@@ -186,6 +186,32 @@ function initRealtime() {
             }, 100);
         }
     });
+    
+    // Manager cash pickups subscription - cập nhật realtime stat-row và đối soát
+    DB.subscribe('manager_cash_pickups', function(data) {
+        window.managerCashPickups = data || [];
+        if (typeof managerCashPickups !== 'undefined' && managerCashPickups !== window.managerCashPickups) {
+            managerCashPickups = window.managerCashPickups;
+        }
+        _debounceRealtime('manager_cash_pickups', function() {
+            if (currentTab === 'report') {
+                renderReport(currentReportDate);
+            }
+        }, 100);
+    });
+    
+    // Inventory transactions subscription - cập nhật realtime đối soát
+    DB.subscribe('inventory_transactions', function(data) {
+        window.inventoryTransactions = data || [];
+        if (typeof inventoryTransactions !== 'undefined' && inventoryTransactions !== window.inventoryTransactions) {
+            inventoryTransactions = window.inventoryTransactions;
+        }
+        _debounceRealtime('inventory_transactions', function() {
+            if (currentTab === 'report') {
+                renderReport(currentReportDate);
+            }
+        }, 100);
+    });
 }
 
 function updateRecentToast() {
@@ -372,12 +398,13 @@ function _renderRecentAddsHtml(recentAdds) {
         // Hiển thị giờ: HH:MM
         var d = new Date(entry.time);
         var timeStr = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-        // Rút gọn danh sách món
+        // Rút gọn danh sách món - chỉ lấy 2 món gần nhất
         var itemsStr = '';
         if (entry.items && entry.items.length) {
-            for (var j = 0; j < entry.items.length; j++) {
+            var itemStart = Math.max(0, entry.items.length - 2);
+            for (var j = itemStart; j < entry.items.length; j++) {
                 var it = entry.items[j];
-                if (j > 0) itemsStr += ', ';
+                if (j > itemStart) itemsStr += ', ';
                 itemsStr += _shortenName(it.name, 12) + (it.qty > 1 ? ' x' + it.qty : '');
             }
         }

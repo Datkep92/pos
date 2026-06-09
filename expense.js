@@ -11,16 +11,8 @@ var expenseData = {
 
 var expenseInitialized = false;
 
-// Danh sách hao phí mặc định (không cần nhập kho)
-var DEFAULT_WASTE_TYPES = [
-    { id: 'waste_tissue', name: 'Khăn giấy', icon: '🧻' },
-    { id: 'waste_electric', name: 'Tiền điện', icon: '⚡' },
-    { id: 'waste_water', name: 'Tiền nước', icon: '💧' },
-    { id: 'waste_cleaning', name: 'Vệ sinh', icon: '🧹' },
-    { id: 'waste_ice', name: 'Đá cây', icon: '🧊' },
-    { id: 'waste_transport', name: 'Vận chuyển', icon: '🚚' },
-    { id: 'waste_other', name: 'Khác', icon: '📌' }
-];
+// Biến tạm lưu danh sách hao phí (đồng bộ từ DB)
+var _expenseWasteCategories = [];
 
 // Biến trạng thái cho modal expense
 var _expenseSelectedType = 'ingredient'; // 'ingredient' | 'waste'
@@ -68,19 +60,22 @@ function openExpenseModal() {
 
         // Reset form
         _expenseSelectedType = 'ingredient';
-        _expenseSelectedFundSource = 'pos_cash';
         _expenseSelectedIngredientId = null;
         _expenseSelectedIngredientName = '';
+
+        // Mặc định nguồn tiền: Admin = QLTT, Staff = Két POS
+        var currentUser = DB.getCurrentUser();
+        var isAdminUser = currentUser && currentUser.role === 'admin';
+        _expenseSelectedFundSource = isAdminUser ? 'management' : 'pos_cash';
+        switchFundSource(_expenseSelectedFundSource);
 
         var nameInput = document.getElementById('expenseNameInput');
         var amountInput = document.getElementById('expenseAmount');
         var qtyInput = document.getElementById('expenseQty');
-        var unitPriceInput = document.getElementById('expenseUnitPrice');
 
         if (nameInput) nameInput.value = '';
         if (amountInput) amountInput.value = '';
         if (qtyInput) qtyInput.value = '1';
-        if (unitPriceInput) unitPriceInput.value = '';
 
         // Gắn sự kiện nếu chưa được gắn
         if (!expenseInitialized) {
@@ -172,7 +167,7 @@ function renderIngredientList() {
         html += '<div class="ingredient-grid-item' + (isSelected ? ' selected' : '') + '" ' +
             'onclick="onIngredientSelected(\'' + ing.id + '\', \'' + escapeHtml(ing.name) + '\')">' +
             '<div class="ingredient-item-name">' + escapeHtml(ing.name) + '</div>' +
-            '<div class="ingredient-item-stock">Tồn: ' + (ing.stock || 0) + '</div>' +
+            '<div class="ingredient-item-stock">Tồn: ' + (typeof ing.stock === 'number' ? Math.round(ing.stock * 100) / 100 : (ing.stock || 0)) + (ing.unit ? ' ' + ing.unit : '') + '</div>' +
         '</div>';
     }
     container.innerHTML = html;
@@ -202,33 +197,34 @@ function updateIngredientSelectedInfo() {
     // Đã ẩn hoàn toàn - highlight trên grid là đủ
 }
 
-// ========== TÍNH TOÁN NGUYÊN LIỆU (tự động tính đơn giá) ==========
-// Quy tắc: Chỉ nhập số lượng + thành tiền → đơn giá tự tính = thành tiền / số lượng
-function calculateIngredientTotal() {
-    var qty = parseInt(document.getElementById('expenseQty').value) || 0;
-    var amount = parseInt(document.getElementById('expenseAmount').value) || 0;
-    var unitPriceInput = document.getElementById('expenseUnitPrice');
-
-    if (qty > 0 && amount > 0) {
-        unitPriceInput.value = Math.round(amount / qty);
-    } else if (qty > 0 && amount === 0) {
-        unitPriceInput.value = '';
-    } else {
-        unitPriceInput.value = '';
-    }
-}
+// ========== TÍNH TOÁN NGUYÊN LIỆU ==========
+// Chỉ nhập số lượng + thành tiền
 
 // ========== RENDER DANH SÁCH HAO PHÍ ==========
 function renderWasteTypeList() {
     var container = document.getElementById('expenseWasteGrid');
     if (!container) return;
 
+    // Lấy danh sách hao phí từ cost_categories (đã load trong expenseData.categories)
+    var wasteCats = [];
+    for (var i = 0; i < expenseData.categories.length; i++) {
+        var cat = expenseData.categories[i];
+        if (cat && !cat.deleted) {
+            wasteCats.push(cat);
+        }
+    }
+    _expenseWasteCategories = wasteCats;
+
+    if (wasteCats.length === 0) {
+        container.innerHTML = '<div class="empty-text" style="font-size:12px;padding:12px 0;">Chưa có hao phí. Gõ tên và lưu để thêm mới.</div>';
+        return;
+    }
+
     var html = '';
-    for (var i = 0; i < DEFAULT_WASTE_TYPES.length; i++) {
-        var wt = DEFAULT_WASTE_TYPES[i];
-        html += '<div class="waste-grid-item" onclick="onWasteTypeSelected(\'' + wt.id + '\', \'' + escapeHtml(wt.name) + '\')">' +
-            '<span class="waste-item-icon">' + wt.icon + '</span>' +
-            '<span class="waste-item-name">' + escapeHtml(wt.name) + '</span>' +
+    for (var i = 0; i < wasteCats.length; i++) {
+        var cat = wasteCats[i];
+        html += '<div class="waste-grid-item" onclick="onWasteTypeSelected(\'' + escapeHtml(cat.id) + '\', \'' + escapeHtml(cat.name) + '\')">' +
+            '<span class="waste-item-name">' + escapeHtml(cat.name) + '</span>' +
         '</div>';
     }
     container.innerHTML = html;
@@ -243,12 +239,12 @@ function onWasteTypeSelected(wasteId, wasteName) {
     var selectedEl = document.querySelector('#expenseWasteGrid .waste-grid-item[onclick*="' + wasteId + '"]');
     if (selectedEl) selectedEl.classList.add('selected');
 
-    // Điền tên chi phí
-    var nameInput = document.getElementById('expenseNameInput');
-    if (nameInput) nameInput.value = wasteName;
+    // Điền tên vào ô tìm kiếm
+    var searchInput = document.getElementById('expenseWasteSearch');
+    if (searchInput) searchInput.value = wasteName;
 
     // Focus vào ô số tiền
-    var amountInput = document.getElementById('expenseAmount');
+    var amountInput = document.getElementById('expenseWasteAmount');
     if (amountInput) amountInput.focus();
 }
 
@@ -257,17 +253,18 @@ function saveExpense() {
     var costType = _expenseSelectedType;
     var fundSource = _expenseSelectedFundSource;
 
+    // Cảnh báo admin khi dùng Két POS
+    var currentUser = DB.getCurrentUser();
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    if (isAdminUser && fundSource === 'pos_cash') {
+        if (!confirm('⚠️ Bạn đang dùng Két POS (tiền tại quầy).\n\nNhấn OK để xác nhận, hoặc Hủy để chuyển sang Quản lý thanh toán.')) {
+            return;
+        }
+    }
+
     if (costType === 'ingredient') {
         var qty = parseInt(document.getElementById('expenseQty').value) || 0;
         var amount = parseInt(document.getElementById('expenseAmount').value) || 0;
-
-        // Tính đơn giá từ số lượng và thành tiền
-        if (qty > 0 && amount > 0) {
-            var unitPrice = Math.round(amount / qty);
-            document.getElementById('expenseUnitPrice').value = unitPrice;
-        } else {
-            var unitPrice = 0;
-        }
 
         if (qty <= 0) {
             showToast('Số lượng phải lớn hơn 0!', 'warning');
@@ -275,10 +272,6 @@ function saveExpense() {
         }
         if (amount <= 0) {
             showToast('Thành tiền phải lớn hơn 0!', 'warning');
-            return;
-        }
-        if (unitPrice <= 0) {
-            showToast('Đơn giá không hợp lệ!', 'warning');
             return;
         }
 
@@ -294,20 +287,20 @@ function saveExpense() {
             if (window.ingredients) window.ingredients.push(newIng);
             // Lưu vào IndexedDB trước để addIngredientStock() có thể DB.update() được
             DB.create('ingredients', newIng).then(function() {
-                saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amount, fundSource);
+                saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
             }).catch(function(err) {
                 console.error('Create ingredient error:', err);
                 showToast('Lỗi khi tạo nguyên liệu mới!', 'error');
             });
         } else {
             // Lưu chi phí nguyên liệu (kèm tăng tồn kho + ghi inventory)
-            saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amount, fundSource);
+            saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
         }
 
     } else {
         // Waste - hao phí
-        var categoryName = document.getElementById('expenseNameInput').value.trim();
-        var amount = parseInt(document.getElementById('expenseAmount').value) || 0;
+        var categoryName = document.getElementById('expenseWasteSearch').value.trim();
+        var amount = parseInt(document.getElementById('expenseWasteAmount').value) || 0;
 
         if (!categoryName) {
             showToast('Vui lòng nhập tên chi phí!', 'warning');
@@ -323,7 +316,7 @@ function saveExpense() {
 }
 
 // ========== LƯU CHI PHÍ NGUYÊN LIỆU ==========
-function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amount, fundSource) {
+function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource) {
     var now = new Date();
     var dateKey = now.toISOString().slice(0, 10);
     var txId = Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
@@ -338,7 +331,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amo
             ingredientId: ingredientId,
             ingredientName: ingredientName,
             quantity: qty,
-            unitPrice: unitPrice,
+            unitPrice: Math.round(amount / qty),
             totalAmount: amount,
             date: now.toISOString(),
             dateKey: dateKey,
@@ -361,7 +354,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amo
             ingredientId: String(ingredientId),
             ingredientName: ingredientName,
             ingredientQty: qty,
-            ingredientUnitPrice: unitPrice,
+            ingredientUnitPrice: Math.round(amount / qty),
             date: now.toISOString(),
             dateKey: dateKey,
             createdAt: Date.now(),
@@ -377,7 +370,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amo
                 amount: amount,
                 categoryName: ingredientName,
                 quantity: qty,
-                unitPrice: unitPrice,
+                unitPrice: Math.round(amount / qty),
                 fundSource: fundSource,
                 createdAt: new Date().toISOString()
             });
@@ -387,7 +380,6 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, unitPrice, amo
         showToast('✅ Đã thêm chi phí nguyên liệu ' + formatMoney(amount), 'success');
         // Reset form
         document.getElementById('expenseQty').value = '0';
-        document.getElementById('expenseUnitPrice').value = '';
         document.getElementById('expenseAmount').value = '';
         _expenseSelectedIngredientId = null;
         _expenseSelectedIngredientName = '';
@@ -466,11 +458,12 @@ function saveWasteExpense(categoryName, amount, fundSource) {
         return loadExpenseData();
     }).then(function() {
         showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
-        document.getElementById('expenseNameInput').value = '';
-        document.getElementById('expenseAmount').value = '';
+        document.getElementById('expenseWasteSearch').value = '';
+        document.getElementById('expenseWasteAmount').value = '';
 
         renderTodayExpenses();
         renderMonthExpenseTotal();
+        renderWasteTypeList();
     }).catch(function(err) {
         console.error('Save waste expense error:', err);
         showToast('Lỗi khi lưu chi phí!', 'error');
@@ -530,10 +523,16 @@ function renderExpensesByDate(dateKey) {
     if (!container) return;
 
     DB.getAll('cost_transactions').then(function(allTx) {
+        var currentUser = DB.getCurrentUser();
+        var isAdminUser = currentUser && currentUser.role === 'admin';
+        var today = new Date().toISOString().slice(0, 10);
+
         var filtered = [];
         for (var i = 0; i < allTx.length; i++) {
             var tx = allTx[i];
             if (tx && tx.dateKey === dateKey && !tx.deleted) {
+                // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
+                if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
                 filtered.push(tx);
             }
         }
@@ -542,10 +541,6 @@ function renderExpensesByDate(dateKey) {
         filtered.sort(function(a, b) {
             return (b.createdAt || 0) - (a.createdAt || 0);
         });
-
-        var currentUser = DB.getCurrentUser();
-        var isAdminUser = currentUser && currentUser.role === 'admin';
-        var today = new Date().toISOString().slice(0, 10);
 
         // Cập nhật header tổng chi phí
         var headerTotalEl = document.getElementById('expenseHeaderTotal');
@@ -590,24 +585,24 @@ function renderExpensesByDate(dateKey) {
             var canEdit = isAdminUser || (dateKey === today);
             var actionsHtml = '';
             if (canEdit) {
-                actionsHtml = '<div class="cost-actions">' +
-                    '<button class="cost-edit-btn" onclick="editExpense(\'' + tx.id + '\')">✏️</button>' +
-                    '<button class="cost-delete-btn" onclick="deleteExpense(\'' + tx.id + '\')">🗑️</button>' +
-                '</div>';
+                actionsHtml = '<button class="cost-edit-btn" onclick="editExpense(\'' + tx.id + '\')">✏️</button>' +
+                    '<button class="cost-delete-btn" onclick="deleteExpense(\'' + tx.id + '\')">🗑️</button>';
             }
 
             var detailStr = '';
             if (tx.costType === 'ingredient' && tx.ingredientQty && tx.ingredientUnitPrice) {
-                detailStr = ' <span style="font-size:11px;color:#64748b;">x' + tx.ingredientQty + ' × ' + formatMoney(tx.ingredientUnitPrice) + '</span>';
+                detailStr = ' <span class="cost-item-qty">x' + tx.ingredientQty + ' × ' + formatMoney(tx.ingredientUnitPrice) + '</span>';
             }
 
             html += '<div class="cost-item">' +
-                '<div style="flex:1;">' +
-                    '<div>' + typeIcon + ' ' + fundIcon + ' <strong>' + escapeHtml(tx.categoryName) + '</strong>' + detailStr + '</div>' +
-                    '<div style="font-size:11px;color:#94a3b8;">' + timeStr + '</div>' +
+                '<div class="cost-item-left">' +
+                    '<span class="cost-item-time">' + timeStr + '</span>' +
+                    '<span class="cost-item-icons">' + fundIcon + ' ' + typeIcon + '</span>' +
+                    '<span class="cost-item-name">' + escapeHtml(tx.categoryName) + '</span>' +
+                    detailStr +
                 '</div>' +
-                '<div style="text-align:right;">' +
-                    '<div style="font-weight:600;">' + formatMoney(tx.amount) + '</div>' +
+                '<div class="cost-item-right">' +
+                    '<span class="cost-item-amount">' + formatMoney(tx.amount) + '</span>' +
                     actionsHtml +
                 '</div>' +
             '</div>';
@@ -636,6 +631,8 @@ function renderMonthExpenseTotal() {
 
     // Lấy dữ liệu trực tiếp từ DB
     DB.getAll('cost_transactions').then(function(allTx) {
+        var currentUser = DB.getCurrentUser();
+        var isAdminUser = currentUser && currentUser.role === 'admin';
         var now = new Date();
         var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
         var end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -645,6 +642,8 @@ function renderMonthExpenseTotal() {
         for (var i = 0; i < allTx.length; i++) {
             var tx = allTx[i];
             if (tx && !tx.deleted && tx.dateKey >= start && tx.dateKey <= end) {
+                // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
+                if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
                 monthTxs.push(tx);
             }
         }
@@ -790,35 +789,97 @@ function editExpense(id) {
         }
     }
 
-    var newName = prompt('Tên chi phí:', tx.categoryName);
-    if (newName === null) return;
+    // Tạo modal inline sửa chi phí
+    var editHtml = '<div class="expense-edit-form">';
+    editHtml += '<div style="margin-bottom:8px;"><label style="font-size:13px;font-weight:600;">Tên chi phí</label>';
+    editHtml += '<input type="text" id="editExpenseName" class="form-input" value="' + escapeHtml(tx.categoryName) + '"></div>';
 
-    var newAmount = parseInt(prompt('Số tiền:', tx.amount));
-    if (isNaN(newAmount) || newAmount <= 0) {
+    if (tx.costType === 'ingredient') {
+        editHtml += '<div style="margin-bottom:8px;"><label style="font-size:13px;font-weight:600;">Số lượng</label>';
+        editHtml += '<input type="number" id="editExpenseQty" class="form-input" value="' + (tx.ingredientQty || 1) + '" min="1" step="1"></div>';
+    }
+
+    editHtml += '<div style="margin-bottom:12px;"><label style="font-size:13px;font-weight:600;">Thành tiền</label>';
+    editHtml += '<input type="number" id="editExpenseAmount" class="form-input" value="' + tx.amount + '" step="1000"></div>';
+
+    editHtml += '<div style="display:flex;gap:8px;">';
+    editHtml += '<button class="btn-save" style="flex:1;" onclick="confirmEditExpense(\'' + tx.id + '\')">✅ Lưu</button>';
+    editHtml += '<button class="btn-cancel" style="flex:1;" onclick="cancelEditExpense()">❌ Hủy</button>';
+    editHtml += '</div></div>';
+
+    // Hiển thị form sửa trong 1 overlay nhỏ
+    var overlay = document.createElement('div');
+    overlay.id = 'editExpenseOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) cancelEditExpense(); };
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:16px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);';
+    box.innerHTML = '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">✏️ Sửa chi phí</div>' + editHtml;
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
+
+function confirmEditExpense(id) {
+    var newName = document.getElementById('editExpenseName').value.trim();
+    var newAmount = parseInt(document.getElementById('editExpenseAmount').value) || 0;
+
+    if (!newName) {
+        showToast('Vui lòng nhập tên chi phí!', 'warning');
+        return;
+    }
+    if (newAmount <= 0) {
         showToast('Số tiền không hợp lệ!', 'warning');
         return;
     }
 
     var updateData = {
-        categoryName: newName.trim(),
+        categoryName: newName,
         amount: newAmount
     };
 
-    // Nếu là chi phí nguyên liệu, cập nhật cả ingredientUnitPrice
-    if (tx.costType === 'ingredient' && tx.ingredientQty > 0) {
-        updateData.ingredientUnitPrice = Math.round(newAmount / tx.ingredientQty);
+    // Nếu là chi phí nguyên liệu, cho phép sửa số lượng
+    var qtyInput = document.getElementById('editExpenseQty');
+    if (qtyInput) {
+        var newQty = parseInt(qtyInput.value) || 0;
+        if (newQty > 0) {
+            updateData.ingredientQty = newQty;
+            updateData.quantity = newQty;
+            updateData.ingredientUnitPrice = Math.round(newAmount / newQty);
+        }
+    } else {
+        // Waste: cập nhật unitPrice nếu có quantity
+        var tx = null;
+        for (var i = 0; i < expenseData.transactions.length; i++) {
+            if (expenseData.transactions[i].id === id) {
+                tx = expenseData.transactions[i];
+                break;
+            }
+        }
+        if (tx && tx.ingredientQty > 0) {
+            updateData.ingredientUnitPrice = Math.round(newAmount / tx.ingredientQty);
+        }
     }
 
     DB.update('cost_transactions', id, updateData).then(function() {
         return loadExpenseData();
     }).then(function() {
         showToast('✅ Đã cập nhật chi phí', 'success');
+        cancelEditExpense();
         renderTodayExpenses();
         renderMonthExpenseTotal();
     }).catch(function(err) {
         console.error('Edit expense error:', err);
         showToast('Lỗi khi cập nhật!', 'error');
     });
+}
+
+function cancelEditExpense() {
+    var overlay = document.getElementById('editExpenseOverlay');
+    if (overlay) {
+        document.body.removeChild(overlay);
+    }
 }
 
 // ========== XÓA CHI PHÍ ==========
@@ -888,15 +949,13 @@ function attachExpenseEvents() {
         closeBtns[i].onclick = function() { closeModal('expenseModal'); };
     }
 
-    // Tính toán tự động khi nhập số lượng/thành tiền → đơn giá tự tính
+    // Chỉ cho phép số khi nhập
     var qtyInput = document.getElementById('expenseQty');
     var amountInput = document.getElementById('expenseAmount');
 
     function onIngredientInput() {
-        // Chỉ cho phép số
         if (qtyInput) qtyInput.value = qtyInput.value.replace(/[^0-9]/g, '');
         if (amountInput) amountInput.value = amountInput.value.replace(/[^0-9]/g, '');
-        calculateIngredientTotal();
     }
 
     if (qtyInput) {
@@ -914,6 +973,21 @@ function attachExpenseEvents() {
             var items = document.querySelectorAll('#expenseIngredientGrid .ingredient-grid-item');
             for (var i = 0; i < items.length; i++) {
                 var nameEl = items[i].querySelector('.ingredient-item-name');
+                if (!nameEl) continue;
+                var name = nameEl.innerText.toLowerCase();
+                items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
+            }
+        });
+    }
+
+    // Filter hao phí
+    var wasteFilter = document.getElementById('expenseWasteSearch');
+    if (wasteFilter) {
+        wasteFilter.addEventListener('input', function() {
+            var keyword = this.value.trim().toLowerCase();
+            var items = document.querySelectorAll('#expenseWasteGrid .waste-grid-item');
+            for (var i = 0; i < items.length; i++) {
+                var nameEl = items[i].querySelector('.waste-item-name');
                 if (!nameEl) continue;
                 var name = nameEl.innerText.toLowerCase();
                 items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
@@ -1052,9 +1126,10 @@ window.switchExpenseType = switchExpenseType;
 window.switchFundSource = switchFundSource;
 window.onIngredientSelected = onIngredientSelected;
 window.onWasteTypeSelected = onWasteTypeSelected;
-window.calculateIngredientTotal = calculateIngredientTotal;
 window.saveExpense = saveExpense;
 window.editExpense = editExpense;
+window.confirmEditExpense = confirmEditExpense;
+window.cancelEditExpense = cancelEditExpense;
 window.deleteExpense = deleteExpense;
 window.initExpense = initExpense;
 window.loadExpenseData = loadExpenseData;
