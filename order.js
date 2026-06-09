@@ -1210,3 +1210,5 @@ window.handleCreateNewTable = handleCreateNewTable;
 window.handleTakeawayPayment = handleTakeawayPayment;
 window.handleGrabOrder = handleGrabOrder;
 window.handleDebtOrder = handleDebtOrder;
+// OPTIMIZE: Export _checkAndDeductIngredients để tables.js có thể dùng chung
+window._checkAndDeductIngredients = _checkAndDeductIngredients;

@@ -47,6 +47,20 @@
     var isOnline = navigator.onLine;
     var listeners = {};
     
+    // OPTIMIZE: Debounce processSyncQueue - tránh gọi sync sau mỗi DB.update riêng lẻ
+    var _syncTimer = null;
+    var _syncPending = false;
+    function _debouncedProcessSyncQueue() {
+        if (_syncPending) return;
+        _syncPending = true;
+        if (_syncTimer) clearTimeout(_syncTimer);
+        _syncTimer = setTimeout(function() {
+            _syncTimer = null;
+            _syncPending = false;
+            processSyncQueue();
+        }, 100);
+    }
+    
     // OPTIMIZE: Memory cache layer - tránh đọc IndexedDB liên tục
     var memoryCache = {};
     var cacheVersion = {};
@@ -380,7 +394,8 @@
         newData._version = 1;
         return saveToLocal(collection, newData).then(function() {
             addToSyncQueue('create', collection, newData, id);
-            if (isOnline) return processSyncQueue();
+            // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
+            if (isOnline) _debouncedProcessSyncQueue();
             return Promise.resolve();
         }).then(function() { return newData; });
     }
@@ -396,7 +411,8 @@
             updated._version = (old._version || 0) + 1;
             return saveToLocal(collection, updated).then(function() {
                 addToSyncQueue('update', collection, updated, String(id));
-                if (isOnline) return processSyncQueue();
+                // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
+                if (isOnline) _debouncedProcessSyncQueue();
                 return Promise.resolve();
             }).then(function() { return updated; });
         });
@@ -405,7 +421,8 @@
     function remove(collection, id) {
         return deleteFromLocal(collection, String(id)).then(function() {
             addToSyncQueue('delete', collection, { id: id }, String(id));
-            if (isOnline) return processSyncQueue();
+            // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
+            if (isOnline) _debouncedProcessSyncQueue();
             return Promise.resolve();
         }).then(function() { return true; });
     }

@@ -366,37 +366,7 @@ function paymentAtTableWithCredit(tableId, method) {
     });
 }
 
-// OPTIMIZE: Batch update ingredients - gộp nhiều DB.update thành 1 Promise.all
-function _batchDeductIngredients(items) {
-    _buildLookups();
-    var updates = [];
-    for (var i = 0; i < items.length; i++) {
-        var orderItem = items[i];
-        var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
-        var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
-        if (menuItem) {
-            var ings = _getIngredientsForItem(menuItem, orderItem);
-            for (var k = 0; k < ings.length; k++) {
-                var req = ings[k];
-                var ing = _ingredientLookup[req.ingredientId];
-                if (ing) {
-                    var deductQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
-                    ing.stock = Math.max(0, (ing.stock || 0) - deductQty);
-                    updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
-                    
-                    var unit = ing.unit || '';
-                    var note = 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (-' + Math.round(deductQty * 1000) / 1000 + ' ' + unit + ')';
-                    _logIngredientTransaction(ing.id, 'export', Math.round(deductQty * 1000) / 1000, unit, note).catch(function(err) {
-                        console.error('Log export error:', err);
-                    });
-                }
-            }
-        }
-    }
-    return Promise.all(updates);
-}
-
-// OPTIMIZE: _processPaymentDirect - đóng modal ngay, song song hóa Promise
+// OPTIMIZE: _processPaymentDirect - đóng modal ngay, song song hóa Promise, dùng _checkAndDeductIngredients
 function _processPaymentDirect(tableId, method) {
     DB.get('tables', String(tableId)).then(function(table) {
         if (!table || !table.items || !table.items.length) return;
@@ -446,48 +416,29 @@ function _processPaymentDirect(tableId, method) {
             }
         }
         
-        // OPTIMIZE: Chạy song song checkStock + deductIngredients (không cần tuần tự)
-        // checkStock chỉ đọc, deductIngredients chỉ ghi - có thể gộp
-        var stockPromise = new Promise(function(resolve, reject) {
-            _buildLookups();
-            for (var i = 0; i < items.length; i++) {
-                var orderItem = items[i];
-                var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
-                var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
-                if (menuItem && menuItem.ingredients) {
-                    for (var k = 0; k < menuItem.ingredients.length; k++) {
-                        var req = menuItem.ingredients[k];
-                        var ing = _ingredientLookup[req.ingredientId];
-                        if (ing) {
-                            var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
-                            if (ing.stock < needed) {
-                                showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
-                                resolve(false);
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-            resolve(true);
+        // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt
+        var stockAndDeductPromise = _checkAndDeductIngredients(items).then(function() {
+            return true;
+        }).catch(function(err) {
+            showToast('⚠️ ' + (err.message || 'Hết nguyên liệu'), 'error');
+            return false;
         });
         
-        stockPromise.then(function(stockOk) {
+        stockAndDeductPromise.then(function(stockOk) {
             if (!stockOk) {
                 hideToast(_paymentToastId);
                 DB.flushRealtime();
                 return;
             }
             
-            // OPTIMIZE: Chạy song song deductIngredients + creditUpdate + addHistory
-            var deductPromise = _batchDeductIngredients(items);
+            // OPTIMIZE: Chạy song song creditUpdate + addHistory + remove
             var creditPromise = Promise.resolve();
             if (creditUsed > 0 && customerId) {
                 creditPromise = useCustomerCredit(customerId, creditUsed, 'Trừ tiền dư khi thanh toán bàn ' + tableName);
             }
             
             // OPTIMIZE: Chạy song song deduct và credit
-            Promise.all([deductPromise, creditPromise]).then(function() {
+            Promise.all([stockAndDeductPromise, creditPromise]).then(function() {
                 // addHistory và DB.remove có thể chạy song song
                 var historyPromise = addHistory({
                     type: 'dinein',
