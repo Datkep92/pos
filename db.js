@@ -418,6 +418,52 @@
         });
     }
 
+    // Batch update sortOrder - ghi vào IndexedDB + Firebase 1 lần duy nhất, ko qua sync queue
+    function batchUpdateSortOrder(items) {
+        return dbReady.then(function() {
+            if (!localDB) throw new Error('DB not ready');
+            var tx = localDB.transaction(['menu'], 'readwrite');
+            var store = tx.objectStore('menu');
+            var now = Date.now();
+            
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                // Cập nhật memory cache - CHỈ sửa sortOrder, giữ nguyên các field khác
+                if (!memoryCache['menu']) memoryCache['menu'] = {};
+                if (memoryCache['menu'][item.id]) {
+                    memoryCache['menu'][item.id].sortOrder = item.sortOrder;
+                }
+                // Ghi vào IndexedDB - CHỈ cập nhật sortOrder, ko ghi đè toàn bộ
+                // Dùng store.put với toàn bộ data cũ + sortOrder mới
+                var fullData = memoryCache['menu'][item.id];
+                if (fullData) {
+                    fullData.sortOrder = item.sortOrder;
+                    fullData.updatedAt = now;
+                    store.put(normalizeIndexedFields('menu', fullData));
+                }
+            }
+            
+            return new Promise(function(resolve, reject) {
+                tx.oncomplete = function() {
+                    // Sync 1 batch lên Firebase - CHỈ ghi đúng field sortOrder, ko tạo node lạ
+                    if (isOnline && CURRENT_SHOP_ID) {
+                        var updates = {};
+                        for (var i = 0; i < items.length; i++) {
+                            var key = CURRENT_SHOP_ID + '/menu/' + items[i].id + '/sortOrder';
+                            updates[key] = items[i].sortOrder;
+                        }
+                        db.ref().update(updates).catch(function(err) {
+                            console.error('Lỗi batch sync sortOrder:', err);
+                        });
+                    }
+                    _notifyLocal('menu');
+                    resolve();
+                };
+                tx.onerror = function() { reject(tx.error); };
+            });
+        });
+    }
+
     function remove(collection, id) {
         return deleteFromLocal(collection, String(id)).then(function() {
             addToSyncQueue('delete', collection, { id: id }, String(id));
@@ -627,10 +673,19 @@
                         console.log('Created store:', stores[i]);
                     }
                 }
-                var txStore = e.target.transaction.objectStore('transactions');
-                if (!txStore.indexNames.contains('dateKey')) txStore.createIndex('dateKey', 'dateKey', { unique: false });
-                if (!txStore.indexNames.contains('type')) txStore.createIndex('type', 'type', { unique: false });
-                if (!txStore.indexNames.contains('dateTypeKey')) txStore.createIndex('dateTypeKey', 'dateTypeKey', { unique: false });
+                // FIX: Kiểm tra transaction tồn tại trước khi tạo index
+                // Tránh lỗi khi database vừa được tạo mới (sau khi xóa)
+                try {
+                    var tx = e.target.transaction;
+                    if (tx && tx.objectStoreNames.contains('transactions')) {
+                        var txStore = tx.objectStore('transactions');
+                        if (!txStore.indexNames.contains('dateKey')) txStore.createIndex('dateKey', 'dateKey', { unique: false });
+                        if (!txStore.indexNames.contains('type')) txStore.createIndex('type', 'type', { unique: false });
+                        if (!txStore.indexNames.contains('dateTypeKey')) txStore.createIndex('dateTypeKey', 'dateTypeKey', { unique: false });
+                    }
+                } catch(ex) {
+                    console.warn('Could not create indexes:', ex);
+                }
             };
         });
         return dbReady;
@@ -683,6 +738,86 @@
             });
         }).catch(function(err) {
             console.error('Seed error:', err);
+        });
+    }
+
+    // ========== FORCE SYNC TỪ FIREBASE ==========
+    // Dùng khi phát hiện IndexedDB bị xóa (local rỗng) - force tải lại từ Firebase
+    function forceSyncFromFirebase() {
+        if (!isOnline) {
+            console.warn('⚠️ Offline, cannot force sync from Firebase');
+            return Promise.reject(new Error('Offline'));
+        }
+        var collections = [
+            'tables', 'customers', 'menu', 'menu_categories',
+            'ingredients', 'transactions', 'reports',
+            'cost_categories', 'cost_transactions', 'cost_transactions_admin',
+            'admin_cost_categories', 'daily_balances',
+            'inventory_transactions', 'manager_cash_pickups',
+            'ingredient_transactions', 'notifications'
+        ];
+        
+        console.log('🔄 Force syncing all collections from Firebase...');
+        
+        var chain = Promise.resolve();
+        for (var c = 0; c < collections.length; c++) {
+            chain = chain.then((function(collection) {
+                return function() {
+                    return _forceSyncCollection(collection);
+                };
+            })(collections[c]));
+        }
+        
+        return chain.then(function() {
+            console.log('✅ Force sync completed');
+        });
+    }
+    
+    function _forceSyncCollection(collection) {
+        return new Promise(function(resolve, reject) {
+            var ref = db.ref(CURRENT_SHOP_ID + '/' + collection);
+            ref.once('value', function(snapshot) {
+                var remote = snapshot.val() || {};
+                var count = 0;
+                
+                // Xóa toàn bộ local cache trước
+                if (memoryCache[collection]) {
+                    memoryCache[collection] = {};
+                }
+                
+                // Ghi từng item từ Firebase vào local
+                var saveChain = Promise.resolve();
+                for (var key in remote) {
+                    if (remote.hasOwnProperty(key)) {
+                        (function(itemKey) {
+                            saveChain = saveChain.then(function() {
+                                var src = remote[itemKey];
+                                var item = { id: itemKey };
+                                for (var p in src) {
+                                    if (src.hasOwnProperty(p)) {
+                                        item[p] = src[p];
+                                    }
+                                }
+                                // Đảm bảo _version tồn tại
+                                if (item._version === undefined) item._version = 1;
+                                count++;
+                                return saveToLocal(collection, item);
+                            });
+                        })(key);
+                    }
+                }
+                
+                saveChain.then(function() {
+                    console.log('  📥 Synced ' + collection + ': ' + count + ' items');
+                    resolve();
+                }).catch(function(err) {
+                    console.error('  ❌ Error syncing ' + collection + ': ', err);
+                    resolve(); // Không reject để tiếp tục collection khác
+                });
+            }, function(err) {
+                console.error('  ❌ Firebase read error for ' + collection + ': ', err);
+                resolve(); // Không reject để tiếp tục collection khác
+            });
         });
     }
 
@@ -1001,6 +1136,8 @@
         getCurrentUser: getCurrentUser,
         isLoggedIn: isLoggedIn,
         isAdmin: isAdmin,
-        clearLocalData: clearLocalData
+        clearLocalData: clearLocalData,
+        forceSyncFromFirebase: forceSyncFromFirebase,
+        batchUpdateSortOrder: batchUpdateSortOrder
     };
 })();

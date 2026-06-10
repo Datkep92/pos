@@ -88,13 +88,6 @@
     </div>
 
     <div class="app">
-        <div class="header">
-            <div class="logo"><span class="logo-icon">☕</span><span class="logo-text">POS CAFE</span></div>
-            <div class="header-right">
-                <span class="staff-name">👤 Nhân viên</span>
-                <span class="time" id="currentTime">--:--</span>
-            </div>
-        </div>
         <!-- Header notification bar - chạy dọc header -->
         <div class="header-notification-bar" id="headerNotificationBar" style="display:none;">
             <div class="header-notification-text" id="headerNotificationText"></div>
@@ -1051,5 +1044,17 @@
     <script src="telegram.js"></script>
     <!-- Notification module (thông báo admin + lịch âm) -->
     <script src="notifications.js"></script>
+    
+    <!-- HEADER DƯỚI ĐÁY -->
+    <div class="header">
+        <div class="logo"><span class="logo-icon">☕</span><span class="logo-text">POS CAFE</span></div>
+        <div class="header-center">
+            <span class="header-date" id="headerDate">--</span>
+        </div>
+        <div class="header-right">
+            <span class="staff-name">👤 Nhân viên</span>
+            <span class="time" id="currentTime">--:--</span>
+        </div>
+    </div>
 </body>
 </html>

@@ -165,3 +165,84 @@ function notifyTelegramCustom(message) {
     var msg = formatTelegramCustom(message);
     if (msg) sendTelegramMessage(msg);
 }
+
+// ========== THÔNG BÁO HOÀN TÁC GIAO DỊCH ==========
+function formatTelegramRefund(transaction, reason, needPassword) {
+    if (!transaction) return "";
+    
+    var emoji = "❌";
+    var typeText = "";
+    
+    if (transaction.type === "dinein") {
+        emoji = "🍽️";
+        typeText = "Tại chỗ";
+    } else if (transaction.type === "takeaway") {
+        emoji = "🛵";
+        typeText = "Mang đi";
+    } else if (transaction.type === "grab") {
+        emoji = "🚕";
+        typeText = "Grab";
+    } else if (transaction.type === "debt_payment" && transaction.paymentMethod === "debt") {
+        emoji = "💢";
+        typeText = "Ghi nợ";
+    } else if (transaction.type === "debt_payment" && transaction.paymentMethod === "cash") {
+        emoji = "💵";
+        typeText = "Thanh toán nợ";
+    } else {
+        emoji = "💳";
+        typeText = "Giao dịch";
+    }
+    
+    var methodText = "";
+    if (transaction.paymentMethod === "cash") methodText = "💰 Tiền mặt";
+    else if (transaction.paymentMethod === "transfer") methodText = "💳 Chuyển khoản";
+    else if (transaction.paymentMethod === "debt") methodText = "💢 Ghi nợ";
+    else if (transaction.paymentMethod === "grab") methodText = "🚕 Grab";
+    
+    var locationText = "";
+    if (transaction.tableName) locationText = "🪑 " + transaction.tableName;
+    else if (transaction.type === "takeaway") locationText = "🛵 Mang đi";
+    else if (transaction.type === "grab") locationText = "🚕 Grab";
+    else locationText = "🍽️ Tại chỗ";
+    
+    var customerText = "";
+    if (transaction.customer && transaction.customer.name) {
+        customerText = "👤 " + transaction.customer.name;
+    }
+    
+    var itemCount = 0;
+    if (transaction.items && transaction.items.length) {
+        for (var i = 0; i < transaction.items.length; i++) {
+            itemCount += transaction.items[i].qty;
+        }
+    }
+    
+    var timeStr = new Date().toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit"
+    });
+    
+    var lockIcon = needPassword ? "🔒" : "🔓";
+    var lockText = needPassword ? "Có mật khẩu" : "Không mật khẩu";
+    
+    var msg = "<b>❌ HOÀN TÁC GIAO DỊCH</b>\n";
+    msg += "────────────────\n";
+    msg += "🕐 " + timeStr + "\n";
+    msg += emoji + " " + typeText + "\n";
+    msg += locationText + "\n";
+    if (customerText) msg += customerText + "\n";
+    msg += "📦 " + itemCount + " món\n";
+    msg += methodText + "\n";
+    msg += "💰 <b>" + formatMoney(transaction.amount) + "</b>\n";
+    msg += "📝 Lý do: " + reason + "\n";
+    msg += lockIcon + " " + lockText + "\n";
+    
+    return msg;
+}
+
+function notifyTelegramRefund(transaction, reason, needPassword) {
+    var msg = formatTelegramRefund(transaction, reason, needPassword);
+    if (msg) sendTelegramMessage(msg);
+}

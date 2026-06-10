@@ -126,6 +126,14 @@ function renderOrderCategoriesColumn() {
     container.innerHTML = html;
 }
 
+// ========== BIẾN CHO KÉO THẢ SẮP XẾP MÓN ==========
+var _isReorderMode = false;
+// Dùng mouse/touch events thuần - nhẹ, ko lag, ko bị nhảy vị trí
+var _dragState = null; // { el, itemId, startX, startY, clone, dropTarget }
+// Chỉ sync sortOrder lên Firebase khi thoát chế độ sắp xếp (bấm "✅ Xong")
+// Tránh spam sync sau mỗi lần kéo thả
+var _sortOrderChanged = false;
+
 // ========== RENDER MENU THEO DANH MỤC ==========
 function renderMenuByCategory(categoryId) {
     currentMenuCategory = categoryId;
@@ -156,20 +164,25 @@ function renderMenuByCategory(categoryId) {
                 var variant = item.variants[v];
                 variantsHtml += '<button class="variant-btn" onclick="addToCartWithVariant(\'' + item.id + '\', \'' + escapeHtml(variant.name) + '\', ' + variant.price + ')">' + escapeHtml(variant.name) + '</button>';
             }
-            html += '<div class="menu-item-variant">' +
+            html += '<div class="menu-item-variant" data-item-id="' + item.id + '">' +
                 '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
                 '<div class="variant-group">' + variantsHtml + '</div>' +
             '</div>';
         } else {
             // Món đơn
             var price = item.price || 0;
-            html += '<div class="menu-card" onclick="addToCart(\'' + item.id + '\', \'' + escapeHtml(item.name) + '\', ' + price + ')">' +
+            html += '<div class="menu-card" data-item-id="' + item.id + '" onclick="addToCart(\'' + item.id + '\', \'' + escapeHtml(item.name) + '\', ' + price + ')">' +
                 '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
                 '<div class="menu-price">' + formatMoney(price) + '</div>' +
             '</div>';
         }
     }
     container.innerHTML = html;
+    
+    // Nếu đang ở chế độ sắp xếp, gắn drag events
+    if (_isReorderMode) {
+        _enableDragReorder(container);
+    }
     
     // Cập nhật active cho danh mục
     var cats = document.querySelectorAll('#orderCategoriesColumn .category-item');
@@ -178,6 +191,235 @@ function renderMenuByCategory(categoryId) {
         if (cat == categoryId) cats[i].classList.add('active');
         else cats[i].classList.remove('active');
     }
+}
+
+// ========== BẬT/TẮT CHẾ ĐỘ SẮP XẾP MÓN ==========
+function toggleReorderMode() {
+    _isReorderMode = !_isReorderMode;
+    var container = document.getElementById('menuGrid');
+    if (!container) return;
+    
+    var toggleBtn = document.getElementById('reorderToggleBtn');
+    
+    if (_isReorderMode) {
+        container.classList.add('drag-active');
+        _enableDragReorder(container);
+        if (toggleBtn) {
+            toggleBtn.classList.add('active');
+            toggleBtn.textContent = '✅ Xong';
+        }
+        showToast('🔄 Kéo thả món để sắp xếp', 'warning');
+    } else {
+        container.classList.remove('drag-active');
+        _disableDragReorder(container);
+        if (toggleBtn) {
+            toggleBtn.classList.remove('active');
+            toggleBtn.textContent = '🔀 Sắp xếp';
+        }
+        // Chỉ sync lên Firebase nếu có thay đổi - tránh spam sync
+        if (_sortOrderChanged) {
+            _syncSortOrderToFirebase();
+            _sortOrderChanged = false;
+        }
+        showToast('✅ Đã lưu thứ tự mới', 'success');
+    }
+}
+
+// ========== GẮN SỰ KIỆN KÉO THẢ (MOUSE + TOUCH) ==========
+// Dùng pointer events + touch events thuần - nhẹ, ko lag, ko bị nhảy
+function _enableDragReorder(container) {
+    var items = container.querySelectorAll('.menu-card, .menu-item-variant');
+    for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        // Mouse events cho desktop
+        el.addEventListener('mousedown', _dragMouseDown);
+        // Touch events cho mobile - passive:false để có thể preventDefault khi cần
+        el.addEventListener('touchstart', _dragTouchStart, { passive: false });
+    }
+}
+
+function _disableDragReorder(container) {
+    var items = container.querySelectorAll('.menu-card, .menu-item-variant');
+    for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        el.removeEventListener('mousedown', _dragMouseDown);
+        el.removeEventListener('touchstart', _dragTouchStart);
+        el.classList.remove('dragging', 'drag-over');
+    }
+    // Dọn dẹp drag state nếu còn
+    _cleanupDrag();
+}
+
+// ========== MOUSE EVENTS ==========
+function _dragMouseDown(e) {
+    if (!_isReorderMode) return;
+    // Ko bắt trên variant-btn
+    if (e.target.closest('.variant-btn')) return;
+    var el = e.currentTarget;
+    if (!el) return;
+    
+    _dragState = {
+        el: el,
+        itemId: el.getAttribute('data-item-id'),
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false
+    };
+    
+    document.addEventListener('mousemove', _dragMouseMove);
+    document.addEventListener('mouseup', _dragMouseUp);
+    e.preventDefault();
+}
+
+function _dragMouseMove(e) {
+    if (!_dragState || !_isReorderMode) return;
+    var dx = e.clientX - _dragState.startX;
+    var dy = e.clientY - _dragState.startY;
+    
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        _dragState.moved = true;
+        _dragState.el.classList.add('dragging');
+        _updateDropTarget(e.clientX, e.clientY);
+    }
+}
+
+function _dragMouseUp(e) {
+    if (!_dragState || !_isReorderMode) {
+        _cleanupDrag();
+        return;
+    }
+    
+    _dragState.el.classList.remove('dragging');
+    
+    if (_dragState.moved && _dragState.dropTarget && _dragState.dropTarget !== _dragState.el) {
+        var targetId = _dragState.dropTarget.getAttribute('data-item-id');
+        _reorderMenuItems(_dragState.itemId, targetId);
+    }
+    
+    _cleanupDrag();
+    document.removeEventListener('mousemove', _dragMouseMove);
+    document.removeEventListener('mouseup', _dragMouseUp);
+}
+
+// ========== TOUCH EVENTS ==========
+function _dragTouchStart(e) {
+    if (!_isReorderMode) return;
+    if (e.target.closest('.variant-btn')) return;
+    var el = e.currentTarget;
+    if (!el) return;
+    
+    var touch = e.touches[0];
+    _dragState = {
+        el: el,
+        itemId: el.getAttribute('data-item-id'),
+        startX: touch.clientX,
+        startY: touch.clientY,
+        moved: false
+    };
+    
+    document.addEventListener('touchmove', _dragTouchMove, { passive: false });
+    document.addEventListener('touchend', _dragTouchEnd, { passive: true });
+    // Ko preventDefault ở touchstart để ko chặn scroll
+}
+
+function _dragTouchMove(e) {
+    if (!_dragState || !_isReorderMode) return;
+    var touch = e.touches[0];
+    var dx = touch.clientX - _dragState.startX;
+    var dy = touch.clientY - _dragState.startY;
+    
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        _dragState.moved = true;
+        // Chỉ prevent khi event còn cancelable - tránh warning trên mobile
+        if (e.cancelable) e.preventDefault();
+        _dragState.el.classList.add('dragging');
+        _updateDropTarget(touch.clientX, touch.clientY);
+    }
+}
+
+function _dragTouchEnd(e) {
+    if (!_dragState || !_isReorderMode) {
+        _cleanupDrag();
+        return;
+    }
+    
+    _dragState.el.classList.remove('dragging');
+    
+    if (_dragState.moved && _dragState.dropTarget && _dragState.dropTarget !== _dragState.el) {
+        var targetId = _dragState.dropTarget.getAttribute('data-item-id');
+        _reorderMenuItems(_dragState.itemId, targetId);
+    }
+    
+    _cleanupDrag();
+    document.removeEventListener('touchmove', _dragTouchMove);
+    document.removeEventListener('touchend', _dragTouchEnd);
+}
+
+// ========== DÙNG CHUNG: TÌM DROP TARGET ==========
+function _updateDropTarget(clientX, clientY) {
+    var target = document.elementFromPoint(clientX, clientY);
+    if (!target) return;
+    
+    var dropEl = target.closest('[data-item-id]');
+    
+    // Xoá drag-over cũ
+    var container = document.getElementById('menuGrid');
+    var all = container.querySelectorAll('.drag-over');
+    for (var i = 0; i < all.length; i++) all[i].classList.remove('drag-over');
+    
+    if (dropEl && dropEl !== _dragState.el) {
+        dropEl.classList.add('drag-over');
+        _dragState.dropTarget = dropEl;
+    } else {
+        _dragState.dropTarget = null;
+    }
+}
+
+function _cleanupDrag() {
+    // Xoá drag-over khỏi tất cả
+    var container = document.getElementById('menuGrid');
+    if (container) {
+        var all = container.querySelectorAll('.drag-over');
+        for (var i = 0; i < all.length; i++) all[i].classList.remove('drag-over');
+    }
+    _dragState = null;
+}
+
+// ========== SẮP XẾP LẠI MÓN ==========
+function _reorderMenuItems(sourceId, targetId) {
+    // Tìm index trong menuItems
+    var sourceIdx = -1;
+    var targetIdx = -1;
+    for (var i = 0; i < menuItems.length; i++) {
+        if (menuItems[i].id === sourceId) sourceIdx = i;
+        if (menuItems[i].id === targetId) targetIdx = i;
+    }
+    if (sourceIdx === -1 || targetIdx === -1) return;
+    
+    // Di chuyển phần tử
+    var item = menuItems.splice(sourceIdx, 1)[0];
+    menuItems.splice(targetIdx, 0, item);
+    
+    // Cập nhật sortOrder trong memory - chưa sync lên Firebase
+    for (var i = 0; i < menuItems.length; i++) {
+        menuItems[i].sortOrder = i;
+    }
+    _sortOrderChanged = true;
+    
+    // Render lại menu
+    renderMenuByCategory(currentMenuCategory);
+}
+
+// Sync sortOrder lên Firebase - chỉ gọi 1 lần khi thoát chế độ sắp xếp
+// Dùng batchUpdateSortOrder để ghi 1 lần duy nhất, ko spam sync queue
+function _syncSortOrderToFirebase() {
+    var items = [];
+    for (var i = 0; i < menuItems.length; i++) {
+        items.push({ id: menuItems[i].id, sortOrder: i });
+    }
+    DB.batchUpdateSortOrder(items).catch(function(err) {
+        console.error('Lỗi lưu sortOrder:', err);
+    });
 }
 
 // ========== VUỐT LÊN/XUỐNG CHUYỂN DANH MỤC ==========
@@ -195,6 +437,8 @@ function _menuSwipeStart(e) {
 }
 function _menuSwipeEnd(e) {
     if (_menuCategoryIds.length < 2) return;
+    // Khóa vuốt khi đang ở chế độ sắp xếp món
+    if (_isReorderMode) return;
     var endY = e.changedTouches[0].clientY;
     var diff = _menuSwipeStartY - endY;
     // Ngưỡng 50px để tránh vuốt vô tình
@@ -272,12 +516,12 @@ function _doRenderCart() {
     _renderOrderHeaderActionsFast(headerActions);
     
     if (tempOrder.length === 0) {
-        if (_cartLastHtml !== '') {
-            container.innerHTML = '<div class="empty-cart">🛒 Chưa có món nào</div>';
-            _cartLastHtml = '';
-            _cartLastItemCount = 0;
-        }
-        if (totalSpan && _cartLastTotal !== 0) {
+        // FIX: Luôn cập nhật DOM khi giỏ hàng rỗng, không dựa vào cache
+        // vì _cartLastHtml có thể đã bị reset nhưng DOM vẫn còn items cũ
+        container.innerHTML = '<div class="empty-cart">🛒 Chưa có món nào</div>';
+        _cartLastHtml = '';
+        _cartLastItemCount = 0;
+        if (totalSpan) {
             totalSpan.innerText = '0đ';
             _cartLastTotal = 0;
         }
@@ -343,27 +587,27 @@ function _doRenderCart() {
             actionsDiv.innerHTML = '<button class="action-btn btn-table" onclick="handleAddToExistingTable()">🍽️ Thêm vào bàn</button>';
         } else {
             actionsDiv.innerHTML =
-                '<div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px;">' +
-                    '<button class="action-btn btn-table" onclick="handleCreateNewTable()" style="flex: 2;">🍽️ Tạo bàn mới</button>' +
-                    '<span style="font-size: 12px; color: #475569; text-align: center; flex: 1;">' + itemCount + ' món</span>' +
-                    '<span style="font-weight: 600; color: #f97316; flex: 1; text-align: right;">' + formatMoney(total) + '</span>' +
+                '<div class="cart-info-row">' +
+                    '<button class="action-btn btn-table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button>' +
+                    '<span class="cart-item-count">' + itemCount + ' món</span>' +
+                    '<span class="cart-total-label">' + formatMoney(total) + '</span>' +
                 '</div>' +
                 // Nút mệnh giá thanh toán nhanh tiền mặt
-'<div class="denom-actions" style="display: flex; gap: 4px; margin-bottom: 4px;">' +
-    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(50000)" style="flex:1;padding:8px 2px;font-size:12px;">50.000đ</button>' +
-    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(100000)" style="flex:1;padding:8px 2px;font-size:12px;">100.000đ</button>' +
-    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(200000)" style="flex:1;padding:8px 2px;font-size:12px;">200.000đ</button>' +
-    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(500000)" style="flex:1;padding:8px 2px;font-size:12px;">500.000đ</button>' +
+'<div class="denom-actions">' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(50000)">50.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(100000)">100.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(200000)">200.000đ</button>' +
+    '<button class="denom-btn" onclick="takeawayCashPayWithDenom(500000)">500.000đ</button>' +
 '</div>' +
-'<div style="display: flex; gap: 6px; flex-wrap: wrap;">' +
-    '<button class="action-btn btn-cash" onclick="handleTakeawayPayment(\'cash\')" style="flex: 1; padding: 12px 4px; font-size: 14px;">💰 TM</button>' +
-    '<button class="action-btn btn-transfer" onclick="handleTakeawayPayment(\'transfer\')" style="flex: 1; padding: 12px 4px; font-size: 14px;">💳 CK</button>' +
-    '<button class="action-btn btn-grab" onclick="handleGrabOrder()" style="flex: 1; padding: 12px 4px; font-size: 14px;">🚕 GR</button>' +
-    '<button class="action-btn btn-debt" onclick="handleDebtOrder()" style="flex: 1; padding: 12px 4px; font-size: 14px;">💢 Nợ</button>' +
+'<div class="cart-pay-actions">' +
+    '<button class="action-btn btn-cash" onclick="handleTakeawayPayment(\'cash\')">💰 TM</button>' +
+    '<button class="action-btn btn-transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 CK</button>' +
+    '<button class="action-btn btn-grab" onclick="handleGrabOrder()">🚕 GR</button>' +
+    '<button class="action-btn btn-debt" onclick="handleDebtOrder()">💢 Nợ</button>' +
 '</div>' +
                 // Nút lưu nháp - luôn hiển thị khi có món
-                '<div style="margin-top: 6px;">' +
-                    '<button class="action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()" style="width: 100%; padding: 10px; font-size: 13px;">💬 Lưu nháp</button>' +
+                '<div class="cart-draft-row">' +
+                    '<button class="action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>' +
                 '</div>'
         }
     }
@@ -389,7 +633,8 @@ function _renderOrderHeaderActionsFast(headerActions) {
             '<button class="header-action-btn btn-cash" onclick="handleTakeawayPayment(\'cash\')">💰 Tiền mặt</button>' +
             '<button class="header-action-btn btn-transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 Chuyển khoản</button>' +
             '<button class="header-action-btn btn-debt" onclick="handleDebtOrder()">💢 Nợ</button>' +
-            '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>';
+            '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>' +
+            '<button class="header-action-btn btn-sort" onclick="toggleReorderMode()" id="reorderToggleBtn">🔀 Sắp xếp</button>';
     }
     headerActions.innerHTML = html;
 }
