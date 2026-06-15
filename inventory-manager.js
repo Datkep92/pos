@@ -22,6 +22,18 @@ function renderInventoryCategoryFilter() {
     if (!filter && !catSelect && !catSelectModal) return;
     
     var cats = menuCategories || [];
+    
+    // Nếu chưa có dữ liệu categories, load từ DB
+    if (cats.length === 0 && typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('menu_categories').then(function(dbCats) {
+            if (dbCats && dbCats.length > 0) {
+                window.menuCategories = dbCats;
+            }
+            renderInventoryCategoryFilter();
+        }).catch(function() {});
+        return;
+    }
+    
     // Sắp xếp theo thứ tự
     cats.sort(function(a, b) { return (a.order || 999) - (b.order || 999); });
     
@@ -43,6 +55,20 @@ function renderInventoryCategories() {
     if (!container) return;
     
     var cats = menuCategories || [];
+    
+    // Nếu chưa có dữ liệu categories, load từ DB
+    if (cats.length === 0 && typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('menu_categories').then(function(dbCats) {
+            if (dbCats && dbCats.length > 0) {
+                window.menuCategories = dbCats;
+            }
+            renderInventoryCategories();
+        }).catch(function() {
+            container.innerHTML = '<div class="empty-text">Chưa có danh mục nào</div>';
+        });
+        return;
+    }
+    
     cats.sort(function(a, b) { return (a.order || 999) - (b.order || 999); });
     
     if (cats.length === 0) {
@@ -197,13 +223,54 @@ function renderInventoryMenu() {
     var filterCatId = filter ? filter.value : 'all';
     
     var items = menuItems || [];
+    var cats = menuCategories || [];
+    
+    // Nếu chưa có dữ liệu menu items, load từ DB
+    if (items.length === 0 && typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('menu_items').then(function(dbItems) {
+            if (dbItems && dbItems.length > 0) {
+                window.menuItems = dbItems;
+            }
+            // Load categories nếu chưa có
+            if (cats.length === 0) {
+                return DB.getAll('menu_categories').then(function(dbCats) {
+                    if (dbCats && dbCats.length > 0) {
+                        window.menuCategories = dbCats;
+                    }
+                    renderInventoryMenu();
+                });
+            }
+            renderInventoryMenu();
+        }).catch(function() {
+            container.innerHTML = '<div class="empty-text">Chưa có món ăn nào</div>';
+        });
+        return;
+    }
+    
+    // Nếu chỉ thiếu categories
+    if (cats.length === 0 && typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('menu_categories').then(function(dbCats) {
+            if (dbCats && dbCats.length > 0) {
+                window.menuCategories = dbCats;
+            }
+            renderInventoryMenu();
+        }).catch(function() {
+            // Render tiếp với cats rỗng
+            _doRenderInventoryMenu(items, cats, filterCatId, container);
+        });
+        return;
+    }
+    
+    _doRenderInventoryMenu(items, cats, filterCatId, container);
+}
+
+function _doRenderInventoryMenu(items, cats, filterCatId, container) {
     if (filterCatId !== 'all') {
         items = items.filter(function(i) { return String(i.categoryId) === String(filterCatId); });
     }
     
     // Xây lookup category name
     var catMap = {};
-    var cats = menuCategories || [];
     for (var i = 0; i < cats.length; i++) {
         catMap[cats[i].id] = cats[i].name;
     }
@@ -364,24 +431,81 @@ function showMenuItemDetail(itemId) {
 // ========== CRUD MÓN ĂN ==========
 function showAddMenuItemForm() {
     _editingMenuItemId = null;
-    var nameInput = document.getElementById('addModalItemName');
-    var priceInput = document.getElementById('addModalItemPrice');
-    var catSelect = document.getElementById('invMenuItemCategory');
-    var catSelectModal = document.getElementById('invMenuItemCategoryModal');
-    var errorEl = document.getElementById('addModalItemError');
-    if (nameInput) { nameInput.value = ''; }
-    if (priceInput) priceInput.value = '';
-    if (catSelect) catSelect.value = '';
-    if (catSelectModal) catSelectModal.value = '';
-    if (errorEl) errorEl.innerText = '';
+    
+    // Render form HTML vào modal body
+    var modalBody = document.getElementById('addMenuItemModalBody');
+    if (!modalBody) return;
+    
+    // Build category options
+    var cats = menuCategories || [];
+    cats.sort(function(a, b) { return (a.order || 999) - (b.order || 999); });
+    var catOptionsHtml = '<option value="">-- Chọn danh mục --</option>';
+    for (var i = 0; i < cats.length; i++) {
+        catOptionsHtml += '<option value="' + cats[i].id + '">' + escapeHtml(cats[i].name || '') + '</option>';
+    }
+    
+    var html = '';
+    html += '<div class="inv-form" style="display:flex;flex-direction:column;gap:10px;">';
+    
+    // Tên món
+    html += '<div class="inv-form-row">';
+    html += '<label style="font-weight:600;font-size:13px;">Tên món <span style="color:red;">*</span></label>';
+    html += '<input type="text" id="addModalItemName" class="form-input" placeholder="VD: Cà phê sữa đá">';
+    html += '</div>';
+    
+    // Giá bán
+    html += '<div class="inv-form-row">';
+    html += '<label style="font-weight:600;font-size:13px;">Giá bán <span style="color:red;">*</span></label>';
+    html += '<input type="number" id="addModalItemPrice" class="form-input" placeholder="VD: 35000" step="1000">';
+    html += '</div>';
+    
+    // Danh mục
+    html += '<div class="inv-form-row">';
+    html += '<label style="font-weight:600;font-size:13px;">Danh mục</label>';
+    html += '<select id="invMenuItemCategoryModal" class="form-input">' + catOptionsHtml + '</select>';
+    html += '</div>';
+    
+    // Error
+    html += '<div id="addModalItemError" style="color:#ef4444;font-size:12px;min-height:18px;"></div>';
+    
+    // === SIZE / VARIANT ===
+    html += '<div style="border-top:1px solid var(--border);padding-top:8px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+    html += '<span style="font-weight:600;font-size:13px;">📏 Size / Phiên bản</span>';
+    html += '<button class="btn-small btn-outline" onclick="_addMenuItemSizeRow(\'\', \'\', [], \'\')" style="font-size:11px;">+ Thêm size</button>';
+    html += '</div>';
+    html += '<div id="addModalSizesContainer"></div>';
+    html += '</div>';
+    
+    // === NGUYÊN LIỆU CHUNG ===
+    html += '<div style="border-top:1px solid var(--border);padding-top:8px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+    html += '<span style="font-weight:600;font-size:13px;">🧂 Nguyên liệu chung (cho mọi size)</span>';
+    html += '<button class="btn-small btn-outline" onclick="_addModalIngredient()" style="font-size:11px;">+ Thêm NL</button>';
+    html += '</div>';
+    html += '<div id="addModalIngredientsContainer"></div>';
+    html += '</div>';
+    
+    // Nút hành động
+    html += '<div style="display:flex;gap:8px;margin-top:8px;padding-top:12px;border-top:1px solid var(--border);">';
+    html += '<button class="btn-save" onclick="handleSaveMenuItem()" style="flex:1;">💾 Lưu món</button>';
+    html += '<button class="btn-cancel" onclick="closeModal(\'addMenuItemModal\')" style="flex:1;">Hủy</button>';
+    html += '</div>';
+    
+    html += '</div>';
+    modalBody.innerHTML = html;
+    
     renderInventoryCategoryFilter();
     // Reset sizes & ingredients
     _resetMenuItemSizes();
     _resetMenuItemIngredients();
-    // Mở popup thay vì form inline
+    // Mở popup
     openBottomSheet('addMenuItemModal');
     // Focus sau khi modal mở
-    setTimeout(function() { if (nameInput) nameInput.focus(); }, 300);
+    setTimeout(function() {
+        var nameInput = document.getElementById('addModalItemName');
+        if (nameInput) nameInput.focus();
+    }, 300);
 }
 
 function hideAddMenuItemForm() {
@@ -581,6 +705,11 @@ function _createSizeIngRow(ingId, qty, unit) {
         '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;">✕</button>' +
     '</div>';
     return div.firstElementChild;
+}
+
+function _addModalIngredient() {
+    _addModalIngredients.push({ ingredientId: '', quantity: '', unit: '' });
+    _renderAddModalIngredients();
 }
 
 function _resetMenuItemIngredients() {
@@ -1056,7 +1185,21 @@ function renderInventoryIngredients() {
     
     var ings = ingredients || [];
     
+    // Nếu chưa có dữ liệu, load từ DB
     if (ings.length === 0) {
+        if (typeof DB !== 'undefined' && DB.getAll) {
+            DB.getAll('ingredients').then(function(dbIngs) {
+                if (dbIngs && dbIngs.length > 0) {
+                    window.ingredients = dbIngs;
+                    renderInventoryIngredients();
+                } else {
+                    container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
+                }
+            }).catch(function() {
+                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
+            });
+            return;
+        }
         container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
         return;
     }
@@ -1940,6 +2083,7 @@ window._addMenuItemIngredientRow = _addMenuItemIngredientRow;
 window._createSizeIngRow = _createSizeIngRow;
 window._resetMenuItemSizes = _resetMenuItemSizes;
 window._resetMenuItemIngredients = _resetMenuItemIngredients;
+window._addModalIngredient = _addModalIngredient;
 window.showIngredientUsage = showIngredientUsage;
 window.toggleIngUsageDate = toggleIngUsageDate;
 window.switchIngUsageTab = switchIngUsageTab;

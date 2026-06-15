@@ -43,7 +43,9 @@ function saveManagerPickup() {
     var btn = document.getElementById('saveManagerPickupBtn');
     if (btn) btn.disabled = true;
 
-    var amount = parseInt(document.getElementById('managerPickupAmount').value) || 0;
+    // Ưu tiên settings (mgrPickupInput) trước, sau đó modal (managerPickupAmount)
+    var amountEl = document.getElementById('mgrPickupInput') || document.getElementById('managerPickupAmount');
+    var amount = amountEl ? (parseFloat(amountEl.value) || 0) : 0;
     var note = document.getElementById('managerPickupNote').value.trim();
 
     if (amount <= 0) {

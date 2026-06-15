@@ -5,6 +5,9 @@
 
 var _realtimeTimers = {};
 var _tableTimerId = null;
+// P0: Cache DOM references cho timer - tránh querySelectorAll mỗi giây
+var _tableCardCache = {};
+var _tableCardCacheDirty = false;
 
 function _debounceRealtime(key, fn, delay) {
     delay = delay || 100;
@@ -21,15 +24,53 @@ function _renderNow(key, fn) {
     fn();
 }
 
+// ========== TOGGLE RECENT TOAST (thu gọn / mở rộng) ==========
+function toggleRecentToast() {
+    var container = document.getElementById('recentToast');
+    if (!container) return;
+    container.classList.toggle('collapsed');
+    var toggleIcon = document.getElementById('recentToastToggle');
+    if (toggleIcon) {
+        toggleIcon.textContent = container.classList.contains('collapsed') ? '▼' : '▲';
+    }
+    // Lưu trạng thái vào localStorage
+    try {
+        localStorage.setItem('recentToastCollapsed', container.classList.contains('collapsed') ? '1' : '0');
+    } catch(e) {}
+}
+
+// Khôi phục trạng thái recentToast từ localStorage
+function restoreRecentToastState() {
+    var container = document.getElementById('recentToast');
+    if (!container) return;
+    try {
+        var collapsed = localStorage.getItem('recentToastCollapsed');
+        if (collapsed === '1') {
+            container.classList.add('collapsed');
+            var toggleIcon = document.getElementById('recentToastToggle');
+            if (toggleIcon) toggleIcon.textContent = '▼';
+        }
+    } catch(e) {}
+}
+
 // ========== UPDATE RECENT TOAST ==========
 function updateRecentToast() {
     var todayStr = new Date().toISOString().slice(0, 10);
     DB.getTransactionsByDate(todayStr).then(function(transactions) {
-        var validTx = transactions.filter(function(tx) { return !tx.refunded; });
+        // FIX: Hiển thị cả giao dịch hủy (refund) trong recentToast
+        // Chỉ lọc bỏ các transaction bị đánh dấu trùng lặp tự động (có note chứa 'Tự động')
+        var validTx = transactions.filter(function(tx) {
+            // Giữ lại giao dịch refunded do người dùng chủ động hủy
+            // Chỉ lọc bỏ nếu refunded và có note 'Tự động đánh dấu trùng lặp'
+            if (tx.refunded && tx.note && tx.note.indexOf('Tự động') !== -1) {
+                return false;
+            }
+            return true;
+        });
         validTx.sort(function(a, b) {
             return new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date);
         });
-        var recent = validTx.slice(0, 3);
+        var recent = validTx.slice(0, 5); // Tăng lên 5 để có chỗ cho cả giao dịch hủy
         var container = document.getElementById('recentToastList');
         if (!container) return;
         
@@ -49,7 +90,13 @@ function updateRecentToast() {
             else timeText = Math.floor(timeDiff / 60) + 'h';
             
             var shortInfo = '';
-            if (tx.tableName) {
+            if (tx.refunded) {
+                shortInfo = '↩️ Hoàn tác';
+            } else if (tx.type === 'debt_payment') {
+                shortInfo = '💢 Thanh toán nợ';
+            } else if (tx.type === 'credit') {
+                shortInfo = '💰 Tiền dư';
+            } else if (tx.tableName) {
                 var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
                 shortInfo = '🍽️ ' + displayLabel;
             } else if (tx.type === 'takeaway') {
@@ -67,7 +114,9 @@ function updateRecentToast() {
             var itemInfo = totalItems > 0 ? ' (' + totalItems + ' món)' : '';
             
             var methodIcon = '';
-            if (tx.paymentMethod === 'cash') methodIcon = '💰';
+            if (tx.refunded) {
+                methodIcon = '↩️';
+            } else if (tx.paymentMethod === 'cash') methodIcon = '💰';
             else if (tx.paymentMethod === 'transfer') methodIcon = '💳';
             else if (tx.paymentMethod === 'debt') methodIcon = '💢';
             else if (tx.paymentMethod === 'grab') methodIcon = '🚕';
@@ -132,7 +181,7 @@ function createTableCard(table) {
         if (typeof isTableLocked === 'function') {
             isLocked = isTableLocked(table);
         } else {
-            isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+            isLocked = diffMins >= ((window.shopConfig && window.shopConfig.tableLockHours) || 5) * 60;
         }
     }
     
@@ -143,16 +192,29 @@ function createTableCard(table) {
     div.setAttribute('data-id', table.id);
     div.setAttribute('data-start-time', table.startTime || '');
     div.onclick = function(id) { return function() { showTableDetail(id); }; }(table.id);
+    
+    // FIX: Luôn hiển thị nút Thêm món, kể cả khi bàn chưa có startTime hoặc bị khóa
+    // Nút thanh toán chỉ hiện khi bàn có items
     var actionBtnsHtml = '';
-    if (table.startTime && !isLocked) {
-        actionBtnsHtml =
-            '<span class="table-act-row">' +
-                '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>' +
-                '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
-                '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
-                '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>' +
-            '</span>';
+    var hasItems = itemCount > 0;
+    
+    // Nút Thêm món - luôn hiện
+    actionBtnsHtml +=
+        '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
+    
+    // Nếu bàn có items và không bị khóa -> hiện thêm nút in và thanh toán
+    if (hasItems && !isLocked) {
+        actionBtnsHtml +=
+            '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+            '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+            '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
     }
+    
+    // Bọc trong table-act-row nếu có action buttons
+    if (actionBtnsHtml) {
+        actionBtnsHtml = '<span class="table-act-row">' + actionBtnsHtml + '</span>';
+    }
+    
     div.innerHTML =
         '<div class="table-header">' +
             '<span class="table-name" onclick="event.stopPropagation(); showCustomerSelectorForTable(\'' + table.id + '\')" style="cursor:pointer;">' + displayName + (isLocked ? ' 🔒' : '') + '</span>' +
@@ -188,7 +250,7 @@ function updateTableCard(card, table) {
         if (typeof isTableLocked === 'function') {
             isLocked = isTableLocked(table);
         } else {
-            isLocked = diffMins >= (TABLE_LOCK_HOURS || 5) * 60;
+            isLocked = diffMins >= ((window.shopConfig && window.shopConfig.tableLockHours) || 5) * 60;
         }
     }
     
@@ -208,13 +270,42 @@ function updateTableCard(card, table) {
     var totalSpan = card.querySelector('.table-total');
     if (totalSpan) totalSpan.innerHTML = formatMoney(table.total);
     
+    // FIX: Cập nhật action buttons động
     var actionsEl = card.querySelector('.table-actions');
-    var recentAddsEl = actionsEl ? actionsEl.querySelector('.table-recent-adds') : null;
-    var newRecentHtml = _renderRecentAddsHtml(table.recentAdds);
-    if (recentAddsEl) {
-        recentAddsEl.outerHTML = newRecentHtml;
-    } else if (newRecentHtml && actionsEl) {
-        actionsEl.insertAdjacentHTML('beforeend', newRecentHtml);
+    if (actionsEl) {
+        // Cập nhật recent adds
+        var recentAddsEl = actionsEl.querySelector('.table-recent-adds');
+        var newRecentHtml = _renderRecentAddsHtml(table.recentAdds);
+        if (recentAddsEl) {
+            recentAddsEl.outerHTML = newRecentHtml;
+        } else if (newRecentHtml) {
+            actionsEl.insertAdjacentHTML('afterbegin', newRecentHtml);
+        }
+        
+        // Cập nhật action buttons - xóa cũ và tạo mới
+        var oldActRow = actionsEl.querySelector('.table-act-row');
+        if (oldActRow) {
+            oldActRow.remove();
+        }
+        
+        var hasItems = itemCount > 0;
+        var newActionBtns = '';
+        
+        // Nút Thêm món - luôn hiện
+        newActionBtns +=
+            '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
+        
+        // Nếu bàn có items và không bị khóa -> hiện thêm nút in và thanh toán
+        if (hasItems && !isLocked) {
+            newActionBtns +=
+                '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+                '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+                '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+        }
+        
+        if (newActionBtns) {
+            actionsEl.insertAdjacentHTML('beforeend', '<span class="table-act-row">' + newActionBtns + '</span>');
+        }
     }
     
     if (isLocked) {
@@ -226,7 +317,9 @@ function updateTableCard(card, table) {
 
 // ========== UPDATE TABLES DIFF (optimized) ==========
 function updateTablesDiff(newTables) {
-    var activeTables = newTables.filter(function(t) { return (t.items && t.items.length) || t.total > 0; });
+    // FIX: Hiển thị TẤT CẢ bàn, kể cả bàn trống (không có items)
+    // Bàn trống vẫn cần hiển thị để người dùng có thể thêm món
+    var activeTables = newTables || [];
     var grid = document.getElementById('tablesGrid');
     if (!grid) return;
     
@@ -255,6 +348,8 @@ function updateTablesDiff(newTables) {
     for (var id in existingIds) {
         if (!newIds[id]) {
             existingIds[id].remove();
+            // P1: Đánh dấu cache dirty
+            _tableCardCacheDirty = true;
         }
     }
     
@@ -268,6 +363,8 @@ function updateTablesDiff(newTables) {
         } else {
             if (!fragment) fragment = document.createDocumentFragment();
             fragment.appendChild(createTableCard(table));
+            // P1: Đánh dấu cache dirty
+            _tableCardCacheDirty = true;
         }
     }
     if (fragment) grid.appendChild(fragment);
@@ -285,58 +382,113 @@ function renderTables() {
     });
 }
 
-// ========== TABLE TIMER ==========
+// ========== TABLE TIMER (OPTIMIZED) ==========
+// P0: Chỉ chạy khi ở tab Bàn - kiểm tra currentTab
+// P1: Cache DOM references - không querySelectorAll mỗi giây
+// P2: Cache DOM elements trong card - tránh querySelector mỗi giây
+// P3: Chỉ update giây khi diff < 1 phút, nếu >= 1 phút thì update mỗi phút
+var _tableCardElCache = {}; // { id: { timeSpan, nameSpan, card } }
+
 function startTableTimer() {
     if (_tableTimerId) return;
     _tableTimerId = setInterval(function() {
-        var grid = document.getElementById('tablesGrid');
-        if (grid) {
-            var cards = grid.querySelectorAll('.table-card');
-            for (var i = 0; i < cards.length; i++) {
-                var card = cards[i];
-                var startTime = card.getAttribute('data-start-time');
-                if (!startTime) continue;
-                
-                var start = new Date(startTime);
-                var diffSecs = Math.floor((Date.now() - start) / 1000);
-                var hours = Math.floor(diffSecs / 3600);
-                var mins = Math.floor((diffSecs % 3600) / 60);
-                var secs = diffSecs % 60;
-                
-                var hh = hours < 10 ? '0' + hours : '' + hours;
-                var mm = mins < 10 ? '0' + mins : '' + mins;
-                var ss = secs < 10 ? '0' + secs : '' + secs;
-                var timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + hh + ':' + mm + ':' + ss;
-                
-                var isLocked = false;
-                var tableId = card.getAttribute('data-id');
-                if (tableId && cachedTables) {
-                    for (var j = 0; j < cachedTables.length; j++) {
-                        if (cachedTables[j].id === tableId) {
-                            if (typeof isTableLocked === 'function') {
-                                isLocked = isTableLocked(cachedTables[j]);
-                            } else {
-                                isLocked = diffSecs >= (TABLE_LOCK_HOURS || 5) * 3600;
-                            }
-                            break;
-                        }
+        // P0: Bỏ qua nếu không ở tab Bàn
+        if (currentTab !== 'tables') return;
+        
+        var now = Date.now();
+        var rebuildCache = _tableCardCacheDirty;
+        
+        // P1: Nếu cache dirty, rebuild cache từ DOM
+        if (_tableCardCacheDirty) {
+            _tableCardCache = {};
+            _tableCardElCache = {};
+            var grid = document.getElementById('tablesGrid');
+            if (grid) {
+                var cards = grid.querySelectorAll('.table-card:not(.table-create-btn)');
+                for (var i = 0; i < cards.length; i++) {
+                    var id = cards[i].getAttribute('data-id');
+                    if (id) {
+                        _tableCardCache[id] = cards[i];
+                        // P2: Cache DOM elements ngay khi rebuild
+                        _tableCardElCache[id] = {
+                            card: cards[i],
+                            timeSpan: cards[i].querySelector('.table-time'),
+                            nameSpan: cards[i].querySelector('.table-name')
+                        };
                     }
                 }
-                
-                var timeSpan = card.querySelector('.table-time');
-                if (timeSpan) timeSpan.innerHTML = (isLocked ? '🔒 ' : '⏱️ ') + timeDisplay;
-                
-                var nameSpan = card.querySelector('.table-name');
-                if (nameSpan) {
-                    var nameText = nameSpan.textContent.replace(/ 🔒$/, '');
-                    nameSpan.innerHTML = nameText + (isLocked ? ' 🔒' : '');
+            }
+            _tableCardCacheDirty = false;
+        }
+        
+        for (var id in _tableCardCache) {
+            if (!_tableCardCache.hasOwnProperty(id)) continue;
+            var card = _tableCardCache[id];
+            if (!card || !card.parentNode) {
+                delete _tableCardCache[id];
+                delete _tableCardElCache[id];
+                continue;
+            }
+            
+            var startTime = card.getAttribute('data-start-time');
+            if (!startTime) continue;
+            
+            var start = new Date(startTime);
+            var diffSecs = Math.floor((now - start) / 1000);
+            var hours = Math.floor(diffSecs / 3600);
+            var mins = Math.floor((diffSecs % 3600) / 60);
+            var secs = diffSecs % 60;
+            
+            // P3: Chỉ update giây khi bàn mới hoạt động < 1 phút
+            // Nếu >= 1 phút, chỉ update mỗi 60 giây (bỏ qua giây)
+            var skipSeconds = (diffSecs >= 60);
+            if (skipSeconds && secs !== 0) continue;
+            
+            var hh = hours < 10 ? '0' + hours : '' + hours;
+            var mm = mins < 10 ? '0' + mins : '' + mins;
+            var ss = secs < 10 ? '0' + secs : '' + secs;
+            var timeDisplay = start.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' - ' + hh + ':' + mm + (skipSeconds ? '' : ':' + ss);
+            
+            var isLocked = false;
+            if (cachedTables) {
+                for (var j = 0; j < cachedTables.length; j++) {
+                    if (cachedTables[j].id === id) {
+                        if (typeof isTableLocked === 'function') {
+                            isLocked = isTableLocked(cachedTables[j]);
+                        } else {
+                            isLocked = diffSecs >= ((window.shopConfig && window.shopConfig.tableLockHours) || 5) * 3600;
+                        }
+                        break;
+                    }
                 }
-                
-                if (isLocked) {
-                    card.classList.add('table-locked');
-                } else {
-                    card.classList.remove('table-locked');
-                }
+            }
+            
+            // P2: Dùng cached DOM elements, không querySelector
+            var el = _tableCardElCache[id];
+            if (!el) {
+                // Fallback: tạo cache entry mới
+                el = {
+                    card: card,
+                    timeSpan: card.querySelector('.table-time'),
+                    nameSpan: card.querySelector('.table-name')
+                };
+                _tableCardElCache[id] = el;
+            }
+            
+            if (el.timeSpan) {
+                // Dùng textContent thay innerHTML để nhanh hơn
+                el.timeSpan.textContent = (isLocked ? '🔒 ' : '⏱️ ') + timeDisplay;
+            }
+            
+            if (el.nameSpan) {
+                var nameText = el.nameSpan.textContent.replace(/ 🔒$/, '');
+                el.nameSpan.textContent = nameText + (isLocked ? ' 🔒' : '');
+            }
+            
+            if (isLocked) {
+                card.classList.add('table-locked');
+            } else {
+                card.classList.remove('table-locked');
             }
         }
         _updateRecentToastTimes();
@@ -443,5 +595,64 @@ function initRealtime() {
                 renderHistoryByDate(currentHistoryDate);
             }
         }, 300);
+    });
+
+    // Info (shop config) - cập nhật realtime khi thay đổi giờ lock, telegram, v.v.
+    DB.subscribe('info', function(data) {
+        if (!data || data.length === 0) return;
+        _debounceRealtime('info', function() {
+            // Lấy item shop_config từ mảng (chỉ có 1 item duy nhất)
+            var infoItem = null;
+            for (var i = 0; i < data.length; i++) {
+                if (data[i].id === 'shop_config') {
+                    infoItem = data[i];
+                    break;
+                }
+            }
+            if (!infoItem) return;
+            
+            // Cập nhật window.shopConfig với dữ liệu mới từ Firebase
+            var oldConfig = window.shopConfig || {};
+            window.shopConfig = {
+                telegramBotToken: infoItem.telegramBotToken || oldConfig.telegramBotToken || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
+                telegramChatId: infoItem.telegramChatId || oldConfig.telegramChatId || '6372876364',
+                lockPassword: infoItem.lockPassword || oldConfig.lockPassword || '28122020',
+                lockStartHour: infoItem.lockStartHour !== undefined ? infoItem.lockStartHour : (oldConfig.lockStartHour !== undefined ? oldConfig.lockStartHour : 17),
+                lockEndHour: infoItem.lockEndHour !== undefined ? infoItem.lockEndHour : (oldConfig.lockEndHour !== undefined ? oldConfig.lockEndHour : 5),
+                lockEndMinute: infoItem.lockEndMinute !== undefined ? infoItem.lockEndMinute : (oldConfig.lockEndMinute !== undefined ? oldConfig.lockEndMinute : 30),
+                tableLockHours: infoItem.tableLockHours !== undefined ? infoItem.tableLockHours : (oldConfig.tableLockHours !== undefined ? oldConfig.tableLockHours : 5)
+            };
+            
+            // Cập nhật tên quán trên header nếu có
+            if (infoItem.name) {
+                window.shopInfo = window.shopInfo || {};
+                window.shopInfo.name = infoItem.name;
+                var shopNameEl = document.getElementById('shopNameHeader');
+                if (shopNameEl) shopNameEl.textContent = infoItem.name;
+            }
+            
+            console.log('🔄 Shop config updated realtime:', JSON.stringify(window.shopConfig));
+        }, 200);
+    });
+    
+    // Messages - cập nhật chat realtime
+    DB.subscribe('messages', function(data) {
+        if (!data) return;
+        _debounceRealtime('messages', function() {
+            // Cập nhật badge
+            if (typeof updateChatBadge === 'function') {
+                updateChatBadge();
+            }
+            // Nếu popup đang mở, render lại danh sách
+            if (_chatPopupVisible) {
+                if (typeof renderChatMessages === 'function') {
+                    renderChatMessages();
+                }
+            }
+            // Kiểm tra tin nhắn mới để hiển thị popup tự động + âm thanh
+            if (typeof checkNewMessages === 'function') {
+                checkNewMessages();
+            }
+        }, 200);
     });
 }

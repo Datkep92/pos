@@ -42,6 +42,8 @@ function initExpense() {
     if (expenseInitialized) return;
     loadExpenseData().then(function() {
         attachExpenseEvents();
+        renderIngredientList();
+        renderWasteTypeList();
         expenseInitialized = true;
         console.log('Expense module initialized');
     }).catch(function(err) {
@@ -154,8 +156,27 @@ function renderIngredientList() {
     var container = document.getElementById('expenseIngredientGrid');
     if (!container) return;
 
-    var list = window.ingredients || [];
-    if (list.length === 0) {
+    var list = window.ingredients;
+    // Nếu chưa có ingredients, load từ DB
+    if (!list || list.length === 0) {
+        if (typeof DB !== 'undefined' && typeof DB.getAll === 'function') {
+            DB.getAll('ingredients').then(function(ings) {
+                window.ingredients = ings || [];
+                ingredients = ings || [];
+                _renderIngredientGrid(container, window.ingredients);
+            }).catch(function() {
+                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+            });
+        } else {
+            container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        }
+        return;
+    }
+    _renderIngredientGrid(container, list);
+}
+
+function _renderIngredientGrid(container, list) {
+    if (!list || list.length === 0) {
         container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
         return;
     }
@@ -965,33 +986,29 @@ function attachExpenseEvents() {
         amountInput.addEventListener('input', onIngredientInput);
     }
 
-    // Filter nguyên liệu
+    // Filter chung cho cả ingredient và waste grid
+    function _filterGrid(gridSelector, itemSelector, nameSelector) {
+        var keyword = this.value.trim().toLowerCase();
+        var items = document.querySelectorAll(gridSelector + ' ' + itemSelector);
+        for (var i = 0; i < items.length; i++) {
+            var nameEl = nameSelector ? items[i].querySelector(nameSelector) : items[i];
+            if (!nameEl) continue;
+            var name = nameEl.innerText.toLowerCase();
+            items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
+        }
+    }
+
     var filterInput = document.getElementById('expenseIngredientSearch');
     if (filterInput) {
         filterInput.addEventListener('input', function() {
-            var keyword = this.value.trim().toLowerCase();
-            var items = document.querySelectorAll('#expenseIngredientGrid .ingredient-grid-item');
-            for (var i = 0; i < items.length; i++) {
-                var nameEl = items[i].querySelector('.ingredient-item-name');
-                if (!nameEl) continue;
-                var name = nameEl.innerText.toLowerCase();
-                items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
-            }
+            _filterGrid.call(this, '#expenseIngredientGrid', '.ingredient-grid-item', '.ingredient-item-name');
         });
     }
 
-    // Filter hao phí
     var wasteFilter = document.getElementById('expenseWasteSearch');
     if (wasteFilter) {
         wasteFilter.addEventListener('input', function() {
-            var keyword = this.value.trim().toLowerCase();
-            var items = document.querySelectorAll('#expenseWasteGrid .waste-grid-item');
-            for (var i = 0; i < items.length; i++) {
-                var nameEl = items[i].querySelector('.waste-item-name');
-                if (!nameEl) continue;
-                var name = nameEl.innerText.toLowerCase();
-                items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
-            }
+            _filterGrid.call(this, '#expenseWasteGrid', '.waste-grid-item', '.waste-item-name');
         });
     }
 }

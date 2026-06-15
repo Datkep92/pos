@@ -6,6 +6,7 @@ var currentTab = 'tables';
 var tempOrder = [];
 var selectedCustomer = null;
 var currentHistoryDate = new Date();
+var currentReportDate = new Date();
 var menuItems = [];
 var menuCategories = [];
 var ingredients = [];
@@ -26,6 +27,7 @@ var cachedTables = [];
 var tablesCacheTime = 0;
 var CACHE_TTL = 2000;
 var renderScheduled = false;
+var shopInfo = null; // Thông tin quán
 
 document.addEventListener('DOMContentLoaded', function() {
     // Khởi tạo realtime TRƯỚC DB.init()
@@ -53,9 +55,21 @@ document.addEventListener('DOMContentLoaded', function() {
         return loadDraftOrders();
     }).then(function() {
         initEventListeners();
+        // Khôi phục trạng thái recentToast (thu gọn/mở rộng)
+        if (typeof restoreRecentToastState === 'function') {
+            restoreRecentToastState();
+        }
         renderCurrentTime();
         if (typeof initNotifications === 'function') {
             initNotifications();
+        }
+        // Khởi tạo chat nội bộ
+        if (typeof initChat === 'function') {
+            initChat();
+        }
+        // OPTIMIZE: Khởi tạo event delegation cho menu grid (thay vì inline onclick)
+        if (typeof _initMenuEventDelegation === 'function') {
+            _initMenuEventDelegation();
         }
         setInterval(renderCurrentTime, 30000);
         showToast('POS sẵn sàng', 'success');
@@ -88,7 +102,10 @@ function loadData() {
     return Promise.all([
         DB.getAll('menu'),
         DB.getAll('menu_categories'),
-        DB.getAll('customers')
+        DB.getAll('customers'),
+        DB.getAll('info'),
+        // Đọc trực tiếp từ Firebase để đảm bảo shopConfig luôn đúng
+        DB.getShopConfig()
     ]).then(function(results) {
         menuItems = results[0] || [];
         // Sắp xếp menuItems theo sortOrder để kéo thả hoạt động đúng
@@ -99,6 +116,30 @@ function loadData() {
         });
         menuCategories = results[1] || [];
         customers = results[2] || [];
+        // Load shop info từ IndexedDB (ưu tiên)
+        var shopInfoList = results[3] || [];
+        if (shopInfoList.length > 0) {
+            shopInfo = shopInfoList[0];
+        } else {
+            shopInfo = null;
+        }
+        window.shopInfo = shopInfo;
+        // Cập nhật tên quán trên header từ DB
+        var shopNameEl = document.getElementById('shopNameHeader');
+        if (shopNameEl && shopInfo && shopInfo.name) {
+            shopNameEl.textContent = shopInfo.name;
+        }
+        // Shop config: ưu tiên dữ liệu từ Firebase (results[4]), fallback về IndexedDB, rồi hardcode
+        var fbConfig = results[4] || {};
+        window.shopConfig = {
+            telegramBotToken: fbConfig.telegramBotToken || (shopInfo && shopInfo.telegramBotToken) || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
+            telegramChatId: fbConfig.telegramChatId || (shopInfo && shopInfo.telegramChatId) || '6372876364',
+            lockPassword: fbConfig.lockPassword || (shopInfo && shopInfo.lockPassword) || '28122020',
+            lockStartHour: fbConfig.lockStartHour !== undefined ? fbConfig.lockStartHour : (shopInfo && shopInfo.lockStartHour !== undefined ? shopInfo.lockStartHour : 17),
+            lockEndHour: fbConfig.lockEndHour !== undefined ? fbConfig.lockEndHour : (shopInfo && shopInfo.lockEndHour !== undefined ? shopInfo.lockEndHour : 5),
+            lockEndMinute: fbConfig.lockEndMinute !== undefined ? fbConfig.lockEndMinute : (shopInfo && shopInfo.lockEndMinute !== undefined ? shopInfo.lockEndMinute : 30),
+            tableLockHours: fbConfig.tableLockHours !== undefined ? fbConfig.tableLockHours : (shopInfo && shopInfo.tableLockHours !== undefined ? shopInfo.tableLockHours : 5)
+        };
         window.menuItems = menuItems;
         window.customers = customers;
         window.ingredients = ingredients;
@@ -192,6 +233,12 @@ function initEventListeners() {
     var historyFilter = document.getElementById('historyFilter');
     if (historyFilter) historyFilter.onchange = function() { renderHistoryByDate(currentHistoryDate); };
 
+    var reportPrevDayBtn = document.getElementById('reportPrevDayBtn');
+    if (reportPrevDayBtn) reportPrevDayBtn.onclick = function() { changeReportDate(-1); };
+
+    var reportNextDayBtn = document.getElementById('reportNextDayBtn');
+    if (reportNextDayBtn) reportNextDayBtn.onclick = function() { changeReportDate(1); };
+
     var quickAddCustomerBtn = document.getElementById('quickAddCustomerBtn');
     if (quickAddCustomerBtn) quickAddCustomerBtn.onclick = quickAddCustomer;
 
@@ -253,6 +300,33 @@ function switchTab(tabId) {
             renderHistoryByDate(currentHistoryDate);
         } else if (tabId === 'customers') {
             renderCustomerList();
+        } else if (tabId === 'report') {
+            if (typeof renderReport === 'function') {
+                renderReport(currentReportDate);
+            }
+        } else if (tabId === 'inventory') {
+            if (typeof renderInventoryMenu === 'function') renderInventoryMenu();
+            if (typeof renderInventoryIngredients === 'function') renderInventoryIngredients();
+            if (typeof renderInventoryCategoryFilter === 'function') renderInventoryCategoryFilter();
+        } else if (tabId === 'staff') {
+            if (typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin()) {
+                if (typeof DB.getStaffs === 'function') {
+                    DB.getStaffs().then(function(staffs) {
+                        if (typeof renderStaffList === 'function') renderStaffList(staffs);
+                    });
+                }
+            }
+        } else if (tabId === 'cost') {
+            if (typeof initExpense === 'function') initExpense();
+            // renderTodayExpenses đã gọi renderExpensesByDate bên trong
+            if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
+            if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
+        } else if (tabId === 'manager') {
+            if (typeof managerApplyFilter === 'function') managerApplyFilter();
+        } else if (tabId === 'settings') {
+            if (typeof initSettingsTab === 'function') {
+                initSettingsTab();
+            }
         }
     }
 }
@@ -305,7 +379,15 @@ function hideToast(id) {
 }
 
 function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, function(m) { if (m === '&') return '&'; if (m === '<') return '<'; if (m === '>') return '>'; return m; }); }
-function formatDateDisplay(dateStr) { var d = new Date(dateStr); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
+function formatDateDisplay(dateStr) {
+    // Fix timezone: nếu dateStr là YYYY-MM-DD, parse thủ công để tránh lỗi UTC
+    if (typeof dateStr === 'string' && dateStr.length === 10 && dateStr[4] === '-' && dateStr[7] === '-') {
+        var parts = dateStr.split('-');
+        return parseInt(parts[2], 10) + '/' + parseInt(parts[1], 10) + '/' + parseInt(parts[0], 10);
+    }
+    var d = new Date(dateStr);
+    return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+}
 function renderCurrentTime() {
     var now = new Date();
     var timeEl = document.getElementById('currentTime');
@@ -386,3 +468,5 @@ function hideToast(id) {
         delete _toastMap[id];
     }
 }
+
+// Settings code moved to settings.js

@@ -1,17 +1,25 @@
 // tables.js - Quản lý bàn
 // Tách từ pos.js - ES5, tương thích Android 6, iOS 12
 
-// ========== HẰNG SỐ KHÓA BÀN ==========
-var TABLE_LOCK_HOURS = 5; // Khóa bàn sau 5h sử dụng (áp dụng ngoài khung giờ lock period)
-var TABLE_LOCK_MS = TABLE_LOCK_HOURS * 60 * 60 * 1000;
-var LOCK_PASSWORD = '28122020';
-
-// ========== KHUNG GIỜ KHÓA TOÀN BỘ ==========
-// 17h00 hôm nay -> 5h30 hôm sau: tất cả bàn đều bị khóa
-// Sau 5h30: áp dụng khóa theo thời gian ngồi (startTime + 5h)
-var LOCK_START_HOUR = 17;  // 17h00 bắt đầu khóa
-var LOCK_END_HOUR = 5;     // 5h30 kết thúc khóa (5h + 30 phút)
-var LOCK_END_MINUTE = 30;
+// ========== HẰNG SỐ KHÓA BÀN (đọc từ shopConfig, fallback hardcode) ==========
+function _getTableLockHours() {
+    return (window.shopConfig && window.shopConfig.tableLockHours !== undefined) ? window.shopConfig.tableLockHours : 5;
+}
+function _getTableLockMs() {
+    return _getTableLockHours() * 60 * 60 * 1000;
+}
+function _getLockPassword() {
+    return (window.shopConfig && window.shopConfig.lockPassword) ? window.shopConfig.lockPassword : '28122020';
+}
+function _getLockStartHour() {
+    return (window.shopConfig && window.shopConfig.lockStartHour !== undefined) ? window.shopConfig.lockStartHour : 17;
+}
+function _getLockEndHour() {
+    return (window.shopConfig && window.shopConfig.lockEndHour !== undefined) ? window.shopConfig.lockEndHour : 5;
+}
+function _getLockEndMinute() {
+    return (window.shopConfig && window.shopConfig.lockEndMinute !== undefined) ? window.shopConfig.lockEndMinute : 30;
+}
 
 // Biến global lưu ID toast thanh toán để có thể ẩn sau khi xử lý xong
 var _paymentToastId = null;
@@ -20,16 +28,19 @@ function isInLockPeriod() {
     var now = new Date();
     var hourVietnam = (now.getUTCHours() + 7) % 24;
     var minuteVietnam = now.getUTCMinutes(); // UTC+7, minutes same
+    var startH = _getLockStartHour();
+    var endH = _getLockEndHour();
+    var endM = _getLockEndMinute();
     
-    if (hourVietnam >= LOCK_START_HOUR) {
-        // 17h00 - 23h59: đang trong lock period
+    if (hourVietnam >= startH) {
+        // startH:00 - 23h59: đang trong lock period
         return true;
     }
-    if (hourVietnam < LOCK_END_HOUR || (hourVietnam === LOCK_END_HOUR && minuteVietnam < LOCK_END_MINUTE)) {
-        // 0h00 - 5h29: đang trong lock period
+    if (hourVietnam < endH || (hourVietnam === endH && minuteVietnam < endM)) {
+        // 0h00 - endH:endM: đang trong lock period
         return true;
     }
-    // 5h30 - 16h59: ngoài lock period
+    // endH:endM - (startH-1):59: ngoài lock period
     return false;
 }
 
@@ -42,7 +53,7 @@ function isTableLocked(table) {
     
     // Điều kiện 2: Ngoài lock period -> khóa theo thời gian ngồi (quá 5h)
     var elapsed = Date.now() - new Date(table.startTime).getTime();
-    if (elapsed >= TABLE_LOCK_MS) return true;
+    if (elapsed >= _getTableLockMs()) return true;
     
     return false;
 }
@@ -56,15 +67,15 @@ function getTableLockInfo(table) {
     
     // Đang trong lock period (17h-5h30)
     if (isInLockPeriod()) {
-        if (hourVietnam >= LOCK_START_HOUR) {
-            return { hours: 0, mins: 0, elapsed: 0, reason: 'đã qua ' + LOCK_START_HOUR + 'h' };
+        if (hourVietnam >= _getLockStartHour()) {
+            return { hours: 0, mins: 0, elapsed: 0, reason: 'đã qua ' + _getLockStartHour() + 'h' };
         } else {
             return { hours: 0, mins: 0, elapsed: 0, reason: 'khung giờ khóa (17h-5h30)' };
         }
     }
     
     // Ngoài lock period: kiểm tra thời gian ngồi
-    if (elapsed >= TABLE_LOCK_MS) {
+    if (elapsed >= _getTableLockMs()) {
         var hours = Math.floor(elapsed / 3600000);
         var mins = Math.floor((elapsed % 3600000) / 60000);
         return { hours: hours, mins: mins, elapsed: elapsed, reason: 'quá ' + hours + 'h' + mins + 'p' };
@@ -76,7 +87,7 @@ function getTableLockInfo(table) {
 // ========== YÊU CẦU MẬT KHẨU ==========
 function requirePassword(action, callback) {
     var pwd = prompt('🔒 Nhập mật khẩu để ' + action + ':');
-    if (pwd === LOCK_PASSWORD) {
+    if (pwd === _getLockPassword()) {
         callback();
     } else if (pwd !== null) {
         showToast('❌ Sai mật khẩu!', 'error');
@@ -108,6 +119,15 @@ function deleteTableItem(tableId, itemIndex) {
         var itemName = removedItem.name;
         var itemQty = removedItem.qty;
         var itemPrice = removedItem.price;
+
+        // Kiểm tra đã chốt ngày chưa - nếu đã chốt thì yêu cầu mật khẩu
+        // Chống gian lận: nhân viên không thể xóa món sau khi đã chốt ngày
+        if (typeof isDayClosed === 'function' && isDayClosed()) {
+            requirePassword('xóa món ' + itemName + ' (đã chốt ngày hôm nay)', function() {
+                doDeleteTableItem(table, itemIndex, removedItem);
+            });
+            return;
+        }
 
         // Kiểm tra khóa bàn: nếu bàn bị khóa, yêu cầu mật khẩu
         if (isTableLocked(table)) {
@@ -286,19 +306,39 @@ function printTableBill(tableId) {
     DB.get('tables', String(tableId)).then(function(table) {
         if (!table) return;
         if (typeof printAfterPayment === 'function') {
+            var now = new Date();
             printAfterPayment({
-                type: 'dinein',
+                orderType: 'dinein',
                 amount: table.total,
                 paymentMethod: 'manual_print',
                 items: table.items,
                 tableName: table.name,
                 customer: table.customerName ? { name: table.customerName } : null,
-                createdAt: new Date().toISOString()
+                tableTime: table.startTime ? _calcTableTime(table.startTime) : null,
+                startTime: table.startTime ? new Date(table.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null,
+                endTime: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                createdAt: now.toISOString()
             });
         } else {
             showToast('Chức năng in chưa sẵn sàng', 'warning');
         }
     });
+}
+
+/**
+ * Tính thời gian khách ngồi từ startTime đến hiện tại
+ */
+function _calcTableTime(startTime) {
+    if (!startTime) return null;
+    var st = new Date(startTime);
+    var now = new Date();
+    var elapsed = now.getTime() - st.getTime();
+    var hours = Math.floor(elapsed / 3600000);
+    var mins = Math.floor((elapsed % 3600000) / 60000);
+    if (hours > 0) {
+        return hours + 'h' + (mins > 0 ? mins + 'p' : '');
+    }
+    return mins + 'p';
 }
 
 // tables.js - Phần sửa hàm openAddMenuForTable
@@ -385,6 +425,7 @@ function _processPaymentDirect(tableId, method) {
         var customerId = table.customerId;
         var customerName = table.customerName;
         var startTime = table.startTime;
+        var endTime = now.toISOString();
         
         // Tính thời gian khách ngồi (có thể tính song song)
         var tableTime = '';
@@ -450,7 +491,9 @@ function _processPaymentDirect(tableId, method) {
                     tableId: tableId,
                     note: creditUsed > 0 ? 'Đã dùng ' + formatMoney(creditUsed) + ' tiền dư' : '',
                     createdAt: now.toISOString(),
-                    tableTime: tableTime
+                    tableTime: tableTime,
+                    startTime: startTime,
+                    endTime: endTime
                 });
                 
                 var removePromise = DB.remove('tables', String(tableId));
@@ -458,6 +501,14 @@ function _processPaymentDirect(tableId, method) {
                 Promise.all([historyPromise, removePromise]).then(function() {
                     // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
                     DB.flushRealtime();
+                    
+                    // AUDIT: Nếu thanh toán tiền mặt, kiểm tra két
+                    // handleCashPayment luôn tồn tại (định nghĩa trong pos.html)
+                    if (method === 'cash') {
+                        handleCashPayment(finalAmount, null).catch(function(err) {
+                            console.error('[AUDIT] handleCashPayment lỗi:', err);
+                        });
+                    }
                     
                     // Gửi thông báo Telegram (fire-and-forget, không chờ)
                     if (typeof notifyPaymentToTelegram === 'function') {
@@ -668,13 +719,13 @@ function debtAtTable(tableId) {
         }
         showCustomerSelector(function(customer) {
             var now = new Date();
+            var endTime = now.toISOString();
             
             // Tính thời gian khách ngồi
             var tableTime = '';
             if (table.startTime) {
                 var startTime = new Date(table.startTime);
-                var endTime = now;
-                var elapsed = endTime.getTime() - startTime.getTime();
+                var elapsed = now.getTime() - startTime.getTime();
                 var hours = Math.floor(elapsed / 3600000);
                 var mins = Math.floor((elapsed % 3600000) / 60000);
                 if (hours > 0) {
@@ -746,7 +797,9 @@ function debtAtTable(tableId) {
                         tableId: tableId,
                         note: note,
                         createdAt: now.toISOString(),
-                        tableTime: tableTime
+                        tableTime: tableTime,
+                        startTime: table.startTime,
+                        endTime: endTime
                     });
                     
                     var removePromise = DB.remove('tables', String(tableId));
@@ -754,6 +807,19 @@ function debtAtTable(tableId) {
                     Promise.all([historyPromise, removePromise]).then(function() {
                         // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
                         DB.flushRealtime();
+                        
+                        // Gửi thông báo Telegram giao dịch ghi nợ
+                        if (typeof notifyPaymentToTelegram === 'function') {
+                            notifyPaymentToTelegram({
+                                type: 'dinein',
+                                amount: debtAmount,
+                                paymentMethod: 'debt',
+                                items: table.items,
+                                tableName: table.name,
+                                customer: { id: customer.id, name: customer.name },
+                                createdAt: now.toISOString()
+                            });
+                        }
                         
                         hideToast(_paymentToastId);
                         var msg = '💰 Đã ghi nợ ' + formatMoney(debtAmount) + ' cho ' + customer.name;
@@ -764,12 +830,15 @@ function debtAtTable(tableId) {
                         var printCheck = document.getElementById('printAfterPaymentCheck');
                         if (printCheck && printCheck.checked && typeof printAfterPayment === 'function') {
                             printAfterPayment({
-                                type: 'debt_payment',
+                                orderType: 'debt_payment',
                                 amount: debtAmount,
                                 paymentMethod: 'debt',
                                 items: table.items,
                                 tableName: table.name,
                                 customer: { id: customer.id, name: customer.name },
+                                tableTime: table.startTime ? _calcTableTime(table.startTime) : null,
+                                startTime: table.startTime ? new Date(table.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null,
+                                endTime: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                                 createdAt: now.toISOString()
                             });
                         }
@@ -902,6 +971,19 @@ function confirmSplitPaymentWithMethod(method, customer) {
                     }
                     
                     Promise.resolve(historyPromise).then(function() {
+                        // Gửi thông báo Telegram giao dịch chia hóa đơn
+                        if (typeof notifyPaymentToTelegram === 'function') {
+                            notifyPaymentToTelegram({
+                                type: method === 'debt' ? 'dinein' : 'dinein',
+                                amount: splitTotal,
+                                paymentMethod: method,
+                                items: splitItems,
+                                tableName: table.name,
+                                customer: method === 'debt' && customer ? { id: customer.id, name: customer.name } : null,
+                                createdAt: new Date().toISOString()
+                            });
+                        }
+                        
                         // Realtime subscription sẽ tự động cập nhật tables, history, report
                         if (currentTableDetailId === tableId) showTableDetail(tableId);
                         closeModal('splitBillModal');

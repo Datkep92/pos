@@ -38,6 +38,13 @@ function initNotifications() {
     // Tải thông báo header từ DB
     loadHeaderNotification();
     
+    // Đăng ký realtime subscription để tự động cập nhật khi admin gửi thông báo mới
+    if (typeof DB.subscribe === 'function') {
+        DB.subscribe('notifications', function() {
+            loadHeaderNotification();
+        });
+    }
+    
     // Kiểm tra toggle trạng thái
     var toggle = document.getElementById('notificationToggle');
     if (toggle) {
@@ -148,7 +155,8 @@ function dismissLunarNotification() {
 function loadHeaderNotification() {
     DB.getAll(NOTIFICATIONS_COLLECTION).then(function(notifications) {
         if (!notifications || notifications.length === 0) {
-            hideHeaderNotification();
+            // FIX: Hiển thị thông báo mặc định khi chưa có dữ liệu từ Firebase
+            showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'MILANO COFFEE 259') + ' - Chào mừng bạn!', '#f97316');
             renderNotificationHistory([]);
             return;
         }
@@ -173,6 +181,9 @@ function loadHeaderNotification() {
         
         if (latestActive && isEnabled) {
             showHeaderNotification(latestActive.content || latestActive.message || "", latestActive.color || '#f97316');
+        } else if (isEnabled) {
+            // FIX: Nếu không có thông báo active nhưng toggle vẫn bật, hiển thị mặc định
+            showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'MILANO COFFEE 259') + ' - Hệ thống sẵn sàng', '#64748b');
         } else {
             hideHeaderNotification();
         }
@@ -180,7 +191,8 @@ function loadHeaderNotification() {
         // Render lịch sử
         renderNotificationHistory(notifications);
     }).catch(function() {
-        hideHeaderNotification();
+        // FIX: Khi có lỗi (offline), vẫn hiển thị thông báo mặc định
+        showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'MILANO COFFEE 259') + ' - Đang hoạt động', '#f97316');
     });
 }
 

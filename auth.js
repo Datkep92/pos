@@ -167,18 +167,24 @@ function applyRoleBasedUI(user) {
             ' <span class="logout-link" onclick="handleLogout()" style="font-size:11px;color:#f97316;cursor:pointer;margin-left:8px;">[Đăng xuất]</span>';
     }
     
-    // Ẩn/hiện tab Quản lý, Nhân viên và Menu-Tồn kho dựa trên role
+    // Ẩn/hiện tab Quản lý, Nhân viên, Menu-Tồn kho, Báo cáo, Chi phí dựa trên role
     var managerTab = document.querySelector('.tab-btn[data-tab="manager"]');
     var staffTab = document.querySelector('.tab-btn[data-tab="staff"]');
     var inventoryTab = document.querySelector('.tab-btn[data-tab="inventory"]');
+    var reportTab = document.querySelector('.tab-btn[data-tab="report"]');
+    var costTab = document.querySelector('.tab-btn[data-tab="cost"]');
     if (user.role === 'admin') {
         if (managerTab) managerTab.style.display = '';
         if (staffTab) staffTab.style.display = '';
         if (inventoryTab) inventoryTab.style.display = '';
+        if (reportTab) reportTab.style.display = '';
+        if (costTab) costTab.style.display = '';
     } else {
         if (managerTab) managerTab.style.display = 'none';
         if (staffTab) staffTab.style.display = 'none';
         if (inventoryTab) inventoryTab.style.display = 'none';
+        if (reportTab) reportTab.style.display = 'none';
+        if (costTab) costTab.style.display = 'none';
     }
     
     // Hiển thị mã POS trong tab nhân viên
@@ -196,9 +202,10 @@ function applyRoleBasedUI(user) {
 // ========== RELOAD DỮ LIỆU ==========
 
 function reloadAppData() {
-    // Reload lại toàn bộ dữ liệu từ DB mới
-    if (typeof loadData === 'function') {
-        loadData().then(function() {
+    // FIX: Sau khi clearLocalData() xóa IndexedDB, cần force sync từ Firebase
+    // trước khi loadData() để tránh render UI rỗng
+    var doLoad = function() {
+        return loadData().then(function() {
             // Re-render các tab
             if (typeof renderTables === 'function') renderTables();
             if (typeof renderCustomerList === 'function') renderCustomerList();
@@ -212,6 +219,18 @@ function reloadAppData() {
                 });
             }
         });
+    };
+    
+    // Kiểm tra online và force sync nếu cần
+    if (DB.isOnline() && typeof DB.forceSyncFromFirebase === 'function') {
+        DB.forceSyncFromFirebase().then(function() {
+            return doLoad();
+        }).catch(function(err) {
+            console.warn('⚠️ Force sync after login failed:', err);
+            return doLoad();
+        });
+    } else {
+        doLoad();
     }
 }
 
@@ -352,4 +371,5 @@ window.openStaffManager = openStaffManager;
 window.showAddStaffForm = showAddStaffForm;
 window.hideAddStaffForm = hideAddStaffForm;
 window.handleAddStaff = handleAddStaff;
-window.deleteStaff = deleteStaff;
+// deleteStaff đã được định nghĩa trong settings.js (dùng Firebase ref trực tiếp)
+// Không export để tránh xung đột

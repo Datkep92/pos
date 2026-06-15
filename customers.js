@@ -7,12 +7,24 @@ function renderCustomerList() {
         customers = custs;
         var keyword = document.getElementById('customerSearchInput') ? document.getElementById('customerSearchInput').value.toLowerCase() : '';
         var filtered = keyword ? customers.filter(function(c) { return c.name.toLowerCase().indexOf(keyword) !== -1 || (c.phone && c.phone.indexOf(keyword) !== -1); }) : customers;
+        // Tính tổng công nợ thực tế = tổng số dư âm (totalDebt - creditBalance)
         var totalDebt = 0;
-        for (var i = 0; i < filtered.length; i++) totalDebt += (filtered[i].totalDebt || 0);
+        for (var i = 0; i < filtered.length; i++) {
+            var net = (filtered[i].totalDebt || 0) - (filtered[i].creditBalance || 0);
+            if (net > 0) totalDebt += net;
+        }
         document.getElementById('totalDebtAmount').innerText = formatMoney(totalDebt);
         var container = document.getElementById('customerList');
         if (!container) return;
         if (!filtered.length) { container.innerHTML = '<div class="empty-state">📭 Không có khách hàng</div>'; return; }
+        // Sắp xếp: khách có nợ (netBalance < 0) lên trên
+        filtered.sort(function(a, b) {
+            var debtA = (a.totalDebt || 0) - (a.creditBalance || 0);
+            var debtB = (b.totalDebt || 0) - (b.creditBalance || 0);
+            if (debtA > 0 && debtB <= 0) return -1;
+            if (debtB > 0 && debtA <= 0) return 1;
+            return 0;
+        });
         var html = '';
         for (var i = 0; i < filtered.length; i++) {
             var c = filtered[i];
@@ -145,6 +157,10 @@ function showCustomerDetail(customerId) {
         if (showPayBtn) {
             leftHtml = '<div class="cus-pay-inline"><input type="number" id="inlineDebtAmount" class="cus-pay-input" value="' + debtForPayment + '" step="1000" placeholder="Số tiền"><div class="cus-pay-btns"><button class="cus-pay-btn cus-pay-cash" onclick="confirmInlineDebtPayment(\'' + c.id + '\',\'cash\')">💰 TM</button><button class="cus-pay-btn cus-pay-transfer" onclick="confirmInlineDebtPayment(\'' + c.id + '\',\'transfer\')">💳 CK</button></div></div>';
         }
+        // Nút sửa/xóa - chỉ admin, đặt bên left column
+        if (DB.isAdmin && DB.isAdmin()) {
+            leftHtml += '<div class="cus-admin-actions"><button class="cus-edit-btn" onclick="editCustomerInfo(\'' + c.id + '\')">✏️ Sửa</button><button class="cus-delete-btn" onclick="deleteCustomer(\'' + c.id + '\')">🗑️ Xóa</button></div>';
+        }
         
         var rightHtml = '<div class="cus-history-title">📜 Lịch sử</div><div id="customerHistoryList">' + (historyHtml || '<div class="empty-state">Chưa có giao dịch</div>') + '</div>' + (hasMore ? '<button class="cus-expand-btn" id="btnExpandHistory" onclick="toggleCustomerHistory(\'' + c.id + '\')">📋 Xem thêm</button>' : '');
         
@@ -262,6 +278,27 @@ function confirmInlineDebtPayment(customerId, method) {
         if (overpay > 0) historyNote += ' (dư ' + formatMoney(overpay) + ')';
         return addHistory({ type: 'debt_payment', amount: payment, paymentMethod: method, items: [], customer: { id: customer.id, name: customer.name }, note: historyNote });
     }).then(function() {
+        // AUDIT: Nếu thanh toán nợ bằng tiền mặt, kiểm tra két
+        // handleCashPayment luôn tồn tại (định nghĩa trong pos.html)
+        if (method === 'cash') {
+            handleCashPayment(payment, null).catch(function(err) {
+                console.error('[AUDIT] handleCashPayment lỗi:', err);
+            });
+        }
+        
+        // Gửi thông báo Telegram giao dịch thanh toán nợ (cho tất cả phương thức)
+        if (typeof notifyPaymentToTelegram === 'function') {
+            notifyPaymentToTelegram({
+                type: 'debt_payment',
+                amount: payment,
+                paymentMethod: method,
+                items: [],
+                tableName: null,
+                customer: { id: customer.id, name: customer.name },
+                createdAt: new Date().toISOString()
+            });
+        }
+        
         var msg = '✅ Đã thanh toán ' + formatMoney(payment) + ' (' + methodLabel + ')';
         if (creditUsed > 0) msg += ', đã dùng ' + formatMoney(creditUsed) + ' tiền dư';
         if (overpay > 0) msg += ', dư ' + formatMoney(overpay) + ' làm tiền trả trước';
@@ -403,6 +440,48 @@ function createCustomerFromInput() {
     });
 }
 
+// ========== SỬA/XÓA KHÁCH HÀNG (CHỦ ADMIN) ==========
+function editCustomerInfo(customerId) {
+    var c = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
+    if (!c) return;
+    var name = prompt('Tên khách hàng:', c.name);
+    if (name === null) return;
+    name = name.trim();
+    if (!name) { showToast('❌ Tên không được để trống', 'error'); return; }
+    var phone = prompt('Số điện thoại:', c.phone || '');
+    if (phone === null) return;
+    var address = prompt('Địa chỉ:', c.address || '');
+    if (address === null) return;
+    DB.update('customers', customerId, { name: name, phone: phone.trim(), address: address.trim() }).then(function() {
+        c.name = name;
+        c.phone = phone.trim();
+        c.address = address.trim();
+        showToast('✅ Đã cập nhật thông tin khách', 'success');
+        renderCustomerList();
+        showCustomerDetail(customerId);
+    }).catch(function(err) {
+        showToast('❌ Lỗi cập nhật: ' + (err.message || ''), 'error');
+    });
+}
+
+function deleteCustomer(customerId) {
+    var c = null;
+    for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
+    if (!c) return;
+    if (!confirm('⚠️ Xóa khách "' + c.name + '"?' + (c.totalDebt > 0 ? ' Khách đang nợ ' + formatMoney(c.totalDebt) + '!' : ''))) return;
+    DB.remove('customers', customerId).then(function() {
+        for (var i = 0; i < customers.length; i++) {
+            if (customers[i].id === customerId) { customers.splice(i, 1); break; }
+        }
+        closeModal('customerDetailModal');
+        showToast('✅ Đã xóa khách ' + c.name, 'success');
+        renderCustomerList();
+    }).catch(function(err) {
+        showToast('❌ Lỗi xóa: ' + (err.message || ''), 'error');
+    });
+}
+
 // Export global
 window.showCustomerDetail = showCustomerDetail;
 window.confirmInlineDebtPayment = confirmInlineDebtPayment;
@@ -411,3 +490,5 @@ window.selectCustomer = selectCustomer;
 window.quickAddCustomer = quickAddCustomer;
 window.addCustomerCredit = addCustomerCredit;
 window.useCustomerCredit = useCustomerCredit;
+window.editCustomerInfo = editCustomerInfo;
+window.deleteCustomer = deleteCustomer;

@@ -98,8 +98,15 @@ function renderOrderCategoriesColumn() {
     
     // Lấy danh mục từ database (window.menuCategories)
     if (window.menuCategories && window.menuCategories.length) {
-        for (var i = 0; i < window.menuCategories.length; i++) {
-            var cat = window.menuCategories[i];
+        // Tạo bản sao và sắp xếp theo sortOrder
+        var sortedCats = window.menuCategories.slice();
+        sortedCats.sort(function(a, b) {
+            var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
+            var orderB = (b.sortOrder !== undefined && b.sortOrder !== null) ? b.sortOrder : 9999;
+            return orderA - orderB;
+        });
+        for (var i = 0; i < sortedCats.length; i++) {
+            var cat = sortedCats[i];
             categories.push({
                 id: cat.id,
                 icon: cat.icon || '📌',
@@ -114,7 +121,16 @@ function renderOrderCategoriesColumn() {
         _menuCategoryIds.push(categories[i].id);
     }
     
+    // === RENDER THANH CATEGORIES NGANG (cho landscape) ===
     var html = '';
+    // Nút sắp xếp danh mục - chỉ hiển thị khi có danh mục từ DB
+    if (window.menuCategories && window.menuCategories.length > 1) {
+        var catBtnClass = _isCategoryReorderMode ? 'active' : '';
+        html += '<div class="category-item category-sort-btn ' + catBtnClass + '" id="catReorderToggleBtn" onclick="toggleCategoryReorderMode()">' +
+            '<span class="cat-icon">🔀</span>' +
+            '<span>' + (_isCategoryReorderMode ? '✅ Xong' : 'Sắp xếp DM') + '</span>' +
+        '</div>';
+    }
     for (var i = 0; i < categories.length; i++) {
         var cat = categories[i];
         var activeClass = (currentMenuCategory === cat.id) ? 'active' : '';
@@ -124,6 +140,39 @@ function renderOrderCategoriesColumn() {
         '</div>';
     }
     container.innerHTML = html;
+    
+    // Nếu đang ở chế độ sắp xếp danh mục, gắn drag events
+    if (_isCategoryReorderMode) {
+        _enableCatDragReorder(container);
+    }
+    
+    // === RENDER DROPDOWN SELECT (cho mobile/portrait) ===
+    _renderCategorySelect(categories);
+}
+
+// Render dropdown select để chọn danh mục trên mobile (thay thế thanh ngang)
+function _renderCategorySelect(categories) {
+    var select = document.getElementById('orderCategorySelect');
+    if (!select) return;
+    
+    var currentVal = select.value;
+    var html = '';
+    for (var i = 0; i < categories.length; i++) {
+        var cat = categories[i];
+        var selected = (cat.id === currentMenuCategory) ? ' selected' : '';
+        html += '<option value="' + cat.id + '"' + selected + '>' + cat.icon + ' ' + escapeHtml(cat.name) + '</option>';
+    }
+    select.innerHTML = html;
+}
+
+// Xử lý khi chọn danh mục từ dropdown (mobile)
+function onCategorySelectChange() {
+    var select = document.getElementById('orderCategorySelect');
+    if (!select) return;
+    var categoryId = select.value;
+    if (categoryId) {
+        renderMenuByCategory(categoryId);
+    }
 }
 
 // ========== BIẾN CHO KÉO THẢ SẮP XẾP MÓN ==========
@@ -134,9 +183,27 @@ var _dragState = null; // { el, itemId, startX, startY, clone, dropTarget }
 // Tránh spam sync sau mỗi lần kéo thả
 var _sortOrderChanged = false;
 
-// ========== RENDER MENU THEO DANH MỤC ==========
+// OPTIMIZE: Cache HTML string cho mỗi category để tránh rebuild
+var _menuHtmlCache = {};
+// OPTIMIZE: Biến lưu category đang hiển thị để event delegation biết
+var _currentRenderedCategory = null;
+
+// ========== RENDER MENU THEO DANH MỤC - TỐI ƯU ==========
+// OPTIMIZE: Dùng event delegation thay vì inline onclick
+// OPTIMIZE: Cache HTML string để tránh rebuild khi chuyển qua lại giữa các category
 function renderMenuByCategory(categoryId) {
     currentMenuCategory = categoryId;
+    
+    var container = document.getElementById('menuGrid');
+    if (!container) return;
+    
+    // Reset scroll của menu column về đầu mỗi khi chuyển danh mục
+    var menuColumn = document.querySelector('.order-menu-column');
+    if (menuColumn) menuColumn.scrollTop = 0;
+    
+    // Cập nhật dropdown select nếu đang hiển thị
+    var catSelect = document.getElementById('orderCategorySelect');
+    if (catSelect) catSelect.value = categoryId;
     
     // Lọc món theo danh mục
     var items = [];
@@ -146,11 +213,18 @@ function renderMenuByCategory(categoryId) {
         items = menuItems.filter(function(i) { return i.categoryId == categoryId; });
     }
     
-    var container = document.getElementById('menuGrid');
-    if (!container) return;
-    
     if (items.length === 0) {
         container.innerHTML = '<div style="padding: 40px; text-align: center; color: #94a3b8;">📭 Không có món</div>';
+        _currentRenderedCategory = categoryId;
+        _menuHtmlCache[categoryId] = container.innerHTML;
+        return;
+    }
+    
+    // OPTIMIZE: Kiểm tra cache HTML để tránh rebuild
+    var cacheKey = categoryId + '_' + (items.length);
+    if (_menuHtmlCache[cacheKey] && _currentRenderedCategory === categoryId) {
+        // Đã render rồi, không cần làm gì
+        _updateCategoryActive(categoryId);
         return;
     }
     
@@ -162,22 +236,29 @@ function renderMenuByCategory(categoryId) {
             var variantsHtml = '';
             for (var v = 0; v < item.variants.length; v++) {
                 var variant = item.variants[v];
-                variantsHtml += '<button class="variant-btn" onclick="addToCartWithVariant(\'' + item.id + '\', \'' + escapeHtml(variant.name) + '\', ' + variant.price + ')">' + escapeHtml(variant.name) + '</button>';
+                // OPTIMIZE: Dùng data attributes thay vì inline onclick
+                variantsHtml += '<button class="variant-btn" data-item-id="' + item.id + '" data-variant="' + escapeHtml(variant.name) + '" data-price="' + variant.price + '">' + escapeHtml(variant.name) + '</button>';
             }
             html += '<div class="menu-item-variant" data-item-id="' + item.id + '">' +
                 '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
                 '<div class="variant-group">' + variantsHtml + '</div>' +
             '</div>';
         } else {
-            // Món đơn
+            // Món đơn - Dùng data attributes thay vì inline onclick
             var price = item.price || 0;
-            html += '<div class="menu-card" data-item-id="' + item.id + '" onclick="addToCart(\'' + item.id + '\', \'' + escapeHtml(item.name) + '\', ' + price + ')">' +
+            html += '<div class="menu-card" data-item-id="' + item.id + '" data-name="' + escapeHtml(item.name) + '" data-price="' + price + '">' +
                 '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
                 '<div class="menu-price">' + formatMoney(price) + '</div>' +
             '</div>';
         }
     }
-    container.innerHTML = html;
+    
+    // OPTIMIZE: Chỉ set innerHTML khi HTML thực sự khác
+    if (container.innerHTML !== html) {
+        container.innerHTML = html;
+        _menuHtmlCache[cacheKey] = html;
+    }
+    _currentRenderedCategory = categoryId;
     
     // Nếu đang ở chế độ sắp xếp, gắn drag events
     if (_isReorderMode) {
@@ -185,12 +266,59 @@ function renderMenuByCategory(categoryId) {
     }
     
     // Cập nhật active cho danh mục
+    _updateCategoryActive(categoryId);
+}
+
+// OPTIMIZE: Tách riêng hàm cập nhật active category
+function _updateCategoryActive(categoryId) {
     var cats = document.querySelectorAll('#orderCategoriesColumn .category-item');
     for (var i = 0; i < cats.length; i++) {
         var cat = cats[i].getAttribute('data-cat');
         if (cat == categoryId) cats[i].classList.add('active');
         else cats[i].classList.remove('active');
     }
+}
+
+// OPTIMIZE: Event delegation cho menu-grid - chỉ gắn 1 listener thay vì N inline onclick
+// Gắn listener này 1 lần khi khởi tạo
+function _initMenuEventDelegation() {
+    var container = document.getElementById('menuGrid');
+    if (!container) return;
+    if (container._delegationInitialized) return;
+    container._delegationInitialized = true;
+    
+    container.addEventListener('click', function(e) {
+        // Nếu đang ở chế độ sắp xếp, không thêm món vào giỏ hàng
+        if (_isReorderMode) return;
+        
+        var target = e.target;
+        
+        // Xử lý click trên variant-btn
+        if (target.classList.contains('variant-btn')) {
+            var itemId = target.getAttribute('data-item-id');
+            var variantName = target.getAttribute('data-variant');
+            var price = parseFloat(target.getAttribute('data-price')) || 0;
+            addToCartWithVariant(itemId, variantName, price);
+            return;
+        }
+        
+        // Xử lý click trên menu-card (hoặc con của nó)
+        var card = target.closest('.menu-card');
+        if (card) {
+            var itemId = card.getAttribute('data-item-id');
+            var name = card.getAttribute('data-name');
+            var price = parseFloat(card.getAttribute('data-price')) || 0;
+            addToCart(itemId, name, price);
+            return;
+        }
+        
+        // Xử lý click trên menu-item-variant (click vào name)
+        var variantContainer = target.closest('.menu-item-variant');
+        if (variantContainer && !target.classList.contains('variant-btn')) {
+            // Click vào tên món có biến thể - không làm gì, user phải chọn biến thể
+            return;
+        }
+    });
 }
 
 // ========== BẬT/TẮT CHẾ ĐỘ SẮP XẾP MÓN ==========
@@ -406,6 +534,9 @@ function _reorderMenuItems(sourceId, targetId) {
     }
     _sortOrderChanged = true;
     
+    // Xoá cache HTML để buộc render lại với thứ tự mới
+    _menuHtmlCache = {};
+    
     // Render lại menu
     renderMenuByCategory(currentMenuCategory);
 }
@@ -422,7 +553,239 @@ function _syncSortOrderToFirebase() {
     });
 }
 
+// ========== BIẾN CHO KÉO THẢ SẮP XẾP DANH MỤC ==========
+var _isCategoryReorderMode = false;
+var _catDragState = null; // { el, catId, startX, startY, clone, dropTarget }
+var _catSortOrderChanged = false;
+
+// ========== BẬT/TẮT CHẾ ĐỘ SẮP XẾP DANH MỤC ==========
+function toggleCategoryReorderMode() {
+    _isCategoryReorderMode = !_isCategoryReorderMode;
+    var container = document.getElementById('orderCategoriesColumn');
+    if (!container) return;
+    
+    var toggleBtn = document.getElementById('catReorderToggleBtn');
+    
+    if (_isCategoryReorderMode) {
+        container.classList.add('drag-active');
+        _enableCatDragReorder(container);
+        if (toggleBtn) {
+            toggleBtn.classList.add('active');
+            toggleBtn.textContent = '✅ Xong';
+        }
+        showToast('🔄 Kéo thả danh mục để sắp xếp', 'warning');
+    } else {
+        container.classList.remove('drag-active');
+        _disableCatDragReorder(container);
+        if (toggleBtn) {
+            toggleBtn.classList.remove('active');
+            toggleBtn.textContent = '🔀 Sắp xếp DM';
+        }
+        // Chỉ sync lên Firebase nếu có thay đổi
+        if (_catSortOrderChanged) {
+            _syncCategorySortOrderToFirebase();
+            _catSortOrderChanged = false;
+        }
+        showToast('✅ Đã lưu thứ tự danh mục mới', 'success');
+    }
+}
+
+// ========== GẮN SỰ KIỆN KÉO THẢ DANH MỤC ==========
+function _enableCatDragReorder(container) {
+    var items = container.querySelectorAll('.category-item');
+    for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        el.addEventListener('mousedown', _catDragMouseDown);
+        el.addEventListener('touchstart', _catDragTouchStart, { passive: false });
+    }
+}
+
+function _disableCatDragReorder(container) {
+    var items = container.querySelectorAll('.category-item');
+    for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        el.removeEventListener('mousedown', _catDragMouseDown);
+        el.removeEventListener('touchstart', _catDragTouchStart);
+        el.classList.remove('dragging', 'drag-over');
+    }
+    _catCleanupDrag();
+}
+
+// ========== MOUSE EVENTS CHO DANH MỤC ==========
+function _catDragMouseDown(e) {
+    if (!_isCategoryReorderMode) return;
+    var el = e.currentTarget;
+    if (!el) return;
+    // Không kéo được danh mục "Tất cả" và nút sắp xếp
+    var catId = el.getAttribute('data-cat');
+    if (!catId || catId === 'all') return;
+    
+    _catDragState = {
+        el: el,
+        catId: el.getAttribute('data-cat'),
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false
+    };
+    
+    document.addEventListener('mousemove', _catDragMouseMove);
+    document.addEventListener('mouseup', _catDragMouseUp);
+    e.preventDefault();
+}
+
+function _catDragMouseMove(e) {
+    if (!_catDragState || !_isCategoryReorderMode) return;
+    var dx = e.clientX - _catDragState.startX;
+    var dy = e.clientY - _catDragState.startY;
+    
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        _catDragState.moved = true;
+        _catDragState.el.classList.add('dragging');
+        _catUpdateDropTarget(e.clientX, e.clientY);
+    }
+}
+
+function _catDragMouseUp(e) {
+    if (!_catDragState || !_isCategoryReorderMode) {
+        _catCleanupDrag();
+        return;
+    }
+    
+    _catDragState.el.classList.remove('dragging');
+    
+    if (_catDragState.moved && _catDragState.dropTarget && _catDragState.dropTarget !== _catDragState.el) {
+        var targetCatId = _catDragState.dropTarget.getAttribute('data-cat');
+        _reorderCategories(_catDragState.catId, targetCatId);
+    }
+    
+    _catCleanupDrag();
+    document.removeEventListener('mousemove', _catDragMouseMove);
+    document.removeEventListener('mouseup', _catDragMouseUp);
+}
+
+// ========== TOUCH EVENTS CHO DANH MỤC ==========
+function _catDragTouchStart(e) {
+    if (!_isCategoryReorderMode) return;
+    var el = e.currentTarget;
+    if (!el) return;
+    // Không kéo được danh mục "Tất cả" và nút sắp xếp
+    var catId = el.getAttribute('data-cat');
+    if (!catId || catId === 'all') return;
+    
+    var touch = e.touches[0];
+    _catDragState = {
+        el: el,
+        catId: el.getAttribute('data-cat'),
+        startX: touch.clientX,
+        startY: touch.clientY,
+        moved: false
+    };
+    
+    document.addEventListener('touchmove', _catDragTouchMove, { passive: false });
+    document.addEventListener('touchend', _catDragTouchEnd, { passive: true });
+}
+
+function _catDragTouchMove(e) {
+    if (!_catDragState || !_isCategoryReorderMode) return;
+    var touch = e.touches[0];
+    var dx = touch.clientX - _catDragState.startX;
+    var dy = touch.clientY - _catDragState.startY;
+    
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        _catDragState.moved = true;
+        if (e.cancelable) e.preventDefault();
+        _catDragState.el.classList.add('dragging');
+        _catUpdateDropTarget(touch.clientX, touch.clientY);
+    }
+}
+
+function _catDragTouchEnd(e) {
+    if (!_catDragState || !_isCategoryReorderMode) {
+        _catCleanupDrag();
+        return;
+    }
+    
+    _catDragState.el.classList.remove('dragging');
+    
+    if (_catDragState.moved && _catDragState.dropTarget && _catDragState.dropTarget !== _catDragState.el) {
+        var targetCatId = _catDragState.dropTarget.getAttribute('data-cat');
+        _reorderCategories(_catDragState.catId, targetCatId);
+    }
+    
+    _catCleanupDrag();
+    document.removeEventListener('touchmove', _catDragTouchMove);
+    document.removeEventListener('touchend', _catDragTouchEnd);
+}
+
+// ========== DÙNG CHUNG: TÌM DROP TARGET CHO DANH MỤC ==========
+function _catUpdateDropTarget(clientX, clientY) {
+    var target = document.elementFromPoint(clientX, clientY);
+    if (!target) return;
+    
+    var dropEl = target.closest('.category-item');
+    
+    // Xoá drag-over cũ
+    var container = document.getElementById('orderCategoriesColumn');
+    var all = container.querySelectorAll('.drag-over');
+    for (var i = 0; i < all.length; i++) all[i].classList.remove('drag-over');
+    
+    if (dropEl && dropEl !== _catDragState.el && dropEl.getAttribute('data-cat') !== 'all') {
+        dropEl.classList.add('drag-over');
+        _catDragState.dropTarget = dropEl;
+    } else {
+        _catDragState.dropTarget = null;
+    }
+}
+
+function _catCleanupDrag() {
+    var container = document.getElementById('orderCategoriesColumn');
+    if (container) {
+        var all = container.querySelectorAll('.drag-over');
+        for (var i = 0; i < all.length; i++) all[i].classList.remove('drag-over');
+    }
+    _catDragState = null;
+}
+
+// ========== SẮP XẾP LẠI DANH MỤC ==========
+function _reorderCategories(sourceCatId, targetCatId) {
+    // Tìm index trong menuCategories
+    var sourceIdx = -1;
+    var targetIdx = -1;
+    for (var i = 0; i < menuCategories.length; i++) {
+        if (menuCategories[i].id === sourceCatId) sourceIdx = i;
+        if (menuCategories[i].id === targetCatId) targetIdx = i;
+    }
+    if (sourceIdx === -1 || targetIdx === -1) return;
+    
+    // Di chuyển phần tử
+    var item = menuCategories.splice(sourceIdx, 1)[0];
+    menuCategories.splice(targetIdx, 0, item);
+    
+    // Cập nhật sortOrder trong memory
+    for (var i = 0; i < menuCategories.length; i++) {
+        menuCategories[i].sortOrder = i;
+    }
+    _catSortOrderChanged = true;
+    
+    // Render lại danh mục
+    renderOrderCategoriesColumn();
+}
+
+// Sync sortOrder danh mục lên Firebase
+function _syncCategorySortOrderToFirebase() {
+    var items = [];
+    for (var i = 0; i < menuCategories.length; i++) {
+        items.push({ id: menuCategories[i].id, sortOrder: i });
+    }
+    DB.batchUpdateSortOrder(items, 'menu_categories').catch(function(err) {
+        console.error('Lỗi lưu sortOrder danh mục:', err);
+    });
+}
+
 // ========== VUỐT LÊN/XUỐNG CHUYỂN DANH MỤC ==========
+// Biến lưu scrollTop tại thời điểm touchstart để phát hiện scroll dọc
+var _menuSwipeStartScrollTop = 0;
+
 function _initMenuSwipe() {
     var el = document.querySelector('.order-menu-column');
     if (!el) return;
@@ -434,11 +797,19 @@ function _initMenuSwipe() {
 }
 function _menuSwipeStart(e) {
     _menuSwipeStartY = e.touches[0].clientY;
+    // Lưu scrollTop tại thời điểm bắt đầu chạm
+    var menuEl = document.querySelector('.order-menu-column');
+    _menuSwipeStartScrollTop = menuEl ? menuEl.scrollTop : 0;
 }
 function _menuSwipeEnd(e) {
     if (_menuCategoryIds.length < 2) return;
     // Khóa vuốt khi đang ở chế độ sắp xếp món
     if (_isReorderMode) return;
+    
+    // QUAN TRỌNG: Nếu scrollTop thay đổi so với lúc touchstart -> đây là thao tác cuộn, không phải vuốt chuyển danh mục
+    var menuEl = document.querySelector('.order-menu-column');
+    if (menuEl && menuEl.scrollTop !== _menuSwipeStartScrollTop) return;
+    
     var endY = e.changedTouches[0].clientY;
     var diff = _menuSwipeStartY - endY;
     // Ngưỡng 50px để tránh vuốt vô tình
@@ -594,6 +965,7 @@ function _doRenderCart() {
                 '</div>' +
                 // Nút mệnh giá thanh toán nhanh tiền mặt
 '<div class="denom-actions">' +
+    '<button class="denom-btn denom-custom" onclick="showTakeawayCustomDenomInput()">✏️ Tùy chỉnh</button>' +
     '<button class="denom-btn" onclick="takeawayCashPayWithDenom(50000)">50.000đ</button>' +
     '<button class="denom-btn" onclick="takeawayCashPayWithDenom(100000)">100.000đ</button>' +
     '<button class="denom-btn" onclick="takeawayCashPayWithDenom(200000)">200.000đ</button>' +
@@ -657,25 +1029,24 @@ function _updateCartIndices() {
     }
 }
 
-// OPTIMIZE: Debounce render - gom nhiều lần gọi renderCartColumn trong 50ms thành 1 lần
+// OPTIMIZE: Debounce render - gom nhiều lần gọi renderCartColumn trong 80ms thành 1 lần
+// FIX: Luôn debounce, KHÔNG render ngay lần đầu để tránh layout thrashing khi click nhanh
+var _cartDebounceTimer = null;
 function _debouncedRenderCart() {
-    if (_cartRenderTimer) {
+    if (_cartDebounceTimer) {
         // Đã có timer, đánh dấu pending
         _cartRenderPending = true;
         return;
     }
-    // Render ngay lần đầu
-    _cartRenderPending = false;
-    _doRenderCart();
-    
-    // Thiết lập timer để bắt các lần gọi tiếp theo trong 50ms
-    _cartRenderTimer = setTimeout(function() {
-        _cartRenderTimer = null;
+    // FIX: KHÔNG render ngay - đặt timer luôn để gom các lần click nhanh
+    _cartRenderPending = true;
+    _cartDebounceTimer = setTimeout(function() {
+        _cartDebounceTimer = null;
         if (_cartRenderPending) {
             _cartRenderPending = false;
             _doRenderCart();
         }
-    }, 50);
+    }, 80);
 }
 
 // Cập nhật lại hàm renderCart để gọi renderCartColumn
@@ -721,6 +1092,9 @@ function addToCart(id, name, price) {
     
     // OPTIMIZE: Dùng debounced render - UI phản hồi tức thì, render gộp sau 50ms
     _debouncedRenderCart();
+    
+    // Toast nhẹ - dùng setTimeout để không chen vào critical path
+    setTimeout(function() { showToast('✓ ' + name, 'success', 800); }, 0);
 }
 
 // ========== THÊM MÓN CÓ BIẾN THỂ (MỚI HIỂN THỊ TRÊN CÙNG) ==========
@@ -770,6 +1144,9 @@ function addToCartWithVariant(itemId, variantName, price) {
     
     // OPTIMIZE: Dùng debounced render
     _debouncedRenderCart();
+    
+    // Toast nhẹ - dùng setTimeout để không chen vào critical path
+    setTimeout(function() { showToast('✓ ' + displayName, 'success', 800); }, 0);
 }
 
 
@@ -985,6 +1362,69 @@ function handleAddToExistingTable() {
 var _takeawayChangeToastEl = null;
 var _takeawayChangeGivenAmount = 0;
 
+// Hàm hiển thị popup nhập số tiền tùy chỉnh cho takeaway
+function showTakeawayCustomDenomInput() {
+    // Xóa popup cũ nếu có
+    var oldOverlay = document.getElementById('customDenomOverlay');
+    if (oldOverlay) oldOverlay.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'customDenomOverlay';
+    overlay.className = 'custom-denom-overlay';
+    overlay.innerHTML =
+        '<div class="custom-denom-modal">' +
+            '<div class="custom-denom-header">✏️ Nhập số tiền khách đưa</div>' +
+            '<div class="custom-denom-body">' +
+                '<input type="number" id="customDenomInput" class="custom-denom-input" placeholder="0" min="0" step="1000" inputmode="numeric">' +
+                
+            '</div>' +
+            '<div class="custom-denom-footer">' +
+                '<button class="denom-cancel-btn" onclick="closeCustomDenomInput()">Hủy</button>' +
+                '<button class="denom-confirm-btn" onclick="confirmTakeawayCustomDenom()">Xác nhận</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(overlay);
+
+    // Focus vào input
+    setTimeout(function() {
+        var input = document.getElementById('customDenomInput');
+        if (input) input.focus();
+    }, 100);
+
+    // Gán sự kiện click cho các nút gợi ý
+    var suggestBtns = overlay.querySelectorAll('.denom-suggest-btn');
+    for (var i = 0; i < suggestBtns.length; i++) {
+        suggestBtns[i].onclick = function() {
+            var amount = parseInt(this.getAttribute('data-amount'));
+            document.getElementById('customDenomInput').value = amount;
+        };
+    }
+
+    // Enter để xác nhận
+    setTimeout(function() {
+        var input = document.getElementById('customDenomInput');
+        if (input) {
+            input.onkeydown = function(e) {
+                if (e.key === 'Enter') {
+                    confirmTakeawayCustomDenom();
+                }
+            };
+        }
+    }, 200);
+}
+
+function confirmTakeawayCustomDenom() {
+    var input = document.getElementById('customDenomInput');
+    if (!input) return;
+    var amount = parseInt(input.value);
+    if (!amount || amount <= 0) {
+        showToast('❌ Vui lòng nhập số tiền hợp lệ', 'error');
+        return;
+    }
+    closeCustomDenomInput();
+    takeawayCashPayWithDenom(amount);
+}
+
 // ========== XỬ LÝ THANH TOÁN MANG ĐI ==========
 function handleTakeawayPayment(method) {
     if (!tempOrder.length) {
@@ -1017,16 +1457,17 @@ function handleTakeawayPayment(method) {
 function _processTakeawayDirect(method) {
     if (!tempOrder.length) return;
     
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
+    var items = _cloneArr(tempOrder);
+    var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+    var now = new Date();
+    
     // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý thanh toán...', 'info', 0);
     
     // OPTIMIZE: Suppress realtime notifications trong quá trình batch operations
     DB.suppressRealtime();
-    
-    var items = _cloneArr(tempOrder);
-    var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
-    var now = new Date();
     
     // Kiểm tra credit của khách
     var creditUsed = 0;
@@ -1077,6 +1518,27 @@ function _processTakeawayDirect(method) {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
             DB.flushRealtime();
             
+            // AUDIT: Nếu thanh toán tiền mặt, kiểm tra két
+            // handleCashPayment luôn tồn tại (định nghĩa trong pos.html)
+            if (method === 'cash') {
+                handleCashPayment(total, null).catch(function(err) {
+                    console.error('[AUDIT] handleCashPayment lỗi:', err);
+                });
+            }
+            
+            // Gửi thông báo Telegram giao dịch (cho tất cả phương thức)
+            if (typeof notifyPaymentToTelegram === 'function') {
+                notifyPaymentToTelegram({
+                    type: 'takeaway',
+                    amount: total,
+                    paymentMethod: method,
+                    items: items,
+                    tableName: null,
+                    customer: customerInfo,
+                    createdAt: now.toISOString()
+                });
+            }
+            
             // Xóa draft (fire-and-forget)
             if (currentDraftId) {
                 deleteDraft(currentDraftId);
@@ -1091,18 +1553,6 @@ function _processTakeawayDirect(method) {
             if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
             showToast(msg, 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
-            // In hóa đơn (fire-and-forget)
-            if (typeof printAfterPayment === 'function') {
-                printAfterPayment({
-                    type: 'takeaway',
-                    amount: total,
-                    paymentMethod: method,
-                    items: items,
-                    tableName: null,
-                    customer: customerInfo,
-                    createdAt: now.toISOString()
-                });
-            }
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -1192,16 +1642,17 @@ function handleGrabOrder() {
         return;
     }
     
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
+    var items = _cloneArr(tempOrder);
+    var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+    var now = new Date();
+    
     // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý đơn Grab...', 'info', 0);
     
     // OPTIMIZE: Suppress realtime notifications trong quá trình batch operations
     DB.suppressRealtime();
-    
-    var items = _cloneArr(tempOrder);
-    var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
-    var now = new Date();
     
     // OPTIMIZE: Dùng _checkAndDeductIngredients thay vì inline
     var stockAndDeductPromise = _checkAndDeductIngredients(tempOrder).then(function() {
@@ -1232,6 +1683,19 @@ function handleGrabOrder() {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
             DB.flushRealtime();
             
+            // Gửi thông báo Telegram giao dịch Grab
+            if (typeof notifyPaymentToTelegram === 'function') {
+                notifyPaymentToTelegram({
+                    type: 'grab',
+                    amount: total,
+                    paymentMethod: 'grab',
+                    items: items,
+                    tableName: null,
+                    customer: null,
+                    createdAt: now.toISOString()
+                });
+            }
+            
             // Xóa draft (fire-and-forget)
             if (currentDraftId) {
                 deleteDraft(currentDraftId);
@@ -1244,18 +1708,6 @@ function handleGrabOrder() {
             hideToast(_paymentToastId);
             showToast('✅ Đã tạo đơn Grab thành công', 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
-            // In hóa đơn (fire-and-forget)
-            if (typeof printAfterPayment === 'function') {
-                printAfterPayment({
-                    type: 'grab',
-                    amount: total,
-                    paymentMethod: 'grab',
-                    items: items,
-                    tableName: null,
-                    customer: null,
-                    createdAt: now.toISOString()
-                });
-            }
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -1275,6 +1727,11 @@ function handleDebtOrder() {
         return;
     }
     
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
+    var items = _cloneArr(tempOrder);
+    var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+    var now = new Date();
+    
     // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý ghi nợ...', 'info', 0);
@@ -1290,10 +1747,6 @@ function handleDebtOrder() {
             showToast('Cần chọn khách hàng để ghi nợ!', 'warning');
             return;
         }
-        
-        var items = _cloneArr(tempOrder);
-        var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
-        var now = new Date();
         var debtAmount = total;
         var creditUsed = 0;
         var debtNote = 'Ghi nợ - ' + customer.name;
@@ -1343,6 +1796,19 @@ function handleDebtOrder() {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
             DB.flushRealtime();
             
+            // Gửi thông báo Telegram giao dịch ghi nợ
+            if (typeof notifyPaymentToTelegram === 'function') {
+                notifyPaymentToTelegram({
+                    type: 'takeaway',
+                    amount: debtAmount,
+                    paymentMethod: 'debt',
+                    items: items,
+                    tableName: null,
+                    customer: { id: customer.id, name: customer.name },
+                    createdAt: now.toISOString()
+                });
+            }
+            
             // Xóa draft (fire-and-forget)
             if (currentDraftId) {
                 deleteDraft(currentDraftId);
@@ -1358,18 +1824,6 @@ function handleDebtOrder() {
             showToast(msg, 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
             if (typeof renderCustomerList === 'function') renderCustomerList();
-            // In hóa đơn (fire-and-forget)
-            if (typeof printAfterPayment === 'function') {
-                printAfterPayment({
-                    type: 'debt_payment',
-                    amount: debtAmount,
-                    paymentMethod: 'debt',
-                    items: items,
-                    tableName: null,
-                    customer: { id: customer.id, name: customer.name },
-                    createdAt: now.toISOString()
-                });
-            }
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -1378,12 +1832,138 @@ function handleDebtOrder() {
     });
 }
 
-// Xuất global (nếu cần)
-window.handleCreateNewTable = handleCreateNewTable;
-window.handleAddToExistingTable = handleAddToExistingTable;
-window.handleTakeawayPayment = handleTakeawayPayment;
-window.handleGrabOrder = handleGrabOrder;
-window.handleDebtOrder = handleDebtOrder;
+// ========== TẠO MÓN NHANH (QUICK CREATE MENU ITEM) ==========
+function showQuickCreateMenuItem() {
+    var oldOverlay = document.getElementById('quickCreateOverlay');
+    if (oldOverlay) oldOverlay.remove();
+
+    // Lấy danh sách danh mục từ window.menuCategories
+    var cats = window.menuCategories || [];
+    var catOptions = '';
+    for (var i = 0; i < cats.length; i++) {
+        var c = cats[i];
+        catOptions += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
+    }
+
+    var overlay = document.createElement('div');
+    overlay.id = 'quickCreateOverlay';
+    overlay.className = 'quick-create-overlay';
+    // Click overlay = đóng popup, tránh cảm giác lag
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeQuickCreateMenuItem();
+    });
+    overlay.innerHTML =
+        '<div class="quick-create-modal">' +
+            '<div class="quick-create-header">➕ Tạo món nhanh</div>' +
+            '<div class="quick-create-body">' +
+                '<div class="quick-create-field">' +
+                    '<label>Tên món</label>' +
+                    '<input type="text" id="quickCreateName" class="form-input" placeholder="Nhập tên món..." autocomplete="off">' +
+                '</div>' +
+                '<div class="quick-create-field">' +
+                    '<label>Danh mục</label>' +
+                    '<select id="quickCreateCategory" class="form-input">' +
+                        catOptions +
+                    '</select>' +
+                '</div>' +
+                '<div class="quick-create-field">' +
+                    '<label>Giá bán</label>' +
+                    '<input type="number" id="quickCreatePrice" class="form-input" placeholder="0" min="0" step="1000" inputmode="numeric">' +
+                '</div>' +
+            '</div>' +
+            '<div class="quick-create-footer">' +
+                '<button class="quick-create-cancel-btn" onclick="closeQuickCreateMenuItem()">Hủy</button>' +
+                '<button class="quick-create-confirm-btn" onclick="confirmQuickCreateMenuItem()">Tạo món</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(overlay);
+
+    // Focus vào ô tên
+    setTimeout(function() {
+        var nameInput = document.getElementById('quickCreateName');
+        if (nameInput) nameInput.focus();
+    }, 200);
+
+    // Enter để submit
+    var priceInput = document.getElementById('quickCreatePrice');
+    if (priceInput) {
+        priceInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                confirmQuickCreateMenuItem();
+            }
+        });
+    }
+    var nameInput2 = document.getElementById('quickCreateName');
+    if (nameInput2) {
+        nameInput2.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var priceInput2 = document.getElementById('quickCreatePrice');
+                if (priceInput2) priceInput2.focus();
+            }
+        });
+    }
+}
+
+function closeQuickCreateMenuItem() {
+    var overlay = document.getElementById('quickCreateOverlay');
+    if (overlay) overlay.remove();
+}
+
+function confirmQuickCreateMenuItem() {
+    var nameInput = document.getElementById('quickCreateName');
+    var catSelect = document.getElementById('quickCreateCategory');
+    var priceInput = document.getElementById('quickCreatePrice');
+
+    if (!nameInput || !catSelect || !priceInput) return;
+
+    var name = nameInput.value.trim();
+    var categoryId = catSelect.value;
+    var price = parseInt(priceInput.value);
+
+    if (!name) {
+        showToast('❌ Vui lòng nhập tên món', 'error');
+        nameInput.focus();
+        return;
+    }
+    if (!categoryId) {
+        showToast('❌ Vui lòng chọn danh mục', 'error');
+        return;
+    }
+    if (!price || price <= 0) {
+        showToast('❌ Vui lòng nhập giá bán hợp lệ', 'error');
+        priceInput.focus();
+        return;
+    }
+
+    // Tìm sortOrder cao nhất để thêm món mới xuống cuối
+    var maxSort = 0;
+    for (var i = 0; i < menuItems.length; i++) {
+        var s = menuItems[i].sortOrder || 0;
+        if (s > maxSort) maxSort = s;
+    }
+
+    var newItem = {
+        name: name,
+        categoryId: categoryId,
+        price: price,
+        sortOrder: maxSort + 1,
+        hasVariants: false,
+        createdAt: new Date().toISOString()
+    };
+
+    closeQuickCreateMenuItem();
+    showToast('⏳ Đang tạo món...', 'warning');
+
+    DB.create('menu', newItem).then(function(saved) {
+        showToast('✅ Đã tạo món "' + name + '"', 'success');
+        // Menu sẽ tự cập nhật qua realtime subscription
+    }).catch(function(err) {
+        console.error('Lỗi tạo món:', err);
+        showToast('❌ Lỗi tạo món: ' + (err.message || 'unknown'), 'error');
+    });
+}
 
 // ========== SWIPE TO DELETE CHO CART ITEM ==========
 function _initCartSwipe() {
@@ -1455,5 +2035,13 @@ window.handleCreateNewTable = handleCreateNewTable;
 window.handleTakeawayPayment = handleTakeawayPayment;
 window.handleGrabOrder = handleGrabOrder;
 window.handleDebtOrder = handleDebtOrder;
+window.toggleReorderMode = toggleReorderMode;
+window.toggleCategoryReorderMode = toggleCategoryReorderMode;
 // OPTIMIZE: Export _checkAndDeductIngredients để tables.js có thể dùng chung
 window._checkAndDeductIngredients = _checkAndDeductIngredients;
+// OPTIMIZE: Export _initMenuEventDelegation để pos-app.js có thể gọi khi khởi tạo
+window._initMenuEventDelegation = _initMenuEventDelegation;
+// Export tạo món nhanh
+window.showQuickCreateMenuItem = showQuickCreateMenuItem;
+window.closeQuickCreateMenuItem = closeQuickCreateMenuItem;
+window.confirmQuickCreateMenuItem = confirmQuickCreateMenuItem;

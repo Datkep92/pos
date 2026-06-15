@@ -11,13 +11,19 @@ function isTransactionLocked(trans) {
     var hourVN = (payTime.getUTCHours() + 7) % 24;
     var minVN = payTime.getUTCMinutes();
     
-    // Điều kiện 1: Thanh toán trong khung giờ khóa cố định (17h-5h30)
-    // 17h00-23h59
-    if (hourVN >= 17) return true;
-    // 00h00-5h29
-    if (hourVN < 5 || (hourVN === 5 && minVN < 30)) return true;
+    // Đọc cấu hình lock từ shopConfig (giống tables.js)
+    var lockStartHour = (window.shopConfig && window.shopConfig.lockStartHour !== undefined) ? window.shopConfig.lockStartHour : 17;
+    var lockEndHour = (window.shopConfig && window.shopConfig.lockEndHour !== undefined) ? window.shopConfig.lockEndHour : 5;
+    var lockEndMinute = (window.shopConfig && window.shopConfig.lockEndMinute !== undefined) ? window.shopConfig.lockEndMinute : 30;
+    var lockHours = (window.shopConfig && window.shopConfig.tableLockHours !== undefined) ? window.shopConfig.tableLockHours : 5;
     
-    // Điều kiện 2: Nếu là bàn (dinein), kiểm tra thời gian ngồi quá 5h
+    // Điều kiện 1: Thanh toán trong khung giờ khóa cố định (vd: 22h-5h30)
+    // lockStartHour:00 - 23h59
+    if (hourVN >= lockStartHour) return true;
+    // 00h00 - lockEndHour:lockEndMinute
+    if (hourVN < lockEndHour || (hourVN === lockEndHour && minVN < lockEndMinute)) return true;
+    
+    // Điều kiện 2: Nếu là bàn (dinein), kiểm tra thời gian ngồi quá giới hạn
     if (trans.type === 'dinein' && trans.tableId) {
         // Dùng tableTime nếu có (vd: "2h15p", "5h30p")
         if (trans.tableTime) {
@@ -25,14 +31,14 @@ function isTransactionLocked(trans) {
             if (match) {
                 var hours = parseInt(match[1], 10);
                 var mins = parseInt(match[2] || '0', 10);
-                if (hours > 5 || (hours === 5 && mins > 0)) return true;
+                if (hours > lockHours || (hours === lockHours && mins > 0)) return true;
             }
         }
         // Fallback: dùng originalCreatedAt (thời gian gốc) nếu có
         if (trans.originalCreatedAt) {
             var startTime = new Date(trans.originalCreatedAt);
             var elapsed = payTime.getTime() - startTime.getTime();
-            if (elapsed >= 5 * 60 * 60 * 1000) return true;
+            if (elapsed >= lockHours * 60 * 60 * 1000) return true;
         }
     }
     
@@ -41,6 +47,14 @@ function isTransactionLocked(trans) {
 
 // ========== BIẾN TOÀN CỤC ==========
 var _historyViewMode = 1; // 1: 1 hàng, 2: 2 hàng (dinein / takeaway+grab), 3: 2 hàng (cash / transfer+grab)
+
+// Helper: format Date object thành YYYY-MM-DD theo giờ địa phương (không dùng UTC)
+function _toLocalDateStr(dateObj) {
+    var y = dateObj.getFullYear();
+    var m = ('0' + (dateObj.getMonth() + 1)).slice(-2);
+    var d = ('0' + dateObj.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+}
 
 function setHistoryView(mode) {
     _historyViewMode = mode;
@@ -51,11 +65,14 @@ function setHistoryView(mode) {
     // Re-render với ngày hiện tại
     var dateStr = document.getElementById('historyDate').innerText;
     if (dateStr && dateStr !== '--/--/----') {
-        // Parse lại date từ display
+        // Parse lại date từ display (dd/mm/yyyy) -> tạo dateStr YYYY-MM-DD trực tiếp, không qua Date object
         var parts = dateStr.split('/');
         if (parts.length === 3) {
-            var d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            renderHistoryByDate(d);
+            var y = parseInt(parts[2], 10);
+            var m = ('0' + parseInt(parts[1], 10)).slice(-2);
+            var d = ('0' + parseInt(parts[0], 10)).slice(-2);
+            // Gọi render với dateStr YYYY-MM-DD thay vì Date object để tránh lỗi timezone
+            renderHistoryByDateStr(y + '-' + m + '-' + d);
         }
     }
 }
@@ -105,9 +122,6 @@ function _renderTxItem(tx) {
         customerHtml = '<span class="history-customer">👤 ' + escapeHtml(tx.customer.name) + '</span>';
     }
 
-    var refundBtn = isRefunded ? '' :
-        '<button class="btn-refund" onclick="event.stopPropagation(); refundTransaction(\'' + tx.id + '\')">Hoàn tác</button>';
-
     var itemCount = 0;
     if (tx.items && tx.items.length) {
         for (var j = 0; j < tx.items.length; j++) {
@@ -128,6 +142,10 @@ function _renderTxItem(tx) {
     else if (isDebtRecord) amountClass += ' debt-record-amount';
     else if (isDebtPayment) amountClass += ' debt-payment-amount';
 
+    // Vuốt trái để hoàn tác (swipe-to-refund)
+    var swipeHtml = isRefunded ? '' :
+        '<div class="history-swipe-actions"><button class="swipe-refund-btn" onclick="event.stopPropagation(); refundTransaction(\'' + tx.id + '\')">↩️ Hoàn tác</button></div>';
+
     return '<div class="' + itemClass + '" onclick="showTransactionDetail(\'' + tx.id + '\')">' +
         '<div class="history-line1">' +
             '<span class="history-time">' + time + '</span>' +
@@ -136,21 +154,17 @@ function _renderTxItem(tx) {
             '<span class="history-item-count">📦 ' + itemCount + ' món</span>' +
             '<span class="history-method ' + methodClass + '">' + method + '</span>' +
             customerHtml +
-        '</div>' +
-        '<div class="history-line2">' +
-            '<div class="history-actions">' +
-                refundBtn +
-                '<span class="history-expand">Chi tiết →</span>' +
-            '</div>' +
-            '<div class="' + amountClass + '">' +
+            '<span class="' + amountClass + ' history-amount-inline">' +
                 amountSign + ' ' + formatMoney(tx.amount) +
-            '</div>' +
+            '</span>' +
         '</div>' +
+        swipeHtml +
     '</div>';
 }
 
 function renderHistoryByDate(dateObj) {
-    var dateStr = dateObj.toISOString().slice(0, 10);
+    // Fix timezone: dùng getFullYear/getMonth/getDate thay vì toISOString()
+    var dateStr = _toLocalDateStr(dateObj);
     document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
     
     var filter = document.getElementById('historyFilter').value;
@@ -227,6 +241,89 @@ function renderHistoryByDate(dateObj) {
                 '<div class="history-column"><div class="history-column-title">💰 Tiền mặt</div>' + (html1 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>' +
                 '<div class="history-column"><div class="history-column-title">💳🚕 CK / Grab</div>' + (html2 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>';
         }
+        _initHistorySwipe();
+    });
+}
+
+// renderHistoryByDateStr - render với dateStr YYYY-MM-DD có sẵn (tránh lỗi timezone)
+function renderHistoryByDateStr(dateStr) {
+    document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
+    
+    var filter = document.getElementById('historyFilter').value;
+    
+    DB.getTransactionsByDate(dateStr).then(function(transactions) {
+        if (filter !== 'all') {
+            transactions = transactions.filter(function(t) {
+                if (filter === 'dinein') return t.type === 'dinein';
+                if (filter === 'takeaway') return t.type === 'takeaway';
+                if (filter === 'grab') return t.type === 'grab';
+                if (filter === 'cash') return t.paymentMethod === 'cash';
+                if (filter === 'transfer') return t.paymentMethod === 'transfer';
+                if (filter === 'debt_payment') return t.type === 'debt_payment';
+                if (filter === 'cancelled') return t.refunded === true;
+                if (filter === 'credit') return t.type === 'credit';
+                return true;
+            });
+        }
+
+        // SẮP XẾP: GIAO DỊCH GẦN NHẤT LÊN TRÊN CÙNG
+        transactions.sort(function(a, b) {
+            var timeA = new Date(a.createdAt || a.date);
+            var timeB = new Date(b.createdAt || b.date);
+            return timeB - timeA;
+        });
+
+        var container = document.getElementById('historyList');
+        if (!container) return;
+
+        if (transactions.length === 0) {
+            container.innerHTML = '<div class="empty-state">📭 Không có giao dịch nào trong ngày</div>';
+            container.className = 'history-list';
+            return;
+        }
+
+        var mode = _historyViewMode || 1;
+        container.className = 'history-list view-' + mode;
+
+        if (mode === 1) {
+            // Chế độ 1: 1 hàng dọc
+            var html = '';
+            for (var i = 0; i < transactions.length; i++) {
+                html += _renderTxItem(transactions[i]);
+            }
+            container.innerHTML = html;
+        } else if (mode === 2) {
+            // Chế độ 2: 2 cột - dinein / takeaway+grab
+            var dinein = [];
+            var other = [];
+            for (var i = 0; i < transactions.length; i++) {
+                var tx = transactions[i];
+                if (tx.type === 'dinein') dinein.push(tx);
+                else other.push(tx);
+            }
+            var html1 = '', html2 = '';
+            for (var i = 0; i < dinein.length; i++) html1 += _renderTxItem(dinein[i]);
+            for (var i = 0; i < other.length; i++) html2 += _renderTxItem(other[i]);
+            container.innerHTML =
+                '<div class="history-column"><div class="history-column-title">🍽️ Tại bàn</div>' + (html1 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>' +
+                '<div class="history-column"><div class="history-column-title">🛵🚕 Mang đi / Grab</div>' + (html2 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>';
+        } else if (mode === 3) {
+            // Chế độ 3: 2 cột - cash / transfer+grab
+            var cash = [];
+            var otherPay = [];
+            for (var i = 0; i < transactions.length; i++) {
+                var tx = transactions[i];
+                if (tx.paymentMethod === 'cash') cash.push(tx);
+                else otherPay.push(tx);
+            }
+            var html1 = '', html2 = '';
+            for (var i = 0; i < cash.length; i++) html1 += _renderTxItem(cash[i]);
+            for (var i = 0; i < otherPay.length; i++) html2 += _renderTxItem(otherPay[i]);
+            container.innerHTML =
+                '<div class="history-column"><div class="history-column-title">💰 Tiền mặt</div>' + (html1 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>' +
+                '<div class="history-column"><div class="history-column-title">💳🚕 CK / Grab</div>' + (html2 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>';
+        }
+        _initHistorySwipe();
     });
 }
 
@@ -321,28 +418,50 @@ function showTransactionDetail(transactionId) {
         }
         
         // YÊU CẦU 1: Lấy thông tin thời gian hoạt động của bàn
-        if (tx.tableId) {
-            DB.get('tables', String(tx.tableId)).then(function(table) {
-                var tableTimeHtml = '';
-                if (table && table.startTime) {
-                    var startTime = new Date(table.startTime);
-                    var endTime = table.endTime ? new Date(table.endTime) : new Date(tx.createdAt || tx.date);
-                    var startStr = startTime.toLocaleString('vi-VN');
-                    var endStr = endTime.toLocaleString('vi-VN');
-                    
-                    // Tính thời gian hoạt động
-                    var elapsed = endTime.getTime() - startTime.getTime();
-                    var hours = Math.floor(elapsed / 3600000);
-                    var mins = Math.floor((elapsed % 3600000) / 60000);
-                    var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
-                    
-                    tableTimeHtml =
-                        '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
-                        '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
-                        '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
-                }
+        // Ưu tiên dùng startTime/endTime từ transaction (đã lưu khi thanh toán)
+        if (tx.startTime || tx.endTime || tx.tableId) {
+            var tableTimeHtml = '';
+            
+            if (tx.startTime && tx.endTime) {
+                // Dùng dữ liệu từ transaction
+                var startTime = new Date(tx.startTime);
+                var endTime = new Date(tx.endTime);
+                var startStr = startTime.toLocaleString('vi-VN');
+                var endStr = endTime.toLocaleString('vi-VN');
+                var elapsed = endTime.getTime() - startTime.getTime();
+                var hours = Math.floor(elapsed / 3600000);
+                var mins = Math.floor((elapsed % 3600000) / 60000);
+                var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
+                
+                tableTimeHtml =
+                    '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
+                    '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
+                    '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
                 renderDetail(tableTimeHtml);
-            });
+            } else if (tx.tableId) {
+                // Fallback: lấy từ table (cho các giao dịch cũ chưa có startTime/endTime)
+                DB.get('tables', String(tx.tableId)).then(function(table) {
+                    if (table && table.startTime) {
+                        var startTime = new Date(table.startTime);
+                        var endTime = table.endTime ? new Date(table.endTime) : new Date(tx.createdAt || tx.date);
+                        var startStr = startTime.toLocaleString('vi-VN');
+                        var endStr = endTime.toLocaleString('vi-VN');
+                        
+                        var elapsed = endTime.getTime() - startTime.getTime();
+                        var hours = Math.floor(elapsed / 3600000);
+                        var mins = Math.floor((elapsed % 3600000) / 60000);
+                        var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
+                        
+                        tableTimeHtml =
+                            '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
+                            '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
+                            '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
+                    }
+                    renderDetail(tableTimeHtml);
+                });
+            } else {
+                renderDetail('');
+            }
         } else {
             renderDetail('');
         }
@@ -354,12 +473,15 @@ function printTransactionDetail(transactionId) {
         if (!tx) return;
         if (typeof printAfterPayment === 'function') {
             printAfterPayment({
-                type: tx.type || 'dinein',
+                orderType: tx.type || 'dinein',
                 amount: tx.amount || 0,
                 paymentMethod: tx.paymentMethod || 'cash',
                 items: tx.items || [],
                 tableName: tx.tableName || null,
                 customer: tx.customer || null,
+                tableTime: tx.tableTime || null,
+                startTime: tx.startTime || null,
+                endTime: tx.endTime || null,
                 createdAt: tx.createdAt || tx.date
             });
         }
@@ -457,15 +579,31 @@ function showRefundReasonModal(callback) {
 
 function refundTransaction(transactionId) {
     // Kiểm tra xem giao dịch có thuộc ngày hôm nay không
-    var todayStr = new Date().toISOString().slice(0, 10);
+    // Fix timezone: dùng _toLocalDateStr thay vì toISOString().slice(0,10)
+    var todayStr = _toLocalDateStr(new Date());
     
     DB.get('transactions', transactionId).then(function(trans) {
         if (!trans || trans.refunded) return;
         
         // YÊU CẦU 1: Chặn hoàn tác giao dịch ngày trước đó
-        var transDate = trans.dateKey || trans.date.slice(0, 10);
+        // Fix timezone: nếu không có dateKey, parse trans.date theo giờ địa phương
+        var transDate = trans.dateKey;
+        if (!transDate && trans.date) {
+            transDate = _toLocalDateStr(new Date(trans.date));
+        }
         if (transDate !== todayStr) {
             showToast('❌ Không thể hoàn tác giao dịch của ngày trước đó', 'error');
+            return;
+        }
+        
+        // YÊU CẦU 3: Kiểm tra đã chốt ngày chưa - nếu đã chốt thì yêu cầu mật khẩu
+        // Chống gian lận: nhân viên không thể hoàn tác sau khi đã chốt ngày
+        if (typeof isDayClosed === 'function' && isDayClosed()) {
+            requirePassword('hoàn tác giao dịch (đã chốt ngày hôm nay)', function() {
+                // YÊU CẦU 2: Kiểm tra khóa giao dịch dựa trên thời điểm thanh toán
+                var locked = isTransactionLocked(trans);
+                return proceedRefund(trans, locked);
+            });
             return;
         }
         
@@ -483,49 +621,68 @@ function proceedRefund(trans, needPassword) {
         showRefundReasonModal(function(reason) {
             if (!reason) return;
             restoreIngredients(trans.items).then(function() {
+                // Xử lý hoàn tác nợ: trả về Promise để đợi hoàn thành trước khi update transaction
+                var debtPromise = Promise.resolve();
+                
                 if (trans.type === 'debt_payment' && trans.customer) {
                     if (trans.paymentMethod === 'debt') {
                         // GHI NỢ: hoàn tác = trừ nợ (vì lúc ghi nợ đã cộng nợ)
-                        var c = null;
-                        for (var i = 0; i < customers.length; i++) {
-                            if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
-                        }
-                        if (c) {
-                            c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
-                            c.debtHistory = c.debtHistory || [];
-                            c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
-                            DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
-                                return DB.getAll('customers').then(function(newCusts) { customers = newCusts; });
-                            });
-                        }
+                        debtPromise = new Promise(function(resolve) {
+                            var c = null;
+                            for (var i = 0; i < customers.length; i++) {
+                                if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
+                            }
+                            if (c) {
+                                c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
+                                c.debtHistory = c.debtHistory || [];
+                                c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
+                                DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
+                                    return DB.getAll('customers').then(function(newCusts) {
+                                        customers = newCusts;
+                                        resolve();
+                                    });
+                                });
+                            } else {
+                                resolve();
+                            }
+                        });
                     } else {
                         // THANH TOÁN NỢ: hoàn tác = cộng lại nợ (vì lúc thanh toán đã trừ nợ)
-                        addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
+                        debtPromise = addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
                     }
                 }
                 
-                // YÊU CẦU 2: Lưu thời gian gốc trước khi cập nhật createdAt
-                if (!trans.originalCreatedAt) {
-                    trans.originalCreatedAt = trans.createdAt;
+                // Khôi phục bàn nếu là giao dịch dinein
+                var tablePromise = Promise.resolve();
+                if (trans.type === 'dinein' && trans.tableId) {
+                    tablePromise = restoreTable(trans);
                 }
-                trans.createdAt = new Date().toISOString(); // Cập nhật để nổi lên đầu sort
-                trans.refunded = true;
-                trans.refundReason = reason;
-                trans.refundedAt = Date.now();
                 
-                DB.update('transactions', transactionId, trans).then(function() {
-                    showToast('✅ Đã hủy giao dịch', 'success');
-                    // Gửi thông báo Telegram
-                    if (typeof notifyTelegramRefund === 'function') {
-                        notifyTelegramRefund(trans, reason, needPassword);
+                // Đợi xử lý nợ + khôi phục bàn xong mới update transaction
+                Promise.all([debtPromise, tablePromise]).then(function() {
+                    // YÊU CẦU 2: Lưu thời gian gốc trước khi cập nhật createdAt
+                    if (!trans.originalCreatedAt) {
+                        trans.originalCreatedAt = trans.createdAt;
                     }
-                    // Cập nhật lại lịch sử và báo cáo
-                    if (currentTab === 'history') {
-                        renderHistoryByDate(currentHistoryDate);
-                    }
-                    if (currentTab === 'report') {
-                        renderReport(currentReportDate);
-                    }
+                    trans.createdAt = new Date().toISOString(); // Cập nhật để nổi lên đầu sort
+                    trans.refunded = true;
+                    trans.refundReason = reason;
+                    trans.refundedAt = Date.now();
+                    
+                    DB.update('transactions', transactionId, trans).then(function() {
+                        showToast('✅ Đã hủy giao dịch', 'success');
+                        // Gửi thông báo Telegram
+                        if (typeof notifyTelegramRefund === 'function') {
+                            notifyTelegramRefund(trans, reason, needPassword);
+                        }
+                        // Cập nhật lại lịch sử và báo cáo
+                        if (currentTab === 'history') {
+                            renderHistoryByDate(currentHistoryDate);
+                        }
+                        if (currentTab === 'report') {
+                            renderReport(currentReportDate);
+                        }
+                    });
                 });
             });
         });
@@ -538,14 +695,88 @@ function proceedRefund(trans, needPassword) {
     }
 }
 
-function changeHistoryDate(delta) { var nd = new Date(currentHistoryDate); nd.setDate(nd.getDate() + delta); currentHistoryDate = nd; renderHistoryByDate(currentHistoryDate); }
+// ========== KHÔI PHỤC BÀN KHI HOÀN TÁC GIAO DỊCH DINEIN ==========
+function restoreTable(trans) {
+    return new Promise(function(resolve) {
+        // Tính tổng tiền từ items (ưu tiên dùng trans.amount)
+        var total = trans.amount || 0;
+        if (total === 0 && trans.items && trans.items.length) {
+            for (var i = 0; i < trans.items.length; i++) {
+                total += (trans.items[i].price || 0) * (trans.items[i].qty || 1);
+            }
+        }
+        
+        // Lấy customerId, customerName từ transaction
+        var customerId = null;
+        var customerName = null;
+        if (trans.customer) {
+            customerId = trans.customer.id || null;
+            customerName = trans.customer.name || null;
+        }
+        
+        // Tạo dữ liệu bàn để khôi phục
+        var tableData = {
+            name: trans.tableName || 'Bàn',
+            items: trans.items || [],
+            total: total,
+            startTime: trans.startTime || new Date().toISOString(),
+            customerId: customerId,
+            customerName: customerName,
+            recentAdds: []
+        };
+        
+        // Kiểm tra xem bàn đã tồn tại chưa (tránh ghi đè nếu bàn đã được tạo lại)
+        DB.get('tables', String(trans.tableId)).then(function(existingTable) {
+            if (existingTable && existingTable.items && existingTable.items.length > 0) {
+                // Bàn đã có dữ liệu (có thể đã được dùng lại) -> không ghi đè
+                console.warn('Table ' + trans.tableId + ' already has data, skipping restore');
+                resolve();
+            } else {
+                // Khôi phục bàn: tạo mới hoặc cập nhật
+                if (existingTable) {
+                    // Bàn đã tồn tại (rỗng) -> cập nhật
+                    DB.update('tables', String(trans.tableId), tableData).then(function() {
+                        resolve();
+                    }).catch(function() {
+                        resolve();
+                    });
+                } else {
+                    // Bàn chưa tồn tại -> tạo mới
+                    tableData.id = trans.tableId;
+                    DB.create('tables', tableData, String(trans.tableId)).then(function() {
+                        resolve();
+                    }).catch(function() {
+                        resolve();
+                    });
+                }
+            }
+        }).catch(function() {
+            // Nếu lỗi khi get, thử tạo mới
+            tableData.id = trans.tableId;
+            DB.create('tables', tableData, String(trans.tableId)).then(function() {
+                resolve();
+            }).catch(function() {
+                resolve();
+            });
+        });
+    });
+}
+
+function changeHistoryDate(delta) {
+    var nd = new Date(currentHistoryDate);
+    nd.setDate(nd.getDate() + delta);
+    currentHistoryDate = nd;
+    renderHistoryByDate(currentHistoryDate);
+}
 
 // ========== THÊM GIAO DỊCH ==========
 function addHistory(transaction) {
+    var now = new Date();
+    var dateKey = _toLocalDateStr(now);
     var newTrans = {
         id: Date.now().toString(),
-        date: new Date().toISOString(),
-        dateKey: new Date().toISOString().slice(0, 10),
+        date: now.toISOString(),
+        dateKey: dateKey,
         type: transaction.type,
         amount: transaction.amount,
         paymentMethod: transaction.paymentMethod,
@@ -555,11 +786,49 @@ function addHistory(transaction) {
         tableId: transaction.tableId || null, // Lưu tableId để kiểm tra khoá khi hoàn tác
         note: transaction.note || '',
         refunded: false,
-        tableTime: transaction.tableTime || '' // Thời gian khách ngồi (vd: "2h15p")
+        tableTime: transaction.tableTime || '', // Thời gian khách ngồi (vd: "2h15p")
+        startTime: transaction.startTime || null, // Thời gian bắt đầu ngồi
+        endTime: transaction.endTime || null      // Thời gian kết thúc (thanh toán)
     };
-    return DB.create('transactions', newTrans).then(function() {
+    return DB.create('transactions', newTrans).then(function(result) {
         // KHÔNG gọi render trực tiếp nữa, để realtime subscription tự cập nhật
     });
+}
+
+// ========== SWIPE TO REFUND ==========
+function _initHistorySwipe() {
+    var items = document.querySelectorAll('.history-item');
+    for (var i = 0; i < items.length; i++) {
+        (function(el) {
+            var startX = 0, currentX = 0, isDragging = false;
+            el.addEventListener('touchstart', function(e) {
+                startX = e.touches[0].clientX;
+                isDragging = true;
+            }, { passive: true });
+            el.addEventListener('touchmove', function(e) {
+                if (!isDragging) return;
+                currentX = e.touches[0].clientX;
+                var diff = startX - currentX;
+                if (diff > 0) {
+                    el.style.transition = 'none';
+                    el.style.transform = 'translateX(' + (-Math.min(diff, 80)) + 'px)';
+                }
+            }, { passive: true });
+            el.addEventListener('touchend', function(e) {
+                if (!isDragging) return;
+                isDragging = false;
+                el.style.transition = 'transform 0.2s ease';
+                var diff = startX - currentX;
+                if (diff > 50) {
+                    el.classList.add('swipe-reveal');
+                    el.style.transform = '';
+                } else {
+                    el.classList.remove('swipe-reveal');
+                    el.style.transform = '';
+                }
+            }, { passive: true });
+        })(items[i]);
+    }
 }
 
 // Export global

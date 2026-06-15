@@ -1,830 +1,342 @@
-// print.js - In hóa đơn nhiệt
-// Hỗ trợ 4 chế độ:
-//   1. In qua trình duyệt (window.print) - nếu máy in đã cài trên Android
-//   2. In qua TCP (gửi ESC/POS trực tiếp đến IP:9100) - cho máy in mạng
-//   3. In qua Sunmi Built-in Print Service (localhost:8001) - cho máy Sunmi
-//   4. In qua Bluetooth (Web Bluetooth API) - cho máy in Bluetooth
-//   Tự động dò tìm máy in trong mạng LAN
+// print.js - In hoa don nhiet (Bluetooth InnerPrinter)
+// =====================================================
+// BO CUC TOI UU: can chinh cot, tiet kiem giay, khong loi font Trung Quoc
+// Chi gui ESC/POS bytes qua Bluetooth den InnerPrinter
 
-var PRINT_MODE = 'browser'; // 'browser', 'tcp', 'sunmi', hoặc 'bluetooth'
-var PRINTER_IP = '';
-var PRINTER_PORT = 9100;
-var SUNMI_SERVICE_URL = 'http://localhost:8001';
-var _scanning = false;
-var _btDevice = null; // Bluetooth device đã kết nối
-var _btService = null; // Bluetooth service đã kết nối
+var PRINT_MODE = 'sunmi';
 
-// ========== LẤY IP CỦA THIẾT BỊ ==========
-function getLocalIP(callback) {
-    try {
-        var RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
-        if (!RTCPeerConnection) { callback(null); return; }
-        
-        var pc = new RTCPeerConnection({ iceServers: [] });
-        var found = false;
-        
-        pc.createDataChannel('');
-        pc.createOffer().then(function(offer) {
-            return pc.setLocalDescription(offer);
-        }).catch(function(){});
-        
-        pc.onicecandidate = function(e) {
-            if (!e || !e.candidate || found) return;
-            var candidate = e.candidate.candidate;
-            var match = candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
-            if (match) {
-                var ip = match[0];
-                // Bỏ qua loopback, link-local, multicast
-                if (ip.indexOf('127.') === 0 || ip.indexOf('169.254.') === 0 || ip.indexOf('0.') === 0) return;
-                found = true;
-                callback(ip);
-                setTimeout(function() { pc.close(); }, 100);
-            }
-        };
-        
-        setTimeout(function() {
-            if (!found) { pc.close(); callback(null); }
-        }, 3000);
-    } catch(e) {
-        callback(null);
-    }
+// ========== UTILS ==========
+function formatPrice(amount) {
+    if (typeof amount !== 'number') return '0';
+    return amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-// ========== DÒ TÌM MÁY IN TRONG MẠNG LAN ==========
-function scanPrinters(callback) {
-    if (_scanning) { showToast('🔄 Đang quét... vui lòng đợi', 'info'); return; }
-    _scanning = true;
-    
-    showToast('🔄 Đang dò tìm máy in trong mạng LAN...', 'info');
-    
-    getLocalIP(function(localIP) {
-        if (!localIP) {
-            showToast('⚠️ Không thể xác định IP thiết bị. Vui lòng nhập IP thủ công.', 'warning');
-            _scanning = false;
-            if (callback) callback([]);
-            return;
-        }
-        
-        // Lấy subnet (VD: 192.168.1)
-        var parts = localIP.split('.');
-        var subnet = parts[0] + '.' + parts[1] + '.' + parts[2];
-        
-        showToast('🔄 IP thiết bị: ' + localIP + ', đang quét ' + subnet + '.1-254...', 'info');
-        
-        var found = [];
-        var completed = 0;
-        var total = 254;
-        var timeout = 2000; // 2s mỗi IP
-        
-        for (var i = 1; i <= total; i++) {
-            (function(ip) {
-                var testIP = subnet + '.' + ip;
-                var ws = new WebSocket('ws://' + testIP + ':' + PRINTER_PORT);
-                var timer = setTimeout(function() {
-                    try { ws.close(); } catch(e) {}
-                    checkDone();
-                }, timeout);
-                
-                ws.onopen = function() {
-                    clearTimeout(timer);
-                    found.push(testIP);
-                    try { ws.close(); } catch(e) {}
-                    checkDone();
-                };
-                ws.onerror = function() {
-                    clearTimeout(timer);
-                    checkDone();
-                };
-                
-                function checkDone() {
-                    completed++;
-                    if (completed >= total) {
-                        _scanning = false;
-                        if (found.length > 0) {
-                            showToast('✅ Tìm thấy ' + found.length + ' máy in!', 'success');
-                        } else {
-                            showToast('⚠️ Không tìm thấy máy in nào. Kiểm tra kết nối mạng.', 'warning');
-                        }
-                        if (callback) callback(found);
-                    }
-                }
-            })(i);
-        }
-    });
+function padRight(str, len) {
+    str = str || '';
+    while (str.length < len) str += ' ';
+    return str;
 }
 
-// ========== HIỂN THỊ DANH SÁCH MÁY IN TÌM ĐƯỢC ==========
-function showPrinterList(printers) {
-    var container = document.getElementById('printerScanResult');
-    if (!container) return;
-    
-    if (printers.length === 0) {
-        container.innerHTML = '<div style="text-align:center;padding:8px;color:#94a3b8;font-size:12px;">' +
-            '⚠️ Không tìm thấy máy in nào.<br>' +
-            '<span style="font-size:11px;cursor:pointer;color:#f97316;" onclick="scanPrinters(showPrinterList)">🔄 Quét lại</span>' +
-            '</div>';
-        return;
-    }
-    
-    var html = '<div style="font-size:11px;color:#475569;margin-bottom:4px;">✅ Máy in tìm thấy:</div>';
-    for (var i = 0; i < printers.length; i++) {
-        var ip = printers[i];
-        var isActive = (PRINTER_IP === ip);
-        html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;margin:2px 0;border-radius:6px;background:' +
-            (isActive ? '#fef3c7' : '#f8fafc') + ';cursor:pointer;" onclick="selectPrinter(\'' + ip + '\')">' +
-            '<span>🖨️</span>' +
-            '<span style="flex:1;font-size:12px;font-weight:' + (isActive ? '600' : '400') + ';">' + ip + '</span>' +
-            (isActive ? '<span style="font-size:10px;color:#f97316;font-weight:600;">✓ ĐANG DÙNG</span>' : '<span style="font-size:10px;color:#3b82f6;">Chọn</span>') +
-            '</div>';
-    }
-    html += '<div style="text-align:center;margin-top:4px;">' +
-        '<span style="font-size:10px;color:#94a3b8;cursor:pointer;" onclick="scanPrinters(showPrinterList)">🔄 Quét lại</span>' +
-        '</div>';
-    container.innerHTML = html;
+function padLeft(str, len) {
+    str = str || '';
+    while (str.length < len) str = ' ' + str;
+    return str;
 }
 
-// ========== CHỌN MÁY IN ==========
-function selectPrinter(ip) {
-    PRINTER_IP = ip;
-    try { localStorage.setItem('printerIP', ip); } catch(e) {}
-    showToast('✅ Đã chọn máy in: ' + ip, 'success');
-    // Cập nhật UI
-    var display = document.getElementById('selectedPrinterDisplay');
-    if (display) display.textContent = '🖨️ ' + ip;
-    // Cập nhật danh sách
-    scanPrinters(showPrinterList);
+// Bo dau tieng Viet (tranh chu Trung Quoc)
+function removeAccent(str) {
+    if (!str) return '';
+    var map = {
+        'à':'a','á':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ằ':'a','ẳ':'a','ẵ':'a','ặ':'a',
+        'â':'a','ầ':'a','ấ':'a','ẩ':'a','ẫ':'a','ậ':'a','è':'e','é':'e','ẻ':'e','ẽ':'e',
+        'ẹ':'e','ê':'e','ề':'e','ế':'e','ể':'e','ễ':'e','ệ':'e','ì':'i','í':'i','ỉ':'i',
+        'ĩ':'i','ị':'i','ò':'o','ó':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ồ':'o','ố':'o',
+        'ổ':'o','ỗ':'o','ộ':'o','ơ':'o','ờ':'o','ớ':'o','ở':'o','ỡ':'o','ợ':'o','ù':'u',
+        'ú':'u','ủ':'u','ũ':'u','ụ':'u','ư':'u','ừ':'u','ứ':'u','ử':'u','ữ':'u','ự':'u',
+        'ỳ':'y','ý':'y','ỷ':'y','ỹ':'y','ỵ':'y','đ':'d',
+        'À':'A','Á':'A','Ả':'A','Ã':'A','Ạ':'A','Ă':'A','Ằ':'A','Ẳ':'A','Ẵ':'A','Ặ':'A',
+        'Â':'A','Ầ':'A','Ấ':'A','Ẩ':'A','Ẫ':'A','Ậ':'A','È':'E','É':'E','Ẻ':'E','Ẽ':'E',
+        'Ẹ':'E','Ê':'E','Ề':'E','Ế':'E','Ể':'E','Ễ':'E','Ệ':'E','Ì':'I','Í':'I','Ỉ':'I',
+        'Ĩ':'I','Ị':'I','Ò':'O','Ó':'O','Ỏ':'O','Õ':'O','Ọ':'O','Ô':'O','Ồ':'O','Ố':'O',
+        'Ổ':'O','Ỗ':'O','Ộ':'O','Ơ':'O','Ờ':'O','Ớ':'O','Ở':'O','Ỡ':'O','Ợ':'O','Ù':'U',
+        'Ú':'U','Ủ':'U','Ũ':'U','Ụ':'U','Ư':'U','Ừ':'U','Ứ':'U','Ử':'U','Ữ':'U','Ự':'U',
+        'Ỳ':'Y','Ý':'Y','Ỷ':'Y','Ỹ':'Y','Ỵ':'Y','Đ':'D'
+    };
+    var result = '';
+    for (var i = 0; i < str.length; i++) {
+        var c = str[i];
+        result += map[c] || c;
+    }
+    return result;
 }
 
-// ========== NHẬP IP THỦ CÔNG ==========
-function setPrinterIP(ip) {
-    if (!ip) {
-        ip = prompt('Nhập địa chỉ IP của máy in:', PRINTER_IP || '192.168.1.');
-        if (!ip) return;
+function stringToBytes(str) {
+    var cleaned = removeAccent(str);
+    var bytes = [];
+    for (var i = 0; i < cleaned.length; i++) {
+        var code = cleaned.charCodeAt(i);
+        if (code < 128) bytes.push(code);
+        else bytes.push(63); // '?'
     }
-    PRINTER_IP = ip;
-    try { localStorage.setItem('printerIP', ip); } catch(e) {}
-    showToast('✅ Đã đặt IP máy in: ' + ip, 'success');
-    var display = document.getElementById('selectedPrinterDisplay');
-    if (display) display.textContent = '🖨️ ' + ip;
-}
-
-// ========== CHỌN CHẾ ĐỘ IN ==========
-function setPrintMode(mode) {
-    PRINT_MODE = mode;
-    // Cập nhật UI
-    var btnBrowser = document.getElementById('printModeBrowser');
-    var btnTcp = document.getElementById('printModeTcp');
-    var btnSunmi = document.getElementById('printModeSunmi');
-    var btnBt = document.getElementById('printModeBluetooth');
-    if (btnBrowser) btnBrowser.className = mode === 'browser' ? 'print-mode-btn active' : 'print-mode-btn';
-    if (btnTcp) btnTcp.className = mode === 'tcp' ? 'print-mode-btn active' : 'print-mode-btn';
-    if (btnSunmi) btnSunmi.className = mode === 'sunmi' ? 'print-mode-btn active' : 'print-mode-btn';
-    if (btnBt) btnBt.className = mode === 'bluetooth' ? 'print-mode-btn active' : 'print-mode-btn';
-    // Hiện/ẩn phần cài đặt
-    var tcpSettings = document.getElementById('tcpSettings');
-    if (tcpSettings) tcpSettings.style.display = mode === 'tcp' ? 'block' : 'none';
-    var sunmiSettings = document.getElementById('sunmiSettings');
-    if (sunmiSettings) sunmiSettings.style.display = mode === 'sunmi' ? 'block' : 'none';
-    var btSettings = document.getElementById('btSettings');
-    if (btSettings) btSettings.style.display = mode === 'bluetooth' ? 'block' : 'none';
-    // Nếu chuyển sang TCP và chưa có IP, tự động dò tìm
-    if (mode === 'tcp' && !PRINTER_IP) {
-        setTimeout(function() { scanPrinters(showPrinterList); }, 300);
-    }
-    // Nếu chuyển sang Sunmi, tự động kiểm tra service
-    if (mode === 'sunmi') {
-        setTimeout(function() { testSunmiService(); }, 300);
-    }
-    // Lưu vào localStorage
-    try { localStorage.setItem('printMode', mode); } catch(e) {}
-}
-
-function loadPrintMode() {
-    try {
-        var saved = localStorage.getItem('printMode');
-        if (saved) PRINT_MODE = saved;
-        var savedIP = localStorage.getItem('printerIP');
-        if (savedIP) PRINTER_IP = savedIP;
-    } catch(e) {}
-    // Cập nhật UI sau khi DOM load
-    if (document.readyState === 'complete') {
-        setPrintMode(PRINT_MODE);
-        updatePrinterDisplay();
-    } else {
-        document.addEventListener('DOMContentLoaded', function() {
-            setPrintMode(PRINT_MODE);
-            updatePrinterDisplay();
-        });
-    }
-}
-
-function updatePrinterDisplay() {
-    var display = document.getElementById('selectedPrinterDisplay');
-    if (display) {
-        display.textContent = PRINTER_IP ? '🖨️ ' + PRINTER_IP : '🖨️ Chưa chọn máy in';
-    }
-}
-
-// ========== TẠO NỘI DUNG HÓA ĐƠN HTML (cho chế độ browser) ==========
-function buildReceiptHTML(data) {
-    var methodText = '';
-    switch (data.paymentMethod) {
-        case 'cash': methodText = 'Tiền mặt'; break;
-        case 'transfer': methodText = 'Chuyển khoản'; break;
-        case 'debt': methodText = 'Ghi nợ'; break;
-        case 'grab': methodText = 'Grab'; break;
-        default: methodText = data.paymentMethod || '';
-    }
-
-    var now = data.createdAt ? new Date(data.createdAt) : new Date();
-    var dateStr = now.toLocaleDateString('vi-VN') + ' ' + now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-    var itemsHtml = '';
-    if (data.items && data.items.length) {
-        for (var i = 0; i < data.items.length; i++) {
-            var item = data.items[i];
-            var name = item.name || '';
-            var qty = item.qty || 1;
-            var price = item.price || 0;
-            var total = price * qty;
-            itemsHtml += '<tr><td style="padding:3px 0;">' + escapeHtml(name) + ' x' + qty + '</td><td style="padding:3px 0;text-align:right;">' + formatMoney(total) + '</td></tr>';
-        }
-    }
-
-    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Hóa đơn</title>' +
-        '<style>' +
-            '@page { margin: 0; size: 80mm auto; }' +
-            'body { font-family: monospace; font-size: 12px; width: 72mm; margin: 0 auto; padding: 6px 4px; color: #000; }' +
-            '.center { text-align: center; }' +
-            '.bold { font-weight: bold; }' +
-            '.big { font-size: 16px; }' +
-            '.line { border-top: 1px dashed #000; margin: 5px 0; }' +
-            'table { width: 100%; border-collapse: collapse; }' +
-            '.total { font-size: 14px; font-weight: bold; text-align: center; margin: 6px 0; }' +
-            '@media print { body { width: 72mm; } }' +
-        '</style></head><body>' +
-        '<div class="center big bold">' + (data.shopName || 'POS CAFE') + '</div>' +
-        '<div class="center">HÓA ĐƠN THANH TOÁN</div>' +
-        '<div class="line"></div>';
-
-    if (data.tableName) {
-        html += '<div>Bàn: ' + escapeHtml(data.tableName) + '</div>';
-    }
-    if (data.customerName) {
-        html += '<div>Khách: ' + escapeHtml(data.customerName) + '</div>';
-    }
-    html += '<div>Ngày: ' + dateStr + '</div>' +
-        '<div class="line"></div>' +
-        '<table>' + itemsHtml + '</table>' +
-        '<div class="line"></div>' +
-        '<div class="total">TỔNG: ' + formatMoney(data.total || 0) + '</div>' +
-        '<div class="center">PTTT: ' + methodText + '</div>' +
-        '<div class="line"></div>' +
-        '<div class="center">Cảm ơn quý khách!</div>' +
-        '<div class="center">Hẹn gặp lại!</div>' +
-        '</body></html>';
-
-    return html;
-}
-
-// ========== IN QUA TRÌNH DUYỆT (window.print) ==========
-function printViaBrowser(data) {
-    var html = buildReceiptHTML(data);
-
-    var iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.top = '-9999px';
-    iframe.style.left = '-9999px';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    document.body.appendChild(iframe);
-
-    var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-    iframeDoc.open();
-    iframeDoc.write(html);
-    iframeDoc.close();
-
-    return new Promise(function(resolve) {
-        setTimeout(function() {
-            try {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
-            } catch(e) {
-                console.warn('Print error:', e);
-            }
-            setTimeout(function() {
-                if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-                resolve(true);
-            }, 1000);
-        }, 500);
-    });
-}
-
-// ========== TẠO NỘI DUNG HÓA ĐƠN ESC/POS (cho chế độ TCP) ==========
-function buildReceiptESC(data) {
-    var lines = [];
-    
-    // Initialize
-    lines.push('\x1B\x40');
-    // Center align
-    lines.push('\x1B\x61\x01');
-    // Double height + bold
-    lines.push('\x1B\x21\x30');
-    lines.push(data.shopName || 'POS CAFE');
-    // Normal
-    lines.push('\x1B\x21\x00');
-    lines.push('');
-    lines.push('HÓA ĐƠN THANH TOÁN');
-    lines.push('');
-    // Left align
-    lines.push('\x1B\x61\x00');
-    lines.push('================================');
-    
-    if (data.tableName) {
-        lines.push('Ban: ' + data.tableName);
-    }
-    if (data.customerName) {
-        lines.push('Khach: ' + data.customerName);
-    }
-    
-    var now = data.createdAt ? new Date(data.createdAt) : new Date();
-    var dateStr = now.toLocaleDateString('vi-VN') + ' ' + now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    lines.push('Ngay: ' + dateStr);
-    lines.push('================================');
-    lines.push('MON');
-    lines.push('--------------------------------');
-    
-    if (data.items && data.items.length) {
-        for (var i = 0; i < data.items.length; i++) {
-            var item = data.items[i];
-            var name = item.name || '';
-            var qty = item.qty || 1;
-            var price = item.price || 0;
-            var total = price * qty;
-            var line = name + ' x' + qty;
-            var priceStr = formatMoney(total);
-            var spaces = 32 - line.length - priceStr.length;
-            if (spaces < 1) spaces = 1;
-            for (var s = 0; s < spaces; s++) line += ' ';
-            line += priceStr;
-            lines.push(line);
-        }
-    }
-    
-    lines.push('================================');
-    // Center + bold
-    lines.push('\x1B\x61\x01');
-    lines.push('\x1B\x21\x10');
-    lines.push('TONG: ' + formatMoney(data.total || 0));
-    lines.push('\x1B\x21\x00');
-    
-    var methodText = '';
-    switch (data.paymentMethod) {
-        case 'cash': methodText = 'Tien mat'; break;
-        case 'transfer': methodText = 'Chuyen khoan'; break;
-        case 'debt': methodText = 'Ghi no'; break;
-        case 'grab': methodText = 'Grab'; break;
-        default: methodText = data.paymentMethod || '';
-    }
-    lines.push('PTTT: ' + methodText);
-    
-    lines.push('');
-    lines.push('Cam on quy khach!');
-    lines.push('Hen gap lai!');
-    lines.push('');
-    lines.push('');
-    lines.push('');
-    lines.push('\x1B\x61\x00');
-    // Cut paper
-    lines.push('\x1D\x56\x00');
-    
-    return lines;
+    return bytes;
 }
 
 function escLinesToBytes(lines) {
     var bytes = [];
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
-        for (var c = 0; c < line.length; c++) {
-            bytes.push(line.charCodeAt(c));
-        }
-        // Thêm LF cho text, không thêm cho ESC/POS commands
-        if (line.indexOf('\x1B') !== 0 && line.indexOf('\x1D') !== 0) {
+        if (typeof line === 'string') {
+            var asciiBytes = stringToBytes(line);
+            for (var j = 0; j < asciiBytes.length; j++) bytes.push(asciiBytes[j]);
             bytes.push(0x0A);
+        } else if (Array.isArray(line)) {
+            for (var j = 0; j < line.length; j++) bytes.push(line[j]);
         }
     }
     return bytes;
 }
 
-// ========== IN QUA TCP (GỬI TRỰC TIẾP ĐẾN IP:PORT) ==========
-function printViaTCP(data) {
-    if (!PRINTER_IP) {
-        showToast('⚠️ Chưa chọn máy in. Vào phần "In TCP" để dò tìm.', 'warning');
-        return Promise.reject(new Error('No printer selected'));
-    }
-    
-    var escLines = buildReceiptESC(data);
-    var bytes = escLinesToBytes(escLines);
-    
-    return new Promise(function(resolve, reject) {
-        // Thử gửi qua HTTP trực tiếp đến IP:9100
-        var url = 'http://' + PRINTER_IP + ':' + PRINTER_PORT + '/';
-        
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
-        xhr.timeout = 5000;
-        
-        // Gửi dữ liệu nhị phân
-        var blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-        
-        xhr.onload = function() {
-            console.log('TCP print response:', xhr.status);
-            resolve(true);
-        };
-        xhr.onerror = function() {
-            console.warn('TCP print failed (HTTP), trying raw socket...');
-            // Nếu HTTP không được, thử WebSocket
-            printViaWebSocket(bytes).then(resolve).catch(function(err) {
-                reject(err);
-            });
-        };
-        xhr.ontimeout = function() {
-            reject(new Error('Timeout'));
-        };
-        
-        try {
-            xhr.send(blob);
-        } catch(e) {
-            reject(e);
-        }
-    });
-}
-
-// ========== IN QUA WEBSOCKET (KẾT NỐI TCP QUA WEBSOCKET) ==========
-function printViaWebSocket(bytes) {
-    return new Promise(function(resolve, reject) {
-        try {
-            var ws = new WebSocket('ws://' + PRINTER_IP + ':' + PRINTER_PORT);
-            ws.binaryType = 'arraybuffer';
-            
-            ws.onopen = function() {
-                ws.send(new Uint8Array(bytes).buffer);
-                setTimeout(function() {
-                    ws.close();
-                    resolve(true);
-                }, 500);
-            };
-            ws.onerror = function(err) {
-                reject(new Error('WebSocket connection failed'));
-            };
-            ws.ontimeout = function() {
-                reject(new Error('WebSocket timeout'));
-            };
-        } catch(e) {
-            reject(e);
-        }
-    });
-}
-
-// ========== IN QUA SUNMI BUILT-IN PRINT SERVICE (localhost:8001) ==========
-// Sunmi T1-G có service HTTP chạy ở port 8001, nhận lệnh ESC/POS
-function printViaSunmi(data) {
-    var escLines = buildReceiptESC(data);
-    var bytes = escLinesToBytes(escLines);
-    
-    return new Promise(function(resolve, reject) {
-        // Cách 1: Gửi JSON theo format Sunmi Built-in Print Service
-        // Format: {"data": "base64_encoded_esc_pos_data"}
-        var base64Data = '';
-        try {
-            var binary = '';
-            for (var i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            base64Data = btoa(binary);
-        } catch(e) {
-            reject(new Error('Base64 encode failed: ' + e.message));
-            return;
-        }
-        
-        var payload = JSON.stringify({
-            data: base64Data
-        });
-        
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', SUNMI_SERVICE_URL + '/print', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.timeout = 10000;
-        
-        xhr.onload = function() {
-            console.log('Sunmi print response:', xhr.status, xhr.responseText);
-            if (xhr.status === 200) {
-                resolve(true);
-            } else {
-                // Thử cách 2: gửi trực tiếp binary
-                sendSunmiBinary(bytes).then(resolve).catch(reject);
-            }
-        };
-        xhr.onerror = function() {
-            // Thử cách 2: gửi trực tiếp binary
-            sendSunmiBinary(bytes).then(resolve).catch(reject);
-        };
-        xhr.ontimeout = function() {
-            reject(new Error('Sunmi service timeout'));
-        };
-        
-        try {
-            xhr.send(payload);
-        } catch(e) {
-            reject(e);
-        }
-    });
-}
-
-// Gửi binary trực tiếp đến Sunmi service
-function sendSunmiBinary(bytes) {
-    return new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', SUNMI_SERVICE_URL + '/print', true);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.timeout = 10000;
-        
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                resolve(true);
-            } else {
-                reject(new Error('Sunmi binary failed: ' + xhr.status));
-            }
-        };
-        xhr.onerror = function() {
-            reject(new Error('Sunmi service not available'));
-        };
-        
-        try {
-            xhr.send(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }));
-        } catch(e) {
-            reject(e);
-        }
-    });
-}
-
-// ========== KIỂM TRA SUNMI PRINT SERVICE ==========
-function testSunmiService() {
-    showToast('🔄 Đang kiểm tra Sunmi Print Service...', 'info');
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', SUNMI_SERVICE_URL, true);
-    xhr.timeout = 3000;
-    
-    xhr.onload = function() {
-        showToast('✅ Sunmi Print Service hoạt động! (HTTP ' + xhr.status + ')', 'success');
-        var display = document.getElementById('sunmiStatus');
-        if (display) {
-            display.innerHTML = '<span style="color:#10b981;font-weight:600;">✅ Sunmi Print Service: ONLINE</span>';
-        }
-    };
-    xhr.onerror = function() {
-        showToast('⚠️ Sunmi Print Service không phản hồi tại ' + SUNMI_SERVICE_URL, 'warning');
-        var display = document.getElementById('sunmiStatus');
-        if (display) {
-            display.innerHTML = '<span style="color:#ef4444;font-weight:600;">❌ Sunmi Print Service: OFFLINE</span>' +
-                '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Thử mở http://localhost:8001 trên tab mới</div>';
-        }
-    };
-    xhr.ontimeout = function() {
-        showToast('⏱️ Sunmi Print Service timeout', 'warning');
-        var display = document.getElementById('sunmiStatus');
-        if (display) {
-            display.innerHTML = '<span style="color:#ef4444;font-weight:600;">⏱️ Sunmi Print Service: TIMEOUT</span>';
-        }
-    };
-    xhr.send();
-}
-
-// ========== IN QUA BLUETOOTH (WEB BLUETOOTH API) ==========
-function connectBluetoothPrinter() {
-    return new Promise(function(resolve, reject) {
-        // Kiểm tra Web Bluetooth API
-        if (!navigator.bluetooth) {
-            reject(new Error('Web Bluetooth không được hỗ trợ trên trình duyệt này'));
-            return;
-        }
-        
-        showToast('🔄 Đang tìm máy in Bluetooth...', 'info');
-        
-        navigator.bluetooth.requestDevice({
-            // Filter: tìm thiết bị có tên chứa "InnerPrinter" hoặc "Printer"
-            filters: [
-                { namePrefix: 'Inner' },
-                { namePrefix: 'Printer' },
-                { namePrefix: 'POS' },
-                { namePrefix: 'Sunmi' }
-            ],
-            // Hoặc tìm tất cả thiết bị có service in ấn
-            optionalServices: [
-                '000018f0-0000-1000-8000-00805f9b34fb', // Standard printer service
-                '00001812-0000-1000-8000-00805f9b34fb'  // Human Interface Device
-            ]
-        }).then(function(device) {
-            _btDevice = device;
-            showToast('✅ Đã kết nối: ' + (device.name || 'Unknown'), 'success');
-            
-            // Lưu device info
-            try {
-                localStorage.setItem('btPrinterName', device.name || '');
-            } catch(e) {}
-            
-            var display = document.getElementById('btStatus');
-            if (display) {
-                display.innerHTML = '<span style="color:#10b981;font-weight:600;">✅ ' + escapeHtml(device.name || 'Unknown') + '</span>';
-            }
-            
-            // Ngắt kết nối khi tab đóng
-            device.addEventListener('gattserverdisconnected', function() {
-                _btDevice = null;
-                _btService = null;
-                var d = document.getElementById('btStatus');
-                if (d) d.innerHTML = '<span style="color:#94a3b8;">❌ Đã ngắt kết nối</span>';
-            });
-            
-            resolve(device);
-        }).catch(function(err) {
-            showToast('⚠️ Lỗi Bluetooth: ' + err.message, 'warning');
-            reject(err);
-        });
-    });
-}
-
-function printViaBluetooth(data) {
-    var escLines = buildReceiptESC(data);
-    var bytes = escLinesToBytes(escLines);
-    
-    return new Promise(function(resolve, reject) {
-        if (!_btDevice) {
-            // Chưa kết nối, yêu cầu kết nối trước
-            connectBluetoothPrinter().then(function(device) {
-                // Kết nối GATT server
-                return device.gatt.connect();
-            }).then(function(server) {
-                // Tìm service in ấn
-                return server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
-            }).then(function(service) {
-                _btService = service;
-                // Tìm characteristic để ghi dữ liệu
-                return service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
-            }).then(function(characteristic) {
-                // Ghi dữ liệu ESC/POS
-                return characteristic.writeValue(new Uint8Array(bytes));
-            }).then(function() {
-                showToast('🖨️ Đã in qua Bluetooth', 'success');
-                resolve(true);
-            }).catch(function(err) {
-                reject(err);
-            });
+function bytesToBase64(bytes) {
+    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    var result = '';
+    var i = 0;
+    var len = bytes.length;
+    while (i < len) {
+        var remaining = len - i;
+        if (remaining >= 3) {
+            var a = bytes[i++], b = bytes[i++], c = bytes[i++];
+            result += chars.charAt(a >>> 2) +
+                      chars.charAt(((a & 3) << 4) | (b >>> 4)) +
+                      chars.charAt(((b & 15) << 2) | (c >>> 6)) +
+                      chars.charAt(c & 63);
+        } else if (remaining === 2) {
+            var a = bytes[i++], b = bytes[i++];
+            result += chars.charAt(a >>> 2) +
+                      chars.charAt(((a & 3) << 4) | (b >>> 4)) +
+                      chars.charAt((b & 15) << 2) + '=';
         } else {
-            // Đã kết nối, gửi trực tiếp
-            if (_btDevice.gatt.connected) {
-                _btDevice.gatt.connect().then(function(server) {
-                    return server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
-                }).then(function(service) {
-                    return service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
-                }).then(function(characteristic) {
-                    return characteristic.writeValue(new Uint8Array(bytes));
-                }).then(function() {
-                    showToast('🖨️ Đã in qua Bluetooth', 'success');
-                    resolve(true);
-                }).catch(function(err) {
-                    reject(err);
-                });
+            var a = bytes[i++];
+            result += chars.charAt(a >>> 2) +
+                      chars.charAt((a & 3) << 4) + '==';
+        }
+    }
+    return result;
+}
+
+// ========== XAY DUNG HOA DON (80mm - 42 ky tu font A) ==========
+var PW = 42; // 80mm: 42 ky tu font A (12x24)
+
+function buildReceiptESC(data) {
+    var lines = [];
+
+    // Reset
+    lines.push([0x1B, 0x40]);                 // ESC @
+
+    // ===== HEADER: can giua, in dam =====
+    lines.push([0x1B, 0x61, 0x01]);           // ESC a 1 (center)
+    lines.push([0x1B, 0x45, 0x01]);           // ESC E 1 (bold ON)
+
+    if (data.storeName) {
+        // Ten cua hang: font to (double height)
+        lines.push([0x1B, 0x21, 0x10]);       // ESC ! 0x10 (double height)
+        lines.push(removeAccent(data.storeName));
+        lines.push([0x1B, 0x21, 0x00]);       // ESC ! 0x00 (normal)
+    }
+
+    lines.push([0x1B, 0x45, 0x00]);           // ESC E 0 (bold OFF)
+    lines.push([0x1B, 0x61, 0x00]);           // ESC a 0 (left)
+
+    if (data.storeAddress) lines.push(removeAccent(data.storeAddress));
+    if (data.storePhone) lines.push('Tel: ' + data.storePhone);
+
+    lines.push(''); // dong trong
+
+    // ===== THONG TIN DON =====
+    lines.push([0x1B, 0x61, 0x00]);           // left
+
+    // Loai don + ban
+    var orderInfo = '';
+    if (data.orderType === 'dinein') {
+        orderInfo = 'Ban: ' + (data.tableName ? removeAccent(data.tableName) : '???');
+    } else if (data.orderType === 'takeaway') orderInfo = 'Mang di';
+    else if (data.orderType === 'grab') orderInfo = 'Grab';
+    else if (data.orderType === 'debt_payment') orderInfo = 'Ghi no';
+    else orderInfo = 'Tai cho';
+    lines.push(orderInfo);
+
+    if (data.customerName) lines.push('Khach: ' + removeAccent(data.customerName));
+
+    // Gio vao - gio ra
+    var timeStr = '';
+    if (data.startTime) timeStr += data.startTime;
+    if (data.endTime) timeStr += ' - ' + data.endTime;
+    if (data.tableTime) timeStr += '  (' + data.tableTime + ')';
+    if (timeStr) lines.push(timeStr);
+
+    lines.push('');
+
+    // ===== DANH SACH MON =====
+    // Duong ke
+    var sep = repeatChar('-', PW);
+    lines.push(sep);
+
+    // Header cot: Ten mon (22) | SL (4) | Don gia (8) | T.tien (8)
+    lines.push([0x1B, 0x45, 0x01]); // bold ON
+    lines.push(padRight('Ten mon', 22) + padLeft('SL', 4) + padLeft('Don gia', 8) + padLeft('T.tien', 8));
+    lines.push([0x1B, 0x45, 0x00]); // bold OFF
+
+    if (data.items && data.items.length > 0) {
+        for (var i = 0; i < data.items.length; i++) {
+            var item = data.items[i];
+            var name = removeAccent(item.name || '');
+            var qty = item.quantity || 1;
+            var price = item.price || 0;
+            var total = qty * price;
+
+            // Cat ten mon neu qua dai
+            if (name.length > 22) name = name.substring(0, 19) + '...';
+
+            // Dong mon chinh
+            lines.push(padRight(name, 22) + padLeft(qty.toString(), 4) + padLeft(formatPrice(price), 8) + padLeft(formatPrice(total), 8));
+        }
+    } else if (data.text) {
+        lines.push(removeAccent(data.text));
+    }
+
+    lines.push(sep);
+
+    // ===== TONG TIEN =====
+    if (data.totalAmount) {
+        lines.push([0x1B, 0x45, 0x01]); // bold ON
+        lines.push(padLeft('Tong cong: ' + formatPrice(data.totalAmount), PW));
+        lines.push([0x1B, 0x45, 0x00]); // bold OFF
+    }
+
+    if (data.paymentMethod) {
+        var method = '';
+        if (data.paymentMethod === 'cash') method = 'Tien mat';
+        else if (data.paymentMethod === 'transfer') method = 'Chuyen khoan';
+        else if (data.paymentMethod === 'grab') method = 'Grab';
+        else if (data.paymentMethod === 'debt') method = 'Ghi no';
+        else method = data.paymentMethod;
+        lines.push(padLeft('Thanh toan: ' + method, PW));
+    }
+
+    if (data.changeAmount && data.changeAmount > 0) {
+        lines.push(padLeft('Tien thua: ' + formatPrice(data.changeAmount), PW));
+    }
+
+    lines.push('');
+
+    // ===== CAM ON =====
+    lines.push([0x1B, 0x61, 0x01]); // center
+    lines.push([0x1B, 0x45, 0x01]); // bold ON
+    lines.push('Cam on quy khach!');
+    lines.push([0x1B, 0x45, 0x00]); // bold OFF
+    lines.push([0x1B, 0x61, 0x00]); // left
+
+    // Ngay gio
+    if (data.date) {
+        var d2 = new Date(data.date);
+        var day = d2.getDate(), mon = d2.getMonth() + 1, year = d2.getFullYear();
+        var h2 = d2.getHours(), m2 = d2.getMinutes();
+        if (day < 10) day = '0' + day;
+        if (mon < 10) mon = '0' + mon;
+        if (h2 < 10) h2 = '0' + h2;
+        if (m2 < 10) m2 = '0' + m2;
+        var dateStr = day + '/' + mon + '/' + year + ' ' + h2 + ':' + m2;
+        lines.push([0x1B, 0x61, 0x01]); // center
+        lines.push(dateStr);
+        lines.push([0x1B, 0x61, 0x00]); // left
+    }
+
+    // QR Code (neu co)
+    if (data.qrCode) {
+        lines.push('');
+        var qrContent = data.qrCode;
+        var qrLen = qrContent.length + 3;
+        lines.push([0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]);
+        lines.push([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x43, 0x08]);
+        var pL = qrLen & 0xFF;
+        var pH = (qrLen >> 8) & 0xFF;
+        var storeCmd = [0x1D, 0x28, 0x6B, pL, pH, 0x31, 0x50, 0x30];
+        for (var qi = 0; qi < qrContent.length; qi++) {
+            storeCmd.push(qrContent.charCodeAt(qi));
+        }
+        lines.push(storeCmd);
+        lines.push([0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30]);
+    }
+
+    // Xuong dong + cat giay
+    lines.push([0x1B, 0x64, 0x04]); // ESC d 4 (4 line feeds)
+    lines.push([0x1D, 0x56, 0x00]); // GS V 0 (full cut)
+
+    return lines;
+}
+
+function repeatChar(ch, count) {
+    var s = '';
+    for (var i = 0; i < count; i++) s += ch;
+    return s;
+}
+
+// ========== IN QUA SUNMI ==========
+function printViaSunmi(data) {
+    return new Promise(function(resolve, reject) {
+        try {
+            var escLines = buildReceiptESC(data);
+            var bytes = escLinesToBytes(escLines);
+            var base64Data = bytesToBase64(bytes);
+
+            if (typeof Android !== 'undefined' && typeof Android.printSunmi === 'function') {
+                var result = Android.printSunmi(base64Data);
+                if (result === 'ok') resolve(true);
+                else reject(new Error(result));
             } else {
-                reject(new Error('Bluetooth disconnected'));
+                reject(new Error('Android bridge not available'));
             }
+        } catch (e) {
+            reject(e);
         }
     });
 }
 
-function disconnectBluetooth() {
-    if (_btDevice && _btDevice.gatt.connected) {
-        _btDevice.gatt.disconnect();
-        _btDevice = null;
-        _btService = null;
-        showToast('✅ Đã ngắt kết nối Bluetooth', 'info');
-        var display = document.getElementById('btStatus');
-        if (display) display.innerHTML = '<span style="color:#94a3b8;">Chưa kết nối</span>';
-    }
-}
-
-// ========== IN HÓA ĐƠN (TỰ ĐỘNG CHỌN CHẾ ĐỘ) ==========
 function printReceipt(data) {
-    if (PRINT_MODE === 'tcp') {
-        return printViaTCP(data).then(function() {
-            showToast('🖨️ Đã in hóa đơn qua mạng', 'success');
-            return true;
-        }).catch(function(err) {
-            console.warn('TCP print failed:', err.message);
-            showToast('⚠️ In TCP thất bại, thử in qua trình duyệt', 'warning');
-            // Fallback sang browser
-            return printViaBrowser(data).then(function() {
-                showToast('🖨️ Đã in hóa đơn', 'success');
-                return true;
-            });
-        });
-    } else if (PRINT_MODE === 'sunmi') {
-        return printViaSunmi(data).then(function() {
-            showToast('🖨️ Đã in hóa đơn qua Sunmi', 'success');
-            return true;
-        }).catch(function(err) {
-            console.warn('Sunmi print failed:', err.message);
-            showToast('⚠️ In Sunmi thất bại, thử in qua trình duyệt', 'warning');
-            // Fallback sang browser
-            return printViaBrowser(data).then(function() {
-                showToast('🖨️ Đã in hóa đơn', 'success');
-                return true;
-            });
-        });
-    } else if (PRINT_MODE === 'bluetooth') {
-        return printViaBluetooth(data).then(function() {
-            showToast('🖨️ Đã in hóa đơn qua Bluetooth', 'success');
-            return true;
-        }).catch(function(err) {
-            console.warn('Bluetooth print failed:', err.message);
-            showToast('⚠️ In Bluetooth thất bại, thử in qua trình duyệt', 'warning');
-            // Fallback sang browser
-            return printViaBrowser(data).then(function() {
-                showToast('🖨️ Đã in hóa đơn', 'success');
-                return true;
-            });
-        });
-    } else {
-        return printViaBrowser(data).then(function() {
-            showToast('🖨️ Đã in hóa đơn', 'success');
-            return true;
-        });
-    }
+    return printViaSunmi(data).then(function() {
+        showToast('Da in hoa don', 'success');
+        return true;
+    }).catch(function(err) {
+        console.warn('Print failed:', err);
+        showToast('In that bai: ' + (err ? err.message : 'Loi'), 'error');
+        return false;
+    });
 }
 
-// ========== HÀM TIỆN ÍCH: IN SAU KHI THANH TOÁN ==========
 function printAfterPayment(paymentData) {
+    var shop = (typeof shopInfo !== 'undefined' && shopInfo) ? shopInfo : null;
     var printData = {
-        shopName: 'POS CAFE',
+        storeName: paymentData.shopName || (shop ? shop.name : null) || 'MILANO COFFEE 259',
+        storeAddress: paymentData.shopAddress || (shop ? shop.address : null) || null,
+        storePhone: shop ? shop.phone : null,
+        qrCode: shop ? shop.qrCode : null,
+        orderType: paymentData.orderType || paymentData.type || 'dinein',
         tableName: paymentData.tableName || null,
         customerName: paymentData.customer ? (paymentData.customer.name || null) : null,
+        tableTime: paymentData.tableTime || null,
+        startTime: paymentData.startTime || null,
+        endTime: paymentData.endTime || null,
         items: paymentData.items || [],
-        total: paymentData.amount || 0,
+        totalAmount: paymentData.amount || 0,
         paymentMethod: paymentData.paymentMethod || 'cash',
-        createdAt: paymentData.createdAt || new Date().toISOString()
+        changeAmount: paymentData.changeAmount || 0,
+        date: paymentData.createdAt || new Date().toISOString()
     };
-
     printReceipt(printData);
 }
 
-// ========== KIỂM TRA KẾT NỐI TCP ==========
-function testTCPConnection() {
-    if (!PRINTER_IP) {
-        showToast('⚠️ Chưa chọn máy in. Hãy dò tìm trước.', 'warning');
-        return;
-    }
-    showToast('🔄 Đang kiểm tra kết nối máy in ' + PRINTER_IP + '...', 'info');
-    var url = 'http://' + PRINTER_IP + ':' + PRINTER_PORT + '/';
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.timeout = 3000;
-    xhr.onload = function() {
-        showToast('✅ Kết nối TCP thành công (HTTP status: ' + xhr.status + ')', 'success');
-    };
-    xhr.onerror = function() {
-        // Thử WebSocket
+function testSunmiService() {
+    if (typeof Android !== 'undefined' && typeof Android.checkSunmiPrinter === 'function') {
         try {
-            var ws = new WebSocket('ws://' + PRINTER_IP + ':' + PRINTER_PORT);
-            ws.onopen = function() {
-                showToast('✅ Kết nối WebSocket thành công đến ' + PRINTER_IP, 'success');
-                ws.close();
-            };
-            ws.onerror = function() {
-                showToast('⚠️ Không thể kết nối đến ' + PRINTER_IP + ':' + PRINTER_PORT + '.', 'warning');
-            };
-        } catch(e) {
-            showToast('❌ Lỗi kết nối: ' + e.message, 'error');
+            var info = Android.checkSunmiPrinter();
+            var parsed = JSON.parse(info);
+            if (parsed.status === 'ok') showToast('May in san sang', 'success');
+            else showToast('May in chua ket noi', 'warning');
+        } catch (e) {
+            showToast('Loi kiem tra may in', 'error');
         }
-    };
-    xhr.ontimeout = function() {
-        showToast('⏱️ Timeout kết nối đến ' + PRINTER_IP + ':' + PRINTER_PORT, 'warning');
-    };
-    xhr.send();
+    } else {
+        showToast('Khong co bridge Android', 'error');
+    }
 }
 
-// Khởi tạo chế độ in
-loadPrintMode();
+function autoDetectPrinter() {
+    if (typeof Android !== 'undefined' && typeof Android.checkSunmiPrinter === 'function') {
+        try {
+            var info = Android.checkSunmiPrinter();
+            var parsed = JSON.parse(info);
+            if (parsed.status === 'ok') PRINT_MODE = 'sunmi';
+        } catch (e) {}
+    }
+}
 
-// Export global
-window.printReceipt = printReceipt;
-window.printAfterPayment = printAfterPayment;
-window.setPrintMode = setPrintMode;
-window.testTCPConnection = testTCPConnection;
-window.testSunmiService = testSunmiService;
-window.connectBluetoothPrinter = connectBluetoothPrinter;
-window.disconnectBluetooth = disconnectBluetooth;
-window.scanPrinters = scanPrinters;
-window.showPrinterList = showPrinterList;
-window.selectPrinter = selectPrinter;
-window.setPrinterIP = setPrinterIP;
+setTimeout(autoDetectPrinter, 1000);

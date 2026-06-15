@@ -11,7 +11,8 @@ function renderReport(dateObj) {
         DB.getAll('cost_transactions'),
         DB.get('daily_balances', dateStr),
         DB.getAll('tables'),
-        DB.getAll('customers')
+        DB.getAll('customers'),
+        typeof loadFundReconciliationData === 'function' ? loadFundReconciliationData() : Promise.resolve()
     ]).then(function(results) {
         var transactions = results[0].filter(function(t) { return !t.refunded; });
         var allCosts = results[1] || [];
@@ -30,8 +31,6 @@ function renderReport(dateObj) {
             else if (tx.paymentMethod === 'transfer') { transferTotal += tx.amount; transferCount++; }
             else if (tx.paymentMethod === 'debt') { debtPaymentTotal += tx.amount; debtPaymentCount++; }
             else if (tx.paymentMethod === 'grab') { grabTotal += tx.amount; grabCount++; }
-            
-            if (tx.type === 'grab') grabCount++;
         }
         
         var totalRevenue = cashTotal + transferTotal + debtPaymentTotal + grabTotal;
@@ -50,6 +49,8 @@ function renderReport(dateObj) {
         var wasteCost = 0;
         var posCashCost = 0;
         var posCostCount = 0;
+        var ingredientCount = 0;
+        var wasteCount = 0;
         
         for (var j = 0; j < dailyCosts.length; j++) {
             var c = dailyCosts[j];
@@ -58,8 +59,13 @@ function renderReport(dateObj) {
                 totalCost += c.amount;
                 posCashCost += c.amount;
                 posCostCount++;
-                if (c.costType === 'ingredient') ingredientCost += c.amount;
-                else wasteCost += c.amount;
+                if (c.costType === 'ingredient') {
+                    ingredientCost += c.amount;
+                    ingredientCount++;
+                } else {
+                    wasteCost += c.amount;
+                    wasteCount++;
+                }
             }
         }
         
@@ -99,24 +105,24 @@ function renderReport(dateObj) {
         
         // ===== 6. TỔNG TIỀN QUẢN LÝ NHẬN (từ fund-reconciliation) =====
         var managerPickupTotal = 0;
-        var lastPickupTime = '';
+        var pickupHistory = [];
         if (window.managerCashPickups && window.managerCashPickups.length) {
-            var latestPickup = null;
             for (var pi = 0; pi < window.managerCashPickups.length; pi++) {
                 var p = window.managerCashPickups[pi];
                 if (p.dateKey === dateStr) {
                     managerPickupTotal += p.amount || 0;
-                    if (!latestPickup || (p.createdAt || 0) > (latestPickup.createdAt || 0)) {
-                        latestPickup = p;
+                    var timeStr = '';
+                    if (p.date) {
+                        try {
+                            var d = new Date(p.date);
+                            timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+                        } catch(e) {}
                     }
+                    pickupHistory.push({ time: timeStr, amount: p.amount || 0 });
                 }
             }
-            if (latestPickup && latestPickup.date) {
-                try {
-                    var d = new Date(latestPickup.date);
-                    lastPickupTime = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
-                } catch(e) {}
-            }
+            // Sắp xếp theo thời gian tăng dần
+            pickupHistory.sort(function(a, b) { return a.time.localeCompare(b.time); });
         }
         
         // Kiểm tra đã lưu đối soát chưa
@@ -141,19 +147,15 @@ function renderReport(dateObj) {
                 <div class="stat-row"><span>💢 Thanh toán nợ</span><span>${formatMoney(debtPaymentTotal)}</span></div>
             </div>
             <div class="stat-card">
-                <div class="stat-row cost-summary-row" onclick="showCostDetails('${dateStr}')">
-                    <span>📊 Tổng chi phí</span>
-                    <span class="stat-value warning">${formatMoney(totalCost)}</span>
-                </div>
                 <div class="stat-row" style="font-size:12px;padding-left:16px;">
                     <span>🧂 Nguyên liệu</span>
-                    <span>${formatMoney(ingredientCost)}</span>
+                    <span>${ingredientCount} khoản - ${formatMoney(ingredientCost)}</span>
                 </div>
                 <div class="stat-row" style="font-size:12px;padding-left:16px;">
                     <span>📦 Hao phí</span>
-                    <span>${formatMoney(wasteCost)}</span>
+                    <span>${wasteCount} khoản - ${formatMoney(wasteCost)}</span>
                 </div>
-                <div class="stat-row" style="font-size:12px;padding-left:16px;border-top:1px dashed var(--border);padding-top:4px;">
+                <div class="stat-row" style="border-top:1px dashed var(--border);padding-top:4px;">
                     <span>🏦 Chi phí từ Két POS</span>
                     <span>${posCostCount} khoản - ${formatMoney(posCashCost)}</span>
                 </div>
@@ -170,10 +172,21 @@ function renderReport(dateObj) {
                 ${creditTotal > 0 ? '<div class="stat-row" style="cursor:pointer;color:#d97706;" onclick="showCreditBalanceModal()"><span>💰 Tiền dư khách (trả trước)</span><span>' + creditPeople + ' người - ' + formatMoney(creditTotal) + '</span></div>' : ''}
             </div>
             <div class="stat-card">
-                <div class="stat-row" style="${isAdmin ? 'cursor:pointer;' : ''}" ${isAdmin ? 'onclick="openManagerPickupModal()"' : ''}>
-                    <span>💰 Tiền quản lý nhận${isAdmin ? ' <span style="font-size:11px;color:#94a3b8;">(nhập)</span>' : ''}</span>
-                    <span>${formatMoney(managerPickupTotal)}${lastPickupTime ? ' <span style="font-size:11px;color:#94a3b8;">' + lastPickupTime + '</span>' : ''}</span>
+                <div class="stat-row" style="border-bottom:1px dashed var(--border);padding-bottom:4px;margin-bottom:4px;">
+                    <span>💰 Tiền quản lý nhận</span>
+                    <span>${formatMoney(managerPickupTotal)}</span>
                 </div>
+                ${function(){
+                    var phHtml = '';
+                    for (var phi = 0; phi < pickupHistory.length; phi++) {
+                        var ph = pickupHistory[phi];
+                        phHtml += '<div class="stat-row" style="font-size:12px;padding-left:16px;">' +
+                            '<span>🕐 ' + (ph.time || '--:--') + '</span>' +
+                            '<span>' + formatMoney(ph.amount) + '</span>' +
+                        '</div>';
+                    }
+                    return phHtml;
+                }()}
             </div>
         `;
         document.getElementById('reportStats').innerHTML = html;
@@ -182,45 +195,6 @@ function renderReport(dateObj) {
         if (typeof renderReconciliation === 'function') {
             renderReconciliation(dateStr);
         }
-    });
-}
-
-function showCostDetails(dateStr) {
-    DB.getAll('cost_transactions').then(function(allCosts) {
-        // Chỉ lọc chi phí từ quỹ POS, bỏ QLTT
-        var filtered = allCosts.filter(function(c) {
-            return c.dateKey === dateStr && !c.deleted && c.fundSource === 'pos_cash';
-        });
-        var container = document.getElementById('costDetailList');
-        if (!container) return;
-        
-        if (filtered.length === 0) {
-            container.innerHTML = '<div class="empty-state">📭 Không có chi phí POS nào trong ngày</div>';
-        } else {
-            var html = '';
-            var total = 0;
-            for (var i = 0; i < filtered.length; i++) {
-                var c = filtered[i];
-                total += c.amount;
-                var typeIcon = c.costType === 'ingredient' ? '🧂' : '📦';
-                var detailStr = '';
-                if (c.costType === 'ingredient' && c.ingredientQty && c.ingredientUnitPrice) {
-                    detailStr = ' <span style="font-size:11px;color:#94a3b8;">x' + c.ingredientQty + ' × ' + formatMoney(c.ingredientUnitPrice) + '</span>';
-                }
-                html += '<div class="cost-detail-item">' +
-                            '<span>' + typeIcon + ' 🏦 ' + escapeHtml(c.categoryName) + detailStr + '</span>' +
-                            '<span>' + formatMoney(c.amount) + '</span>' +
-                        '</div>';
-            }
-            html += '<div class="cost-detail-item" style="font-weight:700;border-top:2px solid var(--border);padding-top:8px;margin-top:4px;">' +
-                        '<span>Tổng chi phí POS</span>' +
-                        '<span>' + formatMoney(total) + '</span>' +
-                    '</div>';
-            container.innerHTML = html;
-        }
-        // Hiển thị modal chi tiết chi phí
-        document.getElementById('costDetailModal').querySelector('.modal-title').innerText = '📊 Chi phí từ Két POS';
-        document.getElementById('costDetailModal').style.display = 'flex';
     });
 }
 
@@ -241,8 +215,9 @@ function showActiveTablesModal() {
             for (var i = 0; i < activeTables.length; i++) {
                 var t = activeTables[i];
                 total += t.total || 0;
+                var displayName = t.customerName ? t.customerName : ((t.name && t.name.trim()) ? t.name : 'Bàn ' + t.id);
                 html += '<div class="cost-detail-item">' +
-                            '<span>🪑 ' + escapeHtml(t.name || 'Bàn ' + t.id) + '</span>' +
+                            '<span>🪑 ' + escapeHtml(displayName) + '</span>' +
                             '<span>' + formatMoney(t.total || 0) + '</span>' +
                         '</div>';
             }
@@ -252,8 +227,8 @@ function showActiveTablesModal() {
                     '</div>';
             container.innerHTML = html;
         }
-        document.getElementById('costDetailModal').querySelector('.modal-title').innerText = '🪑 Bàn đang hoạt động';
-        document.getElementById('costDetailModal').style.display = 'flex';
+        document.getElementById('infoModal').querySelector('.modal-title').innerText = '🪑 Bàn đang hoạt động';
+        document.getElementById('infoModal').style.display = 'flex';
     });
 }
 
@@ -261,7 +236,7 @@ function showActiveTablesModal() {
 function showDebtTodayModal() {
     var dateStr = currentReportDate.toISOString().slice(0, 10);
     DB.getAll('customers').then(function(allCustomers) {
-        var container = document.getElementById('costDetailList');
+        var container = document.getElementById('infoModalList');
         if (!container) return;
         
         var html = '';
@@ -297,15 +272,15 @@ function showDebtTodayModal() {
                     '</div>';
         }
         container.innerHTML = html;
-        document.getElementById('costDetailModal').querySelector('.modal-title').innerText = '📊 Nợ phát sinh trong ngày';
-        document.getElementById('costDetailModal').style.display = 'flex';
+        document.getElementById('infoModal').querySelector('.modal-title').innerText = '📊 Nợ phát sinh trong ngày';
+        document.getElementById('infoModal').style.display = 'flex';
     });
 }
 
 // ========== MODAL NỢ CÒN LẠI ==========
 function showRemainingDebtModal() {
     DB.getAll('customers').then(function(allCustomers) {
-        var container = document.getElementById('costDetailList');
+        var container = document.getElementById('infoModalList');
         if (!container) return;
         
         var debtCustomers = allCustomers.filter(function(c) { return (c.totalDebt || 0) > 0; });
@@ -329,27 +304,15 @@ function showRemainingDebtModal() {
                     '</div>';
         }
         container.innerHTML = html;
-        document.getElementById('costDetailModal').querySelector('.modal-title').innerText = '🏦 Nợ còn lại';
-        document.getElementById('costDetailModal').style.display = 'flex';
+        document.getElementById('infoModal').querySelector('.modal-title').innerText = '🏦 Nợ còn lại';
+        document.getElementById('infoModal').style.display = 'flex';
     });
-}
-
-// ========== TOGGLE ĐỐI SOÁT QUỸ TRÊN MOBILE ==========
-function toggleReconciliation() {
-    var area = document.getElementById('reconciliationArea');
-    var btn = document.getElementById('reconToggleBtn');
-    if (!area || !btn) return;
-    area.classList.toggle('recon-visible');
-    var icon = btn.querySelector('.toggle-icon');
-    if (icon) {
-        icon.textContent = area.classList.contains('recon-visible') ? '▲' : '▼';
-    }
 }
 
 // ========== MODAL TIỀN DƯ KHÁCH ==========
 function showCreditBalanceModal() {
     DB.getAll('customers').then(function(allCustomers) {
-        var container = document.getElementById('costDetailList');
+        var container = document.getElementById('infoModalList');
         if (!container) return;
         
         var creditCustomers = allCustomers.filter(function(c) { return (c.creditBalance || 0) > 0; });
@@ -373,8 +336,8 @@ function showCreditBalanceModal() {
                     '</div>';
         }
         container.innerHTML = html;
-        document.getElementById('costDetailModal').querySelector('.modal-title').innerText = '💰 Tiền dư khách (trả trước)';
-        document.getElementById('costDetailModal').style.display = 'flex';
+        document.getElementById('infoModal').querySelector('.modal-title').innerText = '💰 Tiền dư khách (trả trước)';
+        document.getElementById('infoModal').style.display = 'flex';
     });
 }
 
@@ -383,4 +346,3 @@ window.showActiveTablesModal = showActiveTablesModal;
 window.showDebtTodayModal = showDebtTodayModal;
 window.showRemainingDebtModal = showRemainingDebtModal;
 window.showCreditBalanceModal = showCreditBalanceModal;
-window.toggleReconciliation = toggleReconciliation;
