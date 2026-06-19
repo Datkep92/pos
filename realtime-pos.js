@@ -587,7 +587,79 @@ function initRealtime() {
         }, 200);
     });
 
-    // Transactions - cập nhật lịch sử và recent toast
+    // Cost categories - cập nhật realtime danh mục chi phí
+    DB.subscribe('cost_categories', function(data) {
+        if (typeof costCategories !== 'undefined') {
+            costCategories = data || [];
+        }
+        _debounceRealtime('cost_categories', function() {
+            // Luôn refresh cache expenseData
+            if (typeof loadExpenseData === 'function') {
+                loadExpenseData().then(function() {
+                    // Render nếu đang ở tab cost hoặc manager
+                    if (currentTab === 'cost') {
+                        if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
+                        if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
+                    } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
+                        managerApplyFilter();
+                    }
+                });
+            }
+        }, 100);
+    });
+
+    // Cost transactions - cập nhật realtime giao dịch chi phí
+    DB.subscribe('cost_transactions', function(data) {
+        if (typeof costTransactions !== 'undefined') {
+            costTransactions = data || [];
+        }
+        _debounceRealtime('cost_transactions', function() {
+            // Luôn refresh cache expenseData
+            if (typeof loadExpenseData === 'function') {
+                loadExpenseData().then(function() {
+                    // Render nếu đang ở tab cost hoặc manager
+                    if (currentTab === 'cost') {
+                        if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
+                        if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
+                    } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
+                        managerApplyFilter();
+                    }
+                });
+            }
+        }, 100);
+    });
+
+// Manager cash pickups - cập nhật realtime tiền quản lý nhận (cho report.js)
+DB.subscribe('manager_cash_pickups', function(data) {
+    window.managerCashPickups = data || [];
+    _debounceRealtime('manager_cash_pickups', function() {
+        if (currentTab === 'report') {
+            renderReport(currentReportDate);
+        }
+    }, 100);
+});
+
+    // Ingredients - cập nhật realtime tồn kho nguyên liệu
+    DB.subscribe('ingredients', function(data) {
+        if (!data) return;
+        _debounceRealtime('ingredients', function() {
+            DB.getAll('ingredients').then(function(list) {
+                window.ingredients = list;
+                // Invalidate lookup maps trong ingredients.js
+                if (typeof _invalidateLookups === 'function') _invalidateLookups();
+                // Nếu đang ở tab cost, render lại danh sách nguyên liệu trong modal
+                if (currentTab === 'cost') {
+                    if (typeof renderIngredientList === 'function') renderIngredientList();
+                }
+                // Nếu đang ở tab inventory, render lại tồn kho
+                if (currentTab === 'inventory') {
+                    if (typeof renderInventoryIngredients === 'function') renderInventoryIngredients();
+                }
+            });
+        }, 200);
+    });
+    
+        // Transactions - cập nhật lịch sử và recent toast
     DB.subscribe('transactions', function() {
         _debounceRealtime('transactions', function() {
             updateRecentToast();

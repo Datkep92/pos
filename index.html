@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="css/modals.css">
     <link rel="stylesheet" href="css/manager.css">
     <link rel="stylesheet" href="css/expense.css">
+    <link rel="stylesheet" href="css/manager-detail.css">
 </head>
 <body>
     <!-- ========== MÀN HÌNH ĐĂNG NHẬP / ĐĂNG KÝ ========== -->
@@ -97,10 +98,9 @@
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
             <div class="tab-btn" data-tab="customers">👥 Khách</div>
             <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
-            <div class="tab-btn" data-tab="report" style="display:none;">📈 Báo cáo</div>
+            <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
             <div class="tab-btn" data-tab="inventory" style="display:none;">📋 Menu - Tồn kho</div>
-            <div class="tab-btn" data-tab="cost" style="display:none;">💰 Chi phí</div>
-            <div class="tab-btn" data-tab="staff" style="display:none;">👥 Nhân viên</div>
+            <div class="tab-btn" data-tab="cost">💰 Chi phí</div>
             <div class="tab-btn" data-tab="manager" style="display:none;">⚙️ Quản lý</div>
             <div class="tab-btn" data-tab="settings">⚙️</div>
         </div>
@@ -179,22 +179,19 @@
                         </div>
                         <div class="card-body">
                             <div class="inv-section">
-                                <div class="inv-section-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                    <span class="inv-section-title" style="margin-right:auto;">📂 Danh mục</span>
-                                    <button class="btn-small btn-outline" onclick="showAddCategoryForm()" style="font-size:11px;">+ Thêm danh mục</button>
-                                    <button class="btn-small btn-outline" onclick="showAddMenuItemForm()" style="font-size:11px;">+ Thêm món</button>
-                                </div>
                                 <div id="invCategoryList" class="inv-category-list"></div>
                                 <div id="addCategoryForm" style="display:none;"></div>
                             </div>
                             <div class="inv-section">
-                                <div class="inv-section-header">
-                                    <span class="inv-section-title">🍽️ Danh sách món</span>
+                                <div class="inv-section-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                    <span class="inv-section-title" style="margin-right:auto;">🍽️ Danh sách món</span>
+                                    <button class="btn-small btn-outline" onclick="showAddCategoryForm()" style="font-size:11px;">+ Thêm danh mục</button>
+                                    <button class="btn-small btn-outline" onclick="showAddMenuItemForm()" style="font-size:11px;">+ Thêm món</button>
                                 </div>
-                                <div class="inv-filter-row">
-                                    <select id="invMenuFilter" class="filter-select" onchange="renderInventoryMenu()">
-                                        <option value="all">📋 Tất cả danh mục</option>
-                                    </select>
+                                <div class="inv-filter-row" id="invMenuFilterRow">
+                                    <div class="inv-filter-btns" id="invMenuFilter">
+                                        <button class="inv-filter-btn active" data-cat="all" onclick="setInvMenuFilter('all')">📋 Tất cả</button>
+                                    </div>
                                 </div>
                                 <div id="invMenuItemList" class="inv-menu-list"></div>
                                 <div id="addMenuItemForm" style="display:none;margin-top:8px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
@@ -347,43 +344,6 @@
                 </div>
             </div>
 
-            <!-- TAB NHÂN VIÊN (ADMIN) -->
-            <div id="staffView" class="tab-content">
-                <div class="staff-mgmt-container">
-                    <div class="card">
-                        <div class="card-header">
-                            <h2>👥 Quản lý nhân viên</h2>
-                            <span class="staff-pos-id" id="staffPosId" style="font-size:12px;color:#94a3b8;font-weight:400;"></span>
-                        </div>
-                        <div class="card-body">
-                            <button class="btn-save" onclick="showAddStaffForm()" style="margin-bottom:12px;width:100%;">➕ Thêm nhân viên</button>
-                            <div id="addStaffForm" style="display:none;margin-bottom:12px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                                <div class="auth-field" style="margin-bottom:8px;">
-                                    <label style="font-size:12px;">Tên đăng nhập</label>
-                                    <input type="text" id="newStaffUsername" class="form-input" placeholder="Tên đăng nhập">
-                                </div>
-                                <div class="auth-field" style="margin-bottom:8px;">
-                                    <label style="font-size:12px;">Mật khẩu</label>
-                                    <input type="password" id="newStaffPassword" class="form-input" placeholder="Mật khẩu (ít nhất 4 ký tự)">
-                                </div>
-                                <div class="auth-field" style="margin-bottom:8px;">
-                                    <label style="font-size:12px;">Tên hiển thị</label>
-                                    <input type="text" id="newStaffDisplayName" class="form-input" placeholder="Tên hiển thị (không bắt buộc)">
-                                </div>
-                                <div class="auth-error" id="addStaffError" style="font-size:12px;margin-bottom:8px;"></div>
-                                <div style="display:flex;gap:8px;">
-                                    <button class="btn-save" onclick="handleAddStaff()" style="flex:1;">💾 Lưu</button>
-                                    <button class="btn-cancel" onclick="hideAddStaffForm()" style="flex:1;">Hủy</button>
-                                </div>
-                            </div>
-                            <div id="staffList">
-                                <div class="empty-text">Đang tải...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- TAB QUẢN LÝ (ADMIN) -->
             <div id="managerView" class="tab-content">
                 <div class="nav-group full-width">
@@ -397,59 +357,59 @@
                 </div>
                 <div class="card">
                     <div class="manager-grid">
-                        <div class="manager-box" id="revenueBox" style="cursor:pointer;">
+                        <div class="manager-box" id="revenueBox" style="cursor:pointer;" onclick="showManagerRevenueDetail()">
                             <label>💰 Doanh thu</label>
                             <div class="big-value" id="managerRevenue">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
-                        <div class="manager-box" id="grabBox" style="cursor:pointer;">
+                        <div class="manager-box" id="grabBox" style="cursor:pointer;" onclick="showManagerGrabDetail()">
                             <label>🚕 Grab</label>
                             <div class="big-value" id="managerGrab">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
-                        <div class="manager-box" id="bankBox" style="cursor:pointer;">
+                        <div class="manager-box" id="bankBox" style="cursor:pointer;" onclick="showManagerBankDetail()">
                             <label>🏦 Chuyển khoản</label>
                             <div class="big-value" id="managerBank">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
-                        <div class="manager-box" id="cashBox" style="cursor:pointer;">
+                        <div class="manager-box" id="cashBox" style="cursor:pointer;" onclick="showManagerCashDetail()">
                             <label>💵 Thực nhận</label>
                             <div class="big-value" id="managerCash">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
-                        <div class="manager-box" id="expenseBox" style="cursor:pointer;">
+                        <div class="manager-box" id="expenseBox" style="cursor:pointer;" onclick="showManagerExpenseDetail()">
                             <label>🏦 Chi phí từ Két POS</label>
                             <div class="big-value" id="managerExpense">0đ</div>
                             <div class="summary-hint">Click danh sách</div>
                         </div>
-                        <div class="manager-box" id="debtOccurBox" style="cursor:pointer;">
+                        <div class="manager-box" id="debtOccurBox" style="cursor:pointer;" onclick="showManagerDebtOccurDetail()">
                             <label>📊 Công nợ phát sinh</label>
                             <div class="big-value" id="managerDebt">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
-                        <div class="manager-box" id="adminExpenseBox" style="cursor:pointer;">
+                        <div class="manager-box" id="adminExpenseBox" style="cursor:pointer;" onclick="showManagerAdminExpenseDetail()">
                             <label>📋 Tổng CP Quản lý</label>
                             <div class="big-value" id="managerAdminExpense">0đ</div>
                             <div class="summary-hint">Click xem chi tiết</div>
                         </div>
-                        <div class="manager-box" id="totalDebtBox" style="cursor:pointer;">
+                        <div class="manager-box" id="totalDebtBox" style="cursor:pointer;" onclick="showManagerTotalDebtDetail()">
                             <label>🏦 TỔNG CÔNG NỢ</label>
                             <div class="big-value" id="managerTotalDebt">0đ</div>
                             <div class="summary-hint">Click xem danh sách nợ</div>
                         </div>
-                        <div class="manager-box employee-box" id="employeeBox" style="cursor:pointer;">
+                        <div class="manager-box employee-box" id="employeeBox" style="cursor:pointer;" onclick="showManagerEmployeeDetail()">
                             <label>👥 NHÂN VIÊN</label>
                             <div class="big-value" id="managerTotalSalary">0đ</div>
                             <div class="summary-hint">Click quản lý</div>
                         </div>
-                        <div class="manager-box" id="netIncomeBox" style="cursor:pointer;">
-                            <label>💰 THU NHẬP RÒNG</label>
-                            <div class="big-value" id="managerNetIncome">0đ</div>
+                        <div class="manager-box" id="posFundBox" style="cursor:pointer;" onclick="showManagerPosFundDetail()">
+                            <label>🏦 QUỸ POS</label>
+                            <div class="big-value" id="managerPosFund">0đ</div>
                             <div class="summary-hint">Click chi tiết</div>
                         </div>
                     </div>
                 </div>
-                <div class="card">
+                <div class="card collapsible">
                     <div class="card-header toggle-header" style="cursor:pointer;">
                         <h2>📊 Thống kê đồ uống</h2>
                         <span class="toggle-icon">▼</span>
@@ -458,7 +418,16 @@
                         <div class="empty-state">Đang tải...</div>
                     </div>
                 </div>
-                <div class="card">
+                <div class="card collapsible collapsed">
+                    <div class="card-header toggle-header" style="cursor:pointer;">
+                        <h2>📦 Thống kê nguyên liệu</h2>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="card-body" id="managerIngredientStats">
+                        <div class="empty-state">Đang tải...</div>
+                    </div>
+                </div>
+                <div class="card collapsible">
                     <div class="card-header toggle-header" style="cursor:pointer;">
                         <h2>⚠️ Cảnh báo tồn kho thấp</h2>
                         <span class="toggle-icon">▼</span>
@@ -469,7 +438,7 @@
                 </div>
                 <div class="card collapsible">
                     <div class="card-header toggle-header" style="cursor:pointer;">
-                        <h2>📋 Chi Phí Nhân Viên</h2>
+                        <h2>📋 Chi Phí Mua Sắm</h2>
                         <span class="toggle-icon">▼</span>
                     </div>
                     <div class="card-body" id="managerExpenseList"></div>
@@ -481,7 +450,7 @@
                     </div>
                     <div class="card-body" id="managerDebtList"></div>
                 </div>
-                <div class="card">
+                <div class="card collapsible">
                     <div class="card-header toggle-header" style="cursor:pointer;">
                         <h2>📢 Quản lý thông báo</h2>
                         <span class="toggle-icon">▼</span>
@@ -495,15 +464,15 @@
                             </label>
                         </div>
                         <div class="notification-input-row">
-                            <div style="display:flex;gap:8px;margin-bottom:6px;">
-                                <input type="color" id="notificationColor" value="#f97316" style="width:40px;height:36px;border:1px solid #cbd5e1;border-radius:6px;padding:2px;cursor:pointer;flex-shrink:0;">
-                                <input type="text" id="notificationColorLabel" value="Cam" readonly style="flex:1;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:#f8fafc;color:#64748b;">
+                            <div class="notification-color-row">
+                                <input type="color" id="notificationColor" value="#f97316">
+                                <input type="text" id="notificationColorLabel" value="Cam" readonly>
                             </div>
-                            <textarea id="notificationInput" class="form-input" placeholder="Nhập nội dung thông báo..." rows="2" style="resize:vertical;"></textarea>
-                            <button class="btn-save" onclick="saveNotification()" style="margin-top:6px;width:100%;">📨 Cập nhật thông báo</button>
+                            <textarea id="notificationInput" class="form-input" placeholder="Nhập nội dung thông báo..." rows="2"></textarea>
+                            <button class="btn-save" onclick="saveNotification()">📨 Cập nhật thông báo</button>
                         </div>
-                        <div class="notification-history-header" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
-                            <span style="font-weight:600;font-size:13px;">📜 Lịch sử thông báo</span>
+                        <div class="notification-history-header">
+                            <span>📜 Lịch sử thông báo</span>
                             <button class="btn-small btn-outline" onclick="toggleNotificationHistory()" id="notificationHistoryToggleBtn">📂 Mở rộng</button>
                         </div>
                         <div id="notificationHistoryList" class="notification-history-list" style="max-height:0;overflow:hidden;transition:max-height 0.3s ease;">
@@ -575,6 +544,19 @@
                         </div>
                     </div>
 
+                    <!-- PHẦN GHI CHÚ NHÂN VIÊN -->
+                    <div class="settings-section" id="settingsStaffNoteSection">
+                        <h3 class="settings-title">📝 Ghi chú</h3>
+                        <div class="settings-field">
+                            <label class="settings-label">Ghi chú công việc</label>
+                            <textarea id="staffNoteInput" class="form-input staff-note-textarea"
+                                placeholder="Nhập ghi chú của bạn..."
+                                oninput="saveStaffNote(this.value)"
+                                style="width:100%;min-height:100px;resize:vertical;padding:10px;border-radius:8px;border:1px solid #444;background:#2a2a2a;color:#eee;font-size:14px;line-height:1.5;font-family:inherit;"></textarea>
+                            <div class="settings-hint">Ghi chú được lưu tự động trên trình duyệt này</div>
+                        </div>
+                    </div>
+
                     <!-- PHẦN CÀI ĐẶT CHAT -->
                     <div class="settings-section" id="settingsChatSection">
                         <h3 class="settings-title">💬 Cài đặt Chat nội bộ</h3>
@@ -598,7 +580,18 @@
                                     <span class="switch-slider"></span>
                                 </label>
                             </div>
-                            <div class="settings-hint">Tự động hiện popup thông báo khi có tin nhắn khẩn</div>
+                            <div class="settings-hint">Tự động hiện popup thông báo khi có tin nhắn mới</div>
+                        </div>
+                        <div class="settings-field" id="chatLockField">
+                            <label class="settings-label">🔒 Khóa chat nhân viên</label>
+                            <div class="settings-toggle-row">
+                                <span class="settings-toggle-label" id="chatLockStatusLabel">🔓 Đã mở</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)">
+                                    <span class="switch-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-hint">Khi khóa, nhân viên chỉ xem được tin nhắn, không thể gửi hoặc trả lời</div>
                         </div>
                         <div class="settings-field">
                             <label class="settings-label">Xóa tin nhắn cũ</label>
@@ -650,6 +643,44 @@
                             <button class="settings-btn settings-btn-secondary" onclick="clearTelegramConfig()">🗑️ Xóa</button>
                         </div>
                         <div id="telegramConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                    </div>
+
+                    <!-- PHẦN CẤU HÌNH KHÓA BÀN & THỜI GIAN -->
+                    <div class="settings-section" id="settingsLockSection">
+                        <h3 class="settings-title">🔒 Cấu hình khóa bàn & thời gian</h3>
+                        <div class="settings-field">
+                            <label class="settings-label">🕐 Giờ mở quán (bắt đầu tính giờ)</label>
+                            <input type="number" id="settingsLockStartHour" class="form-input"
+                                placeholder="VD: 17" min="0" max="23" style="width:100px;">
+                            <div class="settings-hint">Sau giờ này, bàn sẽ bị khóa toàn bộ (mặc định: 17h)</div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">🕐 Giờ đóng quán (kết thúc khóa)</label>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input type="number" id="settingsLockEndHour" class="form-input"
+                                    placeholder="Giờ" min="0" max="23" style="width:80px;">
+                                <span style="color:#64748b;">:</span>
+                                <input type="number" id="settingsLockEndMinute" class="form-input"
+                                    placeholder="Phút" min="0" max="59" style="width:80px;">
+                            </div>
+                            <div class="settings-hint">Kết thúc khung giờ khóa (mặc định: 5h30)</div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">⏱ Thời gian ngồi tối đa (giờ)</label>
+                            <input type="number" id="settingsTableLockHours" class="form-input"
+                                placeholder="VD: 5" min="1" max="24" style="width:100px;">
+                            <div class="settings-hint">Quá số giờ này, bàn sẽ bị khóa (mặc định: 5h)</div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">🔑 Mật khẩu mở khóa bàn</label>
+                            <input type="password" id="settingsLockPassword" class="form-input"
+                                placeholder="VD: 28122020" style="width:160px;">
+                            <div class="settings-hint">Mật khẩu để mở khóa bàn khi cần</div>
+                        </div>
+                        <div class="settings-actions" style="margin-top:8px;">
+                            <button class="settings-btn settings-btn-primary" onclick="saveLockConfig()">💾 Lưu cấu hình</button>
+                        </div>
+                        <div id="lockConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
                     <!-- PHẦN CẤU HÌNH ESP32 (KÉT TIỀN) -->
@@ -724,8 +755,8 @@
                         <div id="shopInfoStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
-                    <!-- PHẦN PHÂN QUYỀN QUẢN LÝ -->
-                    <div class="settings-section" id="settingsPermissionSection">
+                    <!-- PHẦN PHÂN QUYỀN QUẢN LÝ (đã chuyển sang modal employees.js) -->
+                    <div class="settings-section" id="settingsPermissionSection" style="display:none;">
                         <h3 class="settings-title">🔐 Phân quyền quản lý</h3>
                         <div class="settings-field">
                             <label class="settings-label">Danh sách nhân viên</label>
@@ -1109,6 +1140,9 @@
             <div class="chat-empty">Đang tải...</div>
         </div>
         <div class="chat-popup-footer">
+            <div class="chat-locked-message" id="chatLockedMessage" style="display:none;">
+                🔒 Chat đã bị khóa bởi quản lý. Bạn chỉ có thể xem tin nhắn.
+            </div>
             <div class="chat-input-row">
                 <select id="chatPrioritySelect" class="chat-priority-select">
                     <option value="normal">📝 Thường</option>
@@ -1176,9 +1210,11 @@
     <script src="draft-orders.js"></script>
     <script src="report.js"></script>
     <script src="fund-reconciliation.js"></script>
-    <script src="expense.js"></script>
+    <!-- Manager Detail - click vào manager-grid items + tab quản lý -->
+    <script src="manager-detail.js"></script>
     <!-- Inventory / Menu management -->
     <script src="inventory-manager.js"></script>
+    <script src="expense.js"></script>
     <!-- Telegram notification integration -->
     <script src="telegram.js"></script>
     
@@ -1190,6 +1226,9 @@
     
     <!-- Lunar calendar (giữ để có thông báo) -->
     <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/dist/lunar.min.js"></script>
+    
+    <!-- Employees management - Modal quản lý nhân viên (thay thế staff logic trong auth.js, settings.js, manager-detail.js) -->
+    <script src="employees.js"></script>
     
     <!-- Settings + Đếm tiền nhanh -->
     <script src="settings.js"></script>

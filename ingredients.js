@@ -87,7 +87,32 @@ function _getIngredientsForItem(menuItem, orderItem) {
     return menuItem.ingredients || [];
 }
 
-function deductIngredients(items) {
+// FIX: Idempotency key cho ingredient deductions để chống double-deduction
+var _deductionIdempotencyKeys = {};
+
+function _generateDeductionKey(items) {
+    var keyParts = [];
+    for (var i = 0; i < items.length; i++) {
+        keyParts.push(items[i].id + 'x' + items[i].qty);
+    }
+    keyParts.sort();
+    return keyParts.join('|') + '|' + Date.now();
+}
+
+function deductIngredients(items, idempotencyKey) {
+    // FIX: Kiểm tra idempotency key - nếu đã trừ rồi thì skip
+    if (idempotencyKey) {
+        if (_deductionIdempotencyKeys[idempotencyKey]) {
+            console.log('⚠️ Duplicate ingredient deduction detected, skipping:', idempotencyKey);
+            return Promise.resolve();
+        }
+        _deductionIdempotencyKeys[idempotencyKey] = true;
+        // Cleanup keys cũ sau 5 phút
+        setTimeout(function() {
+            delete _deductionIdempotencyKeys[idempotencyKey];
+        }, 300000);
+    }
+    
     _buildLookups();
     var updates = [];
     for (var i = 0; i < items.length; i++) {

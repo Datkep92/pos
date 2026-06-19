@@ -44,8 +44,15 @@ function initExpense() {
         attachExpenseEvents();
         renderIngredientList();
         renderWasteTypeList();
+        // Render ngay sau khi cache đã được load xong, tránh race condition
+        renderTodayExpenses();
+        renderMonthExpenseTotal();
         expenseInitialized = true;
         console.log('Expense module initialized');
+        // Cập nhật lại big-value trên manager tab sau khi expense data đã load
+        if (typeof managerApplyFilter === 'function') {
+            managerApplyFilter();
+        }
     }).catch(function(err) {
         console.error('Init expense error:', err);
     });
@@ -105,7 +112,8 @@ function openExpenseModal() {
 function applyExpenseRoleRestrictions() {
     var currentUser = DB.getCurrentUser();
     var isStaff = currentUser && currentUser.role !== 'admin';
-    var fundSourceRow = document.querySelector('.fund-source-row');
+    // Selector hỗ trợ cả .fund-source-row (pos.html) và .cost-fund-source (index.html)
+    var fundSourceRow = document.querySelector('.fund-source-row, .cost-fund-source');
     if (fundSourceRow) {
         if (isStaff) {
             // Nhân viên: ẩn toàn bộ dòng nguồn tiền, chỉ dùng Két POS mặc định
@@ -152,49 +160,77 @@ function switchFundSource(source) {
 }
 
 // ========== RENDER DANH SÁCH NGUYÊN LIỆU ==========
+// FIX 4: Dùng window.ingredients cache, fallback query DB nếu cache chưa có
 function renderIngredientList() {
     var container = document.getElementById('expenseIngredientGrid');
     if (!container) return;
 
     var list = window.ingredients;
-    // Nếu chưa có ingredients, load từ DB
-    if (!list || list.length === 0) {
-        if (typeof DB !== 'undefined' && typeof DB.getAll === 'function') {
-            DB.getAll('ingredients').then(function(ings) {
-                window.ingredients = ings || [];
-                ingredients = ings || [];
-                _renderIngredientGrid(container, window.ingredients);
-            }).catch(function() {
-                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
-            });
-        } else {
-            container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
-        }
+    if (list && list.length > 0) {
+        _renderIngredientGrid(container, list);
         return;
     }
-    _renderIngredientGrid(container, list);
+
+    // Fallback: query DB nếu cache chưa được load
+    if (typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('ingredients').then(function(dbList) {
+            if (dbList && dbList.length > 0) {
+                window.ingredients = dbList;
+                _renderIngredientGrid(container, dbList);
+            } else {
+                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+            }
+        }).catch(function() {
+            container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        });
+    } else {
+        container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+    }
 }
 
+// FIX 7 (tiếp): Thêm data-id attribute thay vì onclick selector
+// Admin: thêm long-press để quản lý tên nguyên liệu
 function _renderIngredientGrid(container, list) {
     if (!list || list.length === 0) {
         container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
         return;
     }
 
+    var currentUser = DB.getCurrentUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
+
     var html = '';
     for (var i = 0; i < list.length; i++) {
         var ing = list[i];
+        // Bỏ qua nguyên liệu đã bị xóa (deleted)
+        if (ing.deleted) continue;
         var isSelected = (_expenseSelectedIngredientId === ing.id);
+        var extraAttrs = '';
+        if (isAdmin) {
+            extraAttrs = ' ontouchstart="return _adminIngTouchStart(event, \'' + ing.id + '\')" ' +
+                'ontouchend="return _adminIngTouchEnd(event, \'' + ing.id + '\')" ' +
+                'onmousedown="return _adminIngMouseDown(event, \'' + ing.id + '\')" ' +
+                'onmouseup="return _adminIngMouseUp(event, \'' + ing.id + '\')" ' +
+                'onmouseleave="return _adminIngMouseLeave(event)"';
+        }
         html += '<div class="ingredient-grid-item' + (isSelected ? ' selected' : '') + '" ' +
-            'onclick="onIngredientSelected(\'' + ing.id + '\', \'' + escapeHtml(ing.name) + '\')">' +
+            'data-id="' + ing.id + '" ' +
+            'onclick="onIngredientSelected(\'' + ing.id + '\', \'' + escapeHtml(ing.name) + '\')"' +
+            extraAttrs + '>' +
             '<div class="ingredient-item-name">' + escapeHtml(ing.name) + '</div>' +
             '<div class="ingredient-item-stock">Tồn: ' + (typeof ing.stock === 'number' ? Math.round(ing.stock * 100) / 100 : (ing.stock || 0)) + (ing.unit ? ' ' + ing.unit : '') + '</div>' +
         '</div>';
+    }
+    // Nếu tất cả đều bị xóa, hiển thị thông báo
+    if (!html) {
+        container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        return;
     }
     container.innerHTML = html;
 }
 
 // ========== CHỌN NGUYÊN LIỆU ==========
+// FIX 7: Dùng data-id attribute thay vì [onclick*=...] selector
 function onIngredientSelected(ingredientId, ingredientName) {
     _expenseSelectedIngredientId = ingredientId;
     _expenseSelectedIngredientName = ingredientName;
@@ -204,7 +240,7 @@ function onIngredientSelected(ingredientId, ingredientName) {
     for (var i = 0; i < items.length; i++) {
         items[i].classList.remove('selected');
     }
-    var selectedEl = document.querySelector('#expenseIngredientGrid .ingredient-grid-item[onclick*="' + ingredientId + '"]');
+    var selectedEl = document.querySelector('#expenseIngredientGrid .ingredient-grid-item[data-id="' + ingredientId + '"]');
     if (selectedEl) selectedEl.classList.add('selected');
 
     updateIngredientSelectedInfo();
@@ -222,6 +258,7 @@ function updateIngredientSelectedInfo() {
 // Chỉ nhập số lượng + thành tiền
 
 // ========== RENDER DANH SÁCH HAO PHÍ ==========
+// Admin: thêm long-press để quản lý tên hao phí
 function renderWasteTypeList() {
     var container = document.getElementById('expenseWasteGrid');
     if (!container) return;
@@ -241,23 +278,36 @@ function renderWasteTypeList() {
         return;
     }
 
+    var currentUser = DB.getCurrentUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
+
     var html = '';
     for (var i = 0; i < wasteCats.length; i++) {
         var cat = wasteCats[i];
-        html += '<div class="waste-grid-item" onclick="onWasteTypeSelected(\'' + escapeHtml(cat.id) + '\', \'' + escapeHtml(cat.name) + '\')">' +
+        var extraAttrs = '';
+        if (isAdmin) {
+            extraAttrs = ' ontouchstart="return _adminWasteTouchStart(event, \'' + escapeHtml(cat.id) + '\')" ' +
+                'ontouchend="return _adminWasteTouchEnd(event, \'' + escapeHtml(cat.id) + '\')" ' +
+                'onmousedown="return _adminWasteMouseDown(event, \'' + escapeHtml(cat.id) + '\')" ' +
+                'onmouseup="return _adminWasteMouseUp(event, \'' + escapeHtml(cat.id) + '\')" ' +
+                'onmouseleave="return _adminWasteMouseLeave(event)"';
+        }
+        // FIX 8: Thêm data-id attribute
+        html += '<div class="waste-grid-item" data-id="' + escapeHtml(cat.id) + '" onclick="onWasteTypeSelected(\'' + escapeHtml(cat.id) + '\', \'' + escapeHtml(cat.name) + '\')"' + extraAttrs + '>' +
             '<span class="waste-item-name">' + escapeHtml(cat.name) + '</span>' +
         '</div>';
     }
     container.innerHTML = html;
 }
 
+// FIX 8: Dùng data-id attribute thay vì [onclick*=...] selector
 function onWasteTypeSelected(wasteId, wasteName) {
     // Cập nhật selected state
     var items = document.querySelectorAll('#expenseWasteGrid .waste-grid-item');
     for (var i = 0; i < items.length; i++) {
         items[i].classList.remove('selected');
     }
-    var selectedEl = document.querySelector('#expenseWasteGrid .waste-grid-item[onclick*="' + wasteId + '"]');
+    var selectedEl = document.querySelector('#expenseWasteGrid .waste-grid-item[data-id="' + wasteId + '"]');
     if (selectedEl) selectedEl.classList.add('selected');
 
     // Điền tên vào ô tìm kiếm
@@ -269,6 +319,36 @@ function onWasteTypeSelected(wasteId, wasteName) {
     if (amountInput) amountInput.focus();
 }
 
+// ========== MODAL XÁC NHẬN TÙY CHỈNH (thay thế confirm()) ==========
+// FIX 11-12: Dùng modal thay vì confirm() native
+function _showConfirmModal(message, confirmText, cancelText) {
+    return new Promise(function(resolve) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+        overlay.onclick = function(e) { if (e.target === overlay) { cleanup(); resolve(false); } };
+
+        var box = document.createElement('div');
+        box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);text-align:center;';
+
+        box.innerHTML =
+            '<div style="font-size:15px;line-height:1.5;margin-bottom:20px;color:#1e293b;">' + message + '</div>' +
+            '<div style="display:flex;gap:10px;justify-content:center;">' +
+                '<button id="confirmModalCancelBtn" style="flex:1;padding:10px 16px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;cursor:pointer;">' + (cancelText || 'Hủy') + '</button>' +
+                '<button id="confirmModalOkBtn" style="flex:1;padding:10px 16px;border:none;border-radius:10px;background:#ef4444;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">' + (confirmText || 'OK') + '</button>' +
+            '</div>';
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        function cleanup() {
+            if (document.body.contains(overlay)) document.body.removeChild(overlay);
+        }
+
+        document.getElementById('confirmModalOkBtn').onclick = function() { cleanup(); resolve(true); };
+        document.getElementById('confirmModalCancelBtn').onclick = function() { cleanup(); resolve(false); };
+    });
+}
+
 // ========== LƯU CHI PHÍ ==========
 function saveExpense() {
     var costType = _expenseSelectedType;
@@ -278,10 +358,25 @@ function saveExpense() {
     var currentUser = DB.getCurrentUser();
     var isAdminUser = currentUser && currentUser.role === 'admin';
     if (isAdminUser && fundSource === 'pos_cash') {
-        if (!confirm('⚠️ Bạn đang dùng Két POS (tiền tại quầy).\n\nNhấn OK để xác nhận, hoặc Hủy để chuyển sang Quản lý thanh toán.')) {
-            return;
-        }
+        var self = this;
+        _showConfirmModal(
+            '⚠️ Bạn đang dùng <strong>Két POS</strong> (tiền tại quầy).<br><br>Nhấn OK để xác nhận, hoặc Hủy để chuyển sang Quản lý thanh toán.',
+            'OK, dùng Két POS',
+            'Hủy'
+        ).then(function(confirmed) {
+            if (confirmed) {
+                doSaveExpense();
+            }
+        });
+        return;
     }
+
+    doSaveExpense();
+}
+
+function doSaveExpense() {
+    var costType = _expenseSelectedType;
+    var fundSource = _expenseSelectedFundSource;
 
     if (costType === 'ingredient') {
         var qty = parseInt(document.getElementById('expenseQty').value) || 0;
@@ -504,8 +599,11 @@ function expenseUpdateDateDisplay() {
     }
 }
 
+// FIX 10: Clone date trước khi mutate để tránh lỗi tham chiếu
 function expenseDateChange(delta) {
-    _expenseViewDate.setDate(_expenseViewDate.getDate() + delta);
+    var newDate = new Date(_expenseViewDate.getTime());
+    newDate.setDate(newDate.getDate() + delta);
+    _expenseViewDate = newDate;
     _expenseViewDateKey = _expenseViewDate.toISOString().slice(0, 10);
     expenseUpdateDateDisplay();
     renderExpensesByDate(_expenseViewDateKey);
@@ -538,84 +636,104 @@ function expensePickDate() {
     setTimeout(function() { input.click(); }, 100);
 }
 
+// ========== BIẾN CHO ADMIN CONTEXT MENU ==========
+var _adminContextTxId = null;
+var _adminContextSelectedIds = [];
+var _adminContextMode = 'single'; // 'single' | 'multi'
+
 // ========== HIỂN THỊ CHI PHÍ THEO NGÀY ==========
+// FIX 1: Dùng expenseData.transactions (memory cache) thay vì DB.getAll('cost_transactions')
 function renderExpensesByDate(dateKey) {
     var container = document.getElementById('expenseTodayList');
     if (!container) return;
 
-    DB.getAll('cost_transactions').then(function(allTx) {
-        var currentUser = DB.getCurrentUser();
-        var isAdminUser = currentUser && currentUser.role === 'admin';
-        var today = new Date().toISOString().slice(0, 10);
+    var allTx = expenseData.transactions || [];
+    var currentUser = DB.getCurrentUser();
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    var today = new Date().toISOString().slice(0, 10);
 
-        var filtered = [];
-        for (var i = 0; i < allTx.length; i++) {
-            var tx = allTx[i];
-            if (tx && tx.dateKey === dateKey && !tx.deleted) {
-                // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
-                if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
-                filtered.push(tx);
-            }
+    var filtered = [];
+    for (var i = 0; i < allTx.length; i++) {
+        var tx = allTx[i];
+        if (tx && tx.dateKey === dateKey && !tx.deleted) {
+            // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
+            if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
+            filtered.push(tx);
         }
+    }
 
-        // Sắp xếp mới nhất lên đầu
-        filtered.sort(function(a, b) {
-            return (b.createdAt || 0) - (a.createdAt || 0);
-        });
+    // Sắp xếp mới nhất lên đầu
+    filtered.sort(function(a, b) {
+        return (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
-        // Cập nhật header tổng chi phí
-        var headerTotalEl = document.getElementById('expenseHeaderTotal');
-        if (headerTotalEl) {
-            if (filtered.length === 0) {
-                headerTotalEl.textContent = '';
-            } else {
-                var sum = 0;
-                for (var si = 0; si < filtered.length; si++) {
-                    sum += filtered[si].amount;
-                }
-                var countStr = filtered.length < 10 ? '0' + filtered.length : '' + filtered.length;
-                headerTotalEl.textContent = 'SL: ' + countStr + '  -  Tổng: ' + formatMoney(sum);
-            }
-        }
-
+    // Cập nhật header tổng chi phí
+    var headerTotalEl = document.getElementById('expenseHeaderTotal');
+    if (headerTotalEl) {
         if (filtered.length === 0) {
-            container.innerHTML = '<div class="empty-text">📭 Không có chi phí ngày này</div>';
-            return;
+            headerTotalEl.textContent = '';
+        } else {
+            var sum = 0;
+            for (var si = 0; si < filtered.length; si++) {
+                sum += filtered[si].amount;
+            }
+            var countStr = filtered.length < 10 ? '0' + filtered.length : '' + filtered.length;
+            headerTotalEl.textContent = 'SL: ' + countStr + '  -  Tổng: ' + formatMoney(sum);
+        }
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-text">📭 Không có chi phí ngày này</div>';
+        return;
+    }
+
+    var total = 0;
+    var html = '';
+
+    for (var i = 0; i < filtered.length; i++) {
+        var tx = filtered[i];
+        total += tx.amount;
+
+        var typeIcon = tx.costType === 'ingredient' ? '🧂' : '📦';
+        var fundIcon = tx.fundSource === 'pos_cash' ? '🏦' : '👔';
+        var timeStr = '';
+        if (tx.date) {
+            try {
+                var d = new Date(tx.date);
+                timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+            } catch(e) { timeStr = ''; }
         }
 
-        var total = 0;
-        var html = '';
+        // Phân quyền:
+        // - Admin: sửa/xóa được tất cả, có long-press context menu
+        // - Staff: chỉ sửa/xóa được chi phí hôm nay (dateKey === today)
+        var canEdit = isAdminUser || (dateKey === today);
+        var actionsHtml = '';
+        if (canEdit) {
+            // Cả admin và staff đều dùng context menu (click để mở)
+            // Staff chỉ thấy context menu cho chi phí hôm nay
+            actionsHtml = '<span class="cost-admin-badge">👤</span>';
+        }
 
-        for (var i = 0; i < filtered.length; i++) {
-            var tx = filtered[i];
-            total += tx.amount;
+        var detailStr = '';
+        if (tx.costType === 'ingredient' && tx.ingredientQty && tx.ingredientUnitPrice) {
+            detailStr = ' <span class="cost-item-qty">x' + tx.ingredientQty + ' × ' + formatMoney(tx.ingredientUnitPrice) + '</span>';
+        }
 
-            var typeIcon = tx.costType === 'ingredient' ? '🧂' : '📦';
-            var fundIcon = tx.fundSource === 'pos_cash' ? '🏦' : '👔';
-            var timeStr = '';
-            if (tx.date) {
-                try {
-                    var d = new Date(tx.date);
-                    timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
-                } catch(e) { timeStr = ''; }
-            }
+        // Thêm data-id + long-press attributes + swipe attributes
+        var itemAttrs = 'class="cost-item"';
+        if (canEdit) {
+            itemAttrs = 'class="cost-item cost-item-admin" data-tx-id="' + tx.id + '" ' +
+                'ontouchstart="return _adminTouchStart(event, \'' + tx.id + '\')" ' +
+                'ontouchend="return _adminTouchEnd(event, \'' + tx.id + '\')" ' +
+                'ontouchmove="return _adminTouchMove(event, \'' + tx.id + '\')" ' +
+                'onmousedown="return _adminMouseDown(event, \'' + tx.id + '\')" ' +
+                'onmouseup="return _adminMouseUp(event, \'' + tx.id + '\')" ' +
+                'onmouseleave="return _adminMouseLeave(event)"';
+        }
 
-            // Phân quyền:
-            // - Admin: sửa/xóa được tất cả
-            // - Staff: chỉ sửa/xóa được chi phí hôm nay (dateKey === today)
-            var canEdit = isAdminUser || (dateKey === today);
-            var actionsHtml = '';
-            if (canEdit) {
-                actionsHtml = '<button class="cost-edit-btn" onclick="editExpense(\'' + tx.id + '\')">✏️</button>' +
-                    '<button class="cost-delete-btn" onclick="deleteExpense(\'' + tx.id + '\')">🗑️</button>';
-            }
-
-            var detailStr = '';
-            if (tx.costType === 'ingredient' && tx.ingredientQty && tx.ingredientUnitPrice) {
-                detailStr = ' <span class="cost-item-qty">x' + tx.ingredientQty + ' × ' + formatMoney(tx.ingredientUnitPrice) + '</span>';
-            }
-
-            html += '<div class="cost-item">' +
+        html += '<div ' + itemAttrs + '>' +
+            '<div class="cost-item-inner">' +
                 '<div class="cost-item-left">' +
                     '<span class="cost-item-time">' + timeStr + '</span>' +
                     '<span class="cost-item-icons">' + fundIcon + ' ' + typeIcon + '</span>' +
@@ -626,15 +744,1323 @@ function renderExpensesByDate(dateKey) {
                     '<span class="cost-item-amount">' + formatMoney(tx.amount) + '</span>' +
                     actionsHtml +
                 '</div>' +
-            '</div>';
+            '</div>' +
+            '<div class="cost-item-swipe-actions">' +
+                '<button class="cost-swipe-delete" onclick="_adminSwipeDelete(\'' + tx.id + '\')">🗑️ Xóa</button>' +
+            '</div>' +
+        '</div>';
+    }
+
+    html += '<div class="cost-total">Tổng: ' + formatMoney(total) + '</div>';
+    container.innerHTML = html;
+}
+
+// ========== SWIPE-TO-DELETE: VUỐT TRÁI ĐỂ XÓA ==========
+var _swipeStartX = 0;
+var _swipeStartY = 0;
+var _swipeTxId = null;
+var _swipeThreshold = 60; // px - vuốt qua ngưỡng này thì hiện nút xóa
+
+function _adminTouchStart(event, txId) {
+    if (event.touches && event.touches.length > 0) {
+        _swipeStartX = event.touches[0].clientX;
+        _swipeStartY = event.touches[0].clientY;
+        _swipeTxId = txId;
+    }
+    _startAdminLongPress(txId);
+    return true;
+}
+
+function _adminTouchMove(event, txId) {
+    if (!event.touches || event.touches.length === 0) return true;
+    var dx = _swipeStartX - event.touches[0].clientX;
+    var dy = Math.abs(_swipeStartY - event.touches[0].clientY);
+
+    // Nếu vuốt dọc nhiều hơn ngang thì bỏ qua (đang scroll)
+    if (dy > Math.abs(dx) * 1.5) {
+        _resetSwipe(event.target);
+        return true;
+    }
+
+    // Tìm cost-item cha
+    var el = event.currentTarget;
+    if (!el) return true;
+
+    // Giới hạn translateX: không cho vuốt quá 120px
+    var translateX = Math.min(Math.max(dx, 0), 120);
+    var inner = el.querySelector('.cost-item-inner');
+    if (inner) {
+        inner.style.transition = 'none';
+        inner.style.transform = 'translateX(-' + translateX + 'px)';
+    }
+
+    // Hiện/ẩn nút xóa dựa trên ngưỡng
+    var actions = el.querySelector('.cost-item-swipe-actions');
+    if (actions) {
+        if (translateX >= _swipeThreshold) {
+            actions.classList.add('visible');
+        } else {
+            actions.classList.remove('visible');
+        }
+    }
+
+    return true;
+}
+
+function _adminTouchEnd(event, txId) {
+    _clearAdminLongPress();
+
+    var el = event.currentTarget;
+    if (el) {
+        var inner = el.querySelector('.cost-item-inner');
+        var actions = el.querySelector('.cost-item-swipe-actions');
+        var translateX = 0;
+        if (inner && inner.style.transform) {
+            var match = inner.style.transform.match(/translateX\(-(\d+)px\)/);
+            if (match) translateX = parseInt(match[1], 10);
         }
 
-        html += '<div class="cost-total">Tổng: ' + formatMoney(total) + '</div>';
-        container.innerHTML = html;
+        if (translateX >= _swipeThreshold) {
+            // Mở swipe actions
+            inner.style.transition = 'transform 0.2s ease';
+            inner.style.transform = 'translateX(-80px)';
+            if (actions) actions.classList.add('visible');
+        } else {
+            // Đóng swipe actions
+            _resetSwipe(el);
+        }
+    }
+
+    _swipeTxId = null;
+    return true;
+}
+
+function _resetSwipe(el) {
+    if (!el) return;
+    var inner = el.querySelector('.cost-item-inner');
+    if (inner) {
+        inner.style.transition = 'transform 0.2s ease';
+        inner.style.transform = 'translateX(0)';
+    }
+    var actions = el.querySelector('.cost-item-swipe-actions');
+    if (actions) actions.classList.remove('visible');
+}
+
+function _adminSwipeDelete(txId) {
+    // Reset tất cả swipe đang mở
+    var items = document.querySelectorAll('.cost-item-admin');
+    for (var i = 0; i < items.length; i++) {
+        _resetSwipe(items[i]);
+    }
+
+    // Gọi xóa trực tiếp (không qua _adminDeleteExpense vì hàm đó dùng _adminContextTxId)
+    if (txId) deleteExpense(txId);
+}
+
+// ========== ADMIN LONG-PRESS: PHÁT HIỆN ẤN GIỮ ==========
+var _adminPressTimer = null;
+var _adminPressTxId = null;
+var _adminPressStartX = 0;
+var _adminPressStartY = 0;
+var _adminLongPressThreshold = 500; // ms
+var _adminMoveThreshold = 15; // px - nếu di chuyển quá thì ko tính là giữ
+
+function _adminMouseDown(event, txId) {
+    _adminPressStartX = event.clientX;
+    _adminPressStartY = event.clientY;
+    _startAdminLongPress(txId);
+    return true;
+}
+
+function _adminMouseUp(event, txId) {
+    _clearAdminLongPress();
+    // Click ngắn không làm gì - chỉ long-press mới mở context menu
+    return true;
+}
+
+function _adminMouseLeave(event) {
+    _clearAdminLongPress();
+}
+
+function _startAdminLongPress(txId) {
+    _clearAdminLongPress();
+    _adminPressTxId = txId;
+    _adminPressTimer = setTimeout(function() {
+        // Long press detected!
+        _adminContextTxId = _adminPressTxId;
+        _adminPressTxId = null;
+        _showAdminContextMenu(_adminContextTxId, null);
+    }, _adminLongPressThreshold);
+}
+
+function _clearAdminLongPress() {
+    if (_adminPressTimer) {
+        clearTimeout(_adminPressTimer);
+        _adminPressTimer = null;
+    }
+    _adminPressTxId = null;
+}
+
+// ========== ADMIN LONG-PRESS: NGUYÊN LIỆU GRID ==========
+var _adminIngPressTimer = null;
+var _adminIngPressId = null;
+var _adminIngPressStartX = 0;
+var _adminIngPressStartY = 0;
+
+function _adminIngTouchStart(event, ingId) {
+    if (event.touches && event.touches.length > 0) {
+        _adminIngPressStartX = event.touches[0].clientX;
+        _adminIngPressStartY = event.touches[0].clientY;
+    }
+    _startAdminIngLongPress(ingId);
+    return true;
+}
+
+function _adminIngTouchEnd(event, ingId) {
+    _clearAdminIngLongPress();
+    // Chỉ mở context menu nếu là long-press (1-2s), click ngắn thì bỏ qua
+    return true;
+}
+
+function _adminIngMouseDown(event, ingId) {
+    _adminIngPressStartX = event.clientX;
+    _adminIngPressStartY = event.clientY;
+    _startAdminIngLongPress(ingId);
+    return true;
+}
+
+function _adminIngMouseUp(event, ingId) {
+    _clearAdminIngLongPress();
+    // Chỉ mở context menu nếu là long-press, click ngắn thì bỏ qua
+    return true;
+}
+
+function _adminIngMouseLeave(event) {
+    _clearAdminIngLongPress();
+}
+
+function _startAdminIngLongPress(ingId) {
+    _clearAdminIngLongPress();
+    _adminIngPressId = ingId;
+    _adminIngPressTimer = setTimeout(function() {
+        _adminIngPressId = null;
+        _adminShowIngredientContext(ingId, null);
+    }, _adminLongPressThreshold);
+}
+
+function _clearAdminIngLongPress() {
+    if (_adminIngPressTimer) {
+        clearTimeout(_adminIngPressTimer);
+        _adminIngPressTimer = null;
+    }
+    _adminIngPressId = null;
+}
+
+// ========== ADMIN LONG-PRESS: HAO PHÍ GRID ==========
+var _adminWastePressTimer = null;
+var _adminWastePressId = null;
+var _adminWastePressStartX = 0;
+var _adminWastePressStartY = 0;
+
+function _adminWasteTouchStart(event, wasteId) {
+    if (event.touches && event.touches.length > 0) {
+        _adminWastePressStartX = event.touches[0].clientX;
+        _adminWastePressStartY = event.touches[0].clientY;
+    }
+    _startAdminWasteLongPress(wasteId);
+    return true;
+}
+
+function _adminWasteTouchEnd(event, wasteId) {
+    _clearAdminWasteLongPress();
+    // Chỉ mở context menu nếu là long-press, click ngắn thì bỏ qua
+    return true;
+}
+
+function _adminWasteMouseDown(event, wasteId) {
+    _adminWastePressStartX = event.clientX;
+    _adminWastePressStartY = event.clientY;
+    _startAdminWasteLongPress(wasteId);
+    return true;
+}
+
+function _adminWasteMouseUp(event, wasteId) {
+    _clearAdminWasteLongPress();
+    // Chỉ mở context menu nếu là long-press, click ngắn thì bỏ qua
+    return true;
+}
+
+function _adminWasteMouseLeave(event) {
+    _clearAdminWasteLongPress();
+}
+
+function _startAdminWasteLongPress(wasteId) {
+    _clearAdminWasteLongPress();
+    _adminWastePressId = wasteId;
+    _adminWastePressTimer = setTimeout(function() {
+        _adminWastePressId = null;
+        _adminShowWasteContext(wasteId, null);
+    }, _adminLongPressThreshold);
+}
+
+function _clearAdminWasteLongPress() {
+    if (_adminWastePressTimer) {
+        clearTimeout(_adminWastePressTimer);
+        _adminWastePressTimer = null;
+    }
+    _adminWastePressId = null;
+}
+
+// ========== CONTEXT MENU CHO COST ITEM (admin + staff) ==========
+function _showAdminContextMenu(txId, event) {
+    var tx = _findTxInCache(txId);
+    if (!tx) return;
+
+    var currentUser = DB.getCurrentUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
+
+    _adminContextTxId = txId;
+    _adminContextMode = 'single';
+
+    var typeLabel = tx.costType === 'ingredient' ? '🧂 Nguyên liệu' : '📦 Hao phí';
+    var fundLabel = tx.fundSource === 'pos_cash' ? '🏦 Két POS' : '👔 QLTT';
+
+    var html =
+        '<div id="adminContextOverlay" class="modal-overlay" onclick="if(event.target===this)_closeAdminContextMenu()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">⚙️ Chi phí: ' + escapeHtml(tx.categoryName) + '</div>' +
+                '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">' +
+                    formatMoney(tx.amount) + ' · ' + typeLabel + ' · ' + fundLabel +
+                '</div>' +
+                '<div class="admin-context-actions">' +
+                    '<button class="admin-context-btn" onclick="_adminEditExpense()">✏️ Sửa chi phí</button>' +
+                    '<button class="admin-context-btn" onclick="_adminDeleteExpense()">🗑️ Xóa chi phí</button>' +
+                    '<button class="admin-context-btn" onclick="_adminStartMerge()">🔗 Gộp chi phí</button>' +
+                '</div>' +
+                '<button class="admin-context-close" onclick="_closeAdminContextMenu()">Đóng</button>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+}
+
+function _closeAdminContextMenu() {
+    var overlay = document.getElementById('adminContextOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+    _adminContextTxId = null;
+    _adminContextSelectedIds = [];
+    _adminContextMode = 'single';
+}
+
+function _adminEditExpense() {
+    var id = _adminContextTxId;
+    _closeAdminContextMenu();
+    if (id) editExpense(id);
+}
+
+function _adminDeleteExpense() {
+    var id = _adminContextTxId;
+    _closeAdminContextMenu();
+    if (id) deleteExpense(id);
+}
+
+// ========== ADMIN GỘP CHI PHÍ ==========
+function _adminStartMerge() {
+    var firstId = _adminContextTxId;
+    _adminContextMode = 'multi';
+    _adminContextSelectedIds = [firstId];
+
+    var html =
+        '<div id="adminMergeOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelMerge()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🔗 Gộp chi phí</div>' +
+                '<div style="font-size:13px;color:#475569;margin-bottom:12px;line-height:1.5;">' +
+                    'Đã chọn <strong id="adminMergeCount">1</strong> chi phí.<br>' +
+                    'Nhấn vào các chi phí khác cùng ngày để thêm vào danh sách gộp.<br>' +
+                    'Tổng tiền: <strong id="adminMergeTotal">' + formatMoney(_adminGetSelectedTotal()) + '</strong>' +
+                '</div>' +
+                '<div id="adminMergeList" style="max-height:200px;overflow-y:auto;margin-bottom:12px;font-size:13px;"></div>' +
+                '<div style="display:flex;gap:8px;">' +
+                    '<button class="btn-save" style="flex:1;" onclick="_adminConfirmMerge()">✅ Gộp</button>' +
+                    '<button class="btn-cancel" style="flex:1;" onclick="_adminCancelMerge()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+
+    // Highlight các item có thể chọn
+    _adminUpdateMergeUI();
+    _adminAttachMergeClickHandlers();
+}
+
+function _adminGetSelectedTotal() {
+    var total = 0;
+    for (var i = 0; i < _adminContextSelectedIds.length; i++) {
+        var tx = _findTxInCache(_adminContextSelectedIds[i]);
+        if (tx) total += tx.amount;
+    }
+    return total;
+}
+
+function _adminUpdateMergeUI() {
+    var countEl = document.getElementById('adminMergeCount');
+    var totalEl = document.getElementById('adminMergeTotal');
+    var listEl = document.getElementById('adminMergeList');
+    if (countEl) countEl.textContent = _adminContextSelectedIds.length;
+    if (totalEl) totalEl.textContent = formatMoney(_adminGetSelectedTotal());
+
+    if (listEl) {
+        var html = '';
+        for (var i = 0; i < _adminContextSelectedIds.length; i++) {
+            var tx = _findTxInCache(_adminContextSelectedIds[i]);
+            if (tx) {
+                var icon = tx.costType === 'ingredient' ? '🧂' : '📦';
+                html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;">' +
+                    '<span>' + icon + ' ' + escapeHtml(tx.categoryName) + '</span>' +
+                    '<span style="font-weight:600;">' + formatMoney(tx.amount) + '</span>' +
+                '</div>';
+            }
+        }
+        listEl.innerHTML = html;
+    }
+}
+
+function _adminAttachMergeClickHandlers() {
+    // Gắn click cho các cost-item để chọn thêm
+    var items = document.querySelectorAll('#expenseTodayList .cost-item-admin');
+    for (var i = 0; i < items.length; i++) {
+        (function(el) {
+            var id = el.getAttribute('data-tx-id');
+            if (!id) return;
+            // Bỏ highlight cũ
+            el.classList.remove('cost-item-selected');
+            // Nếu đã chọn thì highlight
+            if (_adminContextSelectedIds.indexOf(id) !== -1) {
+                el.classList.add('cost-item-selected');
+            }
+            // Gắn click để toggle chọn
+            el.onclick = function(e) {
+                e.stopPropagation();
+                _adminToggleMergeItem(id, el);
+            };
+        })(items[i]);
+    }
+}
+
+function _adminToggleMergeItem(id, el) {
+    var idx = _adminContextSelectedIds.indexOf(id);
+    if (idx !== -1) {
+        // Nếu chỉ còn 1 item thì ko cho bỏ chọn
+        if (_adminContextSelectedIds.length <= 1) {
+            showToast('Cần ít nhất 1 chi phí để gộp!', 'warning');
+            return;
+        }
+        _adminContextSelectedIds.splice(idx, 1);
+        el.classList.remove('cost-item-selected');
+    } else {
+        _adminContextSelectedIds.push(id);
+        el.classList.add('cost-item-selected');
+    }
+    _adminUpdateMergeUI();
+}
+
+function _adminConfirmMerge() {
+    if (_adminContextSelectedIds.length < 1) {
+        showToast('Chưa chọn chi phí nào!', 'warning');
+        return;
+    }
+
+    var ids = _adminContextSelectedIds.slice();
+    var firstTx = _findTxInCache(ids[0]);
+    if (!firstTx) return;
+
+    // Tính tổng tiền
+    var totalAmount = 0;
+    var names = [];
+    for (var i = 0; i < ids.length; i++) {
+        var tx = _findTxInCache(ids[i]);
+        if (tx) {
+            totalAmount += tx.amount;
+            names.push(tx.categoryName);
+        }
+    }
+
+    // Cập nhật transaction đầu tiên với tổng tiền + tên gộp
+    var mergedName = names.join(' + ');
+    if (mergedName.length > 100) mergedName = mergedName.slice(0, 97) + '...';
+
+    var updateData = {
+        amount: totalAmount,
+        categoryName: mergedName
+    };
+
+    // Nếu là ingredient, cập nhật qty
+    if (firstTx.costType === 'ingredient') {
+        var totalQty = 0;
+        for (var j = 0; j < ids.length; j++) {
+            var tj = _findTxInCache(ids[j]);
+            if (tj && tj.ingredientQty) totalQty += tj.ingredientQty;
+        }
+        updateData.ingredientQty = totalQty;
+        updateData.quantity = totalQty;
+        updateData.ingredientUnitPrice = Math.round(totalAmount / totalQty);
+    }
+
+    // Xóa các transaction còn lại (đánh dấu deleted)
+    var promises = [];
+    for (var k = 1; k < ids.length; k++) {
+        promises.push(DB.update('cost_transactions', ids[k], { deleted: true }));
+    }
+
+    // Cập nhật transaction đầu
+    promises.unshift(DB.update('cost_transactions', ids[0], updateData));
+
+    Promise.all(promises).then(function() {
+        return loadExpenseData();
+    }).then(function() {
+        showToast('✅ Đã gộp ' + ids.length + ' chi phí thành công', 'success');
+        _adminCancelMerge();
+        renderTodayExpenses();
+        renderMonthExpenseTotal();
     }).catch(function(err) {
-        console.error('renderExpensesByDate error:', err);
-        container.innerHTML = '<div class="empty-text">Lỗi tải dữ liệu</div>';
+        console.error('Merge expense error:', err);
+        showToast('Lỗi khi gộp chi phí!', 'error');
     });
+}
+
+function _adminCancelMerge() {
+    var overlay = document.getElementById('adminMergeOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+    // Reset click handlers
+    var items = document.querySelectorAll('#expenseTodayList .cost-item-admin');
+    for (var i = 0; i < items.length; i++) {
+        items[i].onclick = null;
+        items[i].classList.remove('cost-item-selected');
+    }
+    _adminContextSelectedIds = [];
+    _adminContextMode = 'single';
+    _adminContextTxId = null;
+}
+
+// ========== ADMIN: QUẢN LÝ DANH SÁCH TÊN NGUYÊN LIỆU ==========
+// Chỉ admin mới có quyền sửa/xóa/gộp tên nguyên liệu trong grid
+var _adminIngredientContextId = null;
+var _adminIngredientSelectedIds = [];
+var _adminIngredientMergeMode = false;
+
+function _adminShowIngredientContext(ingredientId, event) {
+    var currentUser = DB.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    _adminIngredientContextId = ingredientId;
+    _adminIngredientSelectedIds = [ingredientId];
+    _adminIngredientMergeMode = false;
+
+    var ing = null;
+    var list = window.ingredients || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].id === ingredientId) { ing = list[i]; break; }
+    }
+    if (!ing) return;
+
+    var html =
+        '<div id="adminIngContextOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCloseIngredientContext()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🧂 Nguyên liệu: ' + escapeHtml(ing.name) + '</div>' +
+                '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">' +
+                    'Tồn: ' + (typeof ing.stock === 'number' ? Math.round(ing.stock * 100) / 100 : (ing.stock || 0)) + (ing.unit ? ' ' + ing.unit : '') +
+                '</div>' +
+                '<div class="admin-context-actions">' +
+                    '<button class="admin-context-btn" onclick="_adminEditIngredientName()">✏️ Sửa tên</button>' +
+                    '<button class="admin-context-btn" onclick="_adminDeleteIngredient()">🗑️ Xóa nguyên liệu</button>' +
+                    '<button class="admin-context-btn" onclick="_adminMergeIngredients()">🔗 Gộp nguyên liệu</button>' +
+                '</div>' +
+                '<button class="admin-context-close" onclick="_adminCloseIngredientContext()">Đóng</button>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+}
+
+function _adminCloseIngredientContext() {
+    var overlay = document.getElementById('adminIngContextOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+    _adminIngredientContextId = null;
+    _adminIngredientSelectedIds = [];
+    _adminIngredientMergeMode = false;
+    // Reset highlight trên grid
+    var items = document.querySelectorAll('#expenseIngredientGrid .ingredient-grid-item');
+    for (var i = 0; i < items.length; i++) {
+        items[i].classList.remove('ingredient-item-selected');
+    }
+}
+
+function _adminEditIngredientName() {
+    var id = _adminIngredientContextId;
+    _adminCloseIngredientContext();
+    if (!id) return;
+
+    var ing = null;
+    var list = window.ingredients || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].id === id) { ing = list[i]; break; }
+    }
+    if (!ing) return;
+
+    var html =
+        '<div id="editIngredientOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelEditIngredient()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">✏️ Sửa tên nguyên liệu</div>' +
+                '<div class="edit-field"><label class="edit-label">Tên nguyên liệu</label>' +
+                    '<input type="text" id="editIngredientNameInput" class="form-input" value="' + escapeHtml(ing.name) + '"></div>' +
+                '<div class="edit-field"><label class="edit-label">Đơn vị</label>' +
+                    '<input type="text" id="editIngredientUnitInput" class="form-input" value="' + escapeHtml(ing.unit || '') + '" placeholder="kg, lít, túi..."></div>' +
+                '<div class="edit-actions">' +
+                    '<button class="btn-save" onclick="_adminConfirmEditIngredient(\'' + id + '\')">✅ Lưu</button>' +
+                    '<button class="btn-cancel" onclick="_adminCancelEditIngredient()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+    // Focus vào input
+    setTimeout(function() {
+        var input = document.getElementById('editIngredientNameInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+function _adminCancelEditIngredient() {
+    var overlay = document.getElementById('editIngredientOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+}
+
+function _adminConfirmEditIngredient(id) {
+    var newName = document.getElementById('editIngredientNameInput').value.trim();
+    var newUnit = document.getElementById('editIngredientUnitInput').value.trim();
+    if (!newName) {
+        showToast('Vui lòng nhập tên nguyên liệu!', 'warning');
+        return;
+    }
+
+    var updateData = { name: newName };
+    if (newUnit) updateData.unit = newUnit;
+    else updateData.unit = '';
+
+    DB.update('ingredients', id, updateData).then(function() {
+        // Cập nhật cache
+        var list = window.ingredients || [];
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id) {
+                list[i].name = newName;
+                if (newUnit) list[i].unit = newUnit;
+                else list[i].unit = '';
+                break;
+            }
+        }
+        showToast('✅ Đã cập nhật tên nguyên liệu', 'success');
+        _adminCancelEditIngredient();
+        renderIngredientList();
+    }).catch(function(err) {
+        console.error('Edit ingredient error:', err);
+        showToast('Lỗi khi cập nhật!', 'error');
+    });
+}
+
+function _adminDeleteIngredient() {
+    var id = _adminIngredientContextId;
+    _adminCloseIngredientContext();
+    if (!id) return;
+
+    // Kiểm tra xem nguyên liệu có giao dịch không
+    var hasTx = false;
+    var txs = expenseData.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+        if (txs[i].ingredientId === id && !txs[i].deleted) {
+            hasTx = true;
+            break;
+        }
+    }
+
+    var msg = 'Bạn có chắc muốn xóa nguyên liệu này?';
+    if (hasTx) {
+        msg = '⚠️ <strong>Cảnh báo:</strong> Nguyên liệu này đã có giao dịch chi phí.<br><br>Xóa sẽ chỉ đánh dấu ẩn, không ảnh hưởng dữ liệu cũ. Tiếp tục?';
+    }
+
+    _showConfirmModal(msg, 'Xóa', 'Hủy').then(function(confirmed) {
+        if (!confirmed) return;
+        DB.update('ingredients', id, { deleted: true }).then(function() {
+            // Cập nhật cache
+            var list = window.ingredients || [];
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === id) {
+                    list[i].deleted = true;
+                    break;
+                }
+            }
+            showToast('🗑️ Đã xóa nguyên liệu', 'success');
+            renderIngredientList();
+        }).catch(function(err) {
+            console.error('Delete ingredient error:', err);
+            showToast('Lỗi khi xóa!', 'error');
+        });
+    });
+}
+
+function _adminMergeIngredients() {
+    var firstId = _adminIngredientContextId;
+    _adminIngredientMergeMode = true;
+    _adminIngredientSelectedIds = [firstId];
+
+    // Tạo danh sách tất cả nguyên liệu (chưa bị xóa) với checkbox
+    var list = window.ingredients || [];
+    var checklistHtml = '';
+    for (var i = 0; i < list.length; i++) {
+        var ing = list[i];
+        if (ing.deleted) continue;
+        var checked = (ing.id === firstId) ? 'checked' : '';
+        var stockStr = (typeof ing.stock === 'number' ? Math.round(ing.stock * 100) / 100 : (ing.stock || 0));
+        checklistHtml +=
+            '<label class="merge-checkbox-item" data-id="' + ing.id + '">' +
+                '<input type="checkbox" class="merge-ing-checkbox" value="' + ing.id + '" ' + checked + '>' +
+                '<span class="merge-item-icon">🧂</span>' +
+                '<span class="merge-item-name">' + escapeHtml(ing.name) + '</span>' +
+                '<span class="merge-item-stock">Tồn: ' + stockStr + (ing.unit ? ' ' + ing.unit : '') + '</span>' +
+            '</label>';
+    }
+
+    var html =
+        '<div id="adminMergeIngOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelMergeIngredients()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🔗 Gộp nguyên liệu</div>' +
+                '<div style="font-size:13px;color:#475569;margin-bottom:12px;line-height:1.5;">' +
+                    'Chọn các nguyên liệu muốn gộp (tích vào ô checkbox).<br>' +
+                    'Đã chọn: <strong id="adminMergeIngCount">1</strong> nguyên liệu.<br>' +
+                    'Sau khi gộp, các giao dịch cũ sẽ trỏ về nguyên liệu được giữ lại.' +
+                '</div>' +
+                '<div id="adminMergeIngList" class="merge-checklist">' +
+                    checklistHtml +
+                '</div>' +
+                '<div style="display:flex;gap:8px;margin-top:12px;">' +
+                    '<button class="btn-save" style="flex:1;" onclick="_adminConfirmMergeIngredients()">✅ Gộp</button>' +
+                    '<button class="btn-cancel" style="flex:1;" onclick="_adminCancelMergeIngredients()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+
+    // Gắn sự kiện change cho checkbox
+    var checkboxes = document.querySelectorAll('.merge-ing-checkbox');
+    for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].addEventListener('change', function() {
+            _adminIngredientSelectedIds = [];
+            var cbs = document.querySelectorAll('.merge-ing-checkbox:checked');
+            for (var j = 0; j < cbs.length; j++) {
+                _adminIngredientSelectedIds.push(cbs[j].value);
+            }
+            if (_adminIngredientSelectedIds.length === 0) {
+                // Luôn giữ ít nhất 1
+                this.checked = true;
+                _adminIngredientSelectedIds.push(this.value);
+            }
+            _adminUpdateMergeIngUI();
+        });
+    }
+
+    _adminUpdateMergeIngUI();
+}
+
+function _adminUpdateMergeIngUI() {
+    var countEl = document.getElementById('adminMergeIngCount');
+    if (countEl) countEl.textContent = _adminIngredientSelectedIds.length;
+}
+
+function _adminConfirmMergeIngredients() {
+    if (_adminIngredientSelectedIds.length < 1) {
+        showToast('Chưa chọn nguyên liệu nào!', 'warning');
+        return;
+    }
+
+    var ids = _adminIngredientSelectedIds.slice();
+    var list = window.ingredients || [];
+
+    // Lấy danh sách tên từ các nguyên liệu được chọn
+    var nameOptions = [];
+    for (var i = 0; i < ids.length; i++) {
+        for (var j = 0; j < list.length; j++) {
+            if (list[j].id === ids[i]) {
+                nameOptions.push({ id: ids[i], name: list[j].name });
+                break;
+            }
+        }
+    }
+
+    // Tạo modal chọn tên
+    var nameRadiosHtml = '';
+    for (var n = 0; n < nameOptions.length; n++) {
+        var checked = (n === 0) ? 'checked' : '';
+        nameRadiosHtml +=
+            '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:6px;cursor:pointer;background:#fff;">' +
+                '<input type="radio" name="mergeIngName" value="' + escapeHtml(nameOptions[n].name) + '" ' + checked + ' style="width:16px;height:16px;">' +
+                '<span style="font-size:14px;">🧂 ' + escapeHtml(nameOptions[n].name) + '</span>' +
+            '</label>';
+    }
+
+    var html =
+        '<div id="adminMergeIngNameOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelMergeIngredients()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🔗 Chọn tên hiển thị sau gộp</div>' +
+                '<div style="font-size:13px;color:#475569;margin-bottom:12px;line-height:1.5;">' +
+                    'Chọn tên từ danh sách hoặc nhập tên mới bên dưới:' +
+                '</div>' +
+                '<div style="margin-bottom:12px;">' +
+                    nameRadiosHtml +
+                '</div>' +
+                '<div style="margin-bottom:12px;">' +
+                    '<label class="edit-label">Hoặc nhập tên mới:</label>' +
+                    '<input id="mergeIngNewNameInput" class="edit-field" type="text" placeholder="Nhập tên nguyên liệu mới..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;">' +
+                '</div>' +
+                '<div style="display:flex;gap:8px;">' +
+                    '<button class="btn-save" style="flex:1;" onclick="_adminDoMergeIngredients()">✅ Xác nhận gộp</button>' +
+                    '<button class="btn-cancel" style="flex:1;" onclick="_adminCancelMergeIngredients()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+
+    // Focus vào input khi modal mở
+    setTimeout(function() {
+        var input = document.getElementById('mergeIngNewNameInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+function _adminDoMergeIngredients() {
+    var ids = _adminIngredientSelectedIds.slice();
+    if (ids.length < 1) {
+        showToast('Chưa chọn nguyên liệu nào!', 'warning');
+        return;
+    }
+
+    // Lấy tên đã chọn từ radio hoặc input
+    var selectedRadio = document.querySelector('input[name="mergeIngName"]:checked');
+    var newNameInput = document.getElementById('mergeIngNewNameInput');
+    var newName = '';
+
+    if (newNameInput && newNameInput.value.trim()) {
+        newName = newNameInput.value.trim();
+    } else if (selectedRadio) {
+        newName = selectedRadio.value;
+    } else {
+        showToast('Vui lòng chọn tên hoặc nhập tên mới!', 'warning');
+        return;
+    }
+
+    if (!newName) {
+        showToast('Vui lòng chọn tên hoặc nhập tên mới!', 'warning');
+        return;
+    }
+
+    // Tìm targetId dựa trên tên đã chọn (nếu là tên từ danh sách)
+    var targetId = ids[0];
+    var list = window.ingredients || [];
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].name === newName && ids.indexOf(list[i].id) !== -1) {
+            targetId = list[i].id;
+            break;
+        }
+    }
+
+    // Nếu là tên mới, cập nhật tên cho nguyên liệu đầu tiên
+    var updateTargetName = false;
+    var currentTargetName = '';
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].id === targetId) {
+            currentTargetName = list[i].name;
+            break;
+        }
+    }
+    if (currentTargetName !== newName) {
+        updateTargetName = true;
+    }
+
+    // Đóng modal chọn tên
+    var nameOverlay = document.getElementById('adminMergeIngNameOverlay');
+    if (nameOverlay && document.body.contains(nameOverlay)) {
+        document.body.removeChild(nameOverlay);
+    }
+
+    // Cập nhật tất cả giao dịch cost_transactions trỏ về targetId
+    var promises = [];
+    var txs = expenseData.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+        var tx = txs[i];
+        if (tx.ingredientId && ids.indexOf(tx.ingredientId) !== -1 && tx.ingredientId !== targetId) {
+            promises.push(DB.update('cost_transactions', tx.id, { ingredientId: targetId }));
+        }
+    }
+
+    // Cập nhật tên nếu là tên mới
+    if (updateTargetName) {
+        promises.push(DB.update('ingredients', targetId, { name: newName }));
+    }
+
+    // Cập nhật inventory_transactions
+    promises.push(DB.getAll('inventory_transactions').then(function(invTxs) {
+        var invPromises = [];
+        for (var i = 0; i < invTxs.length; i++) {
+            var inv = invTxs[i];
+            if (inv.ingredientId && ids.indexOf(inv.ingredientId) !== -1 && inv.ingredientId !== targetId) {
+                invPromises.push(DB.update('inventory_transactions', inv.id, { ingredientId: targetId }));
+            }
+        }
+        return Promise.all(invPromises);
+    }));
+
+    // Xóa các nguyên liệu còn lại (đánh dấu deleted)
+    for (var k = 0; k < ids.length; k++) {
+        if (ids[k] !== targetId) {
+            promises.push(DB.update('ingredients', ids[k], { deleted: true }));
+        }
+    }
+
+    Promise.all(promises).then(function() {
+        // Refresh cache
+        return DB.getAll('ingredients');
+    }).then(function(dbList) {
+        window.ingredients = dbList;
+        showToast('✅ Đã gộp ' + ids.length + ' nguyên liệu thành công', 'success');
+        _adminCancelMergeIngredients();
+        renderIngredientList();
+    }).catch(function(err) {
+        console.error('Merge ingredients error:', err);
+        showToast('Lỗi khi gộp nguyên liệu!', 'error');
+    });
+}
+
+function _adminCancelMergeIngredients() {
+    // Đóng cả 2 overlay: danh sách chọn và chọn tên
+    var overlays = ['adminMergeIngOverlay', 'adminMergeIngNameOverlay'];
+    for (var oi = 0; oi < overlays.length; oi++) {
+        var overlay = document.getElementById(overlays[oi]);
+        if (overlay && document.body.contains(overlay)) {
+            document.body.removeChild(overlay);
+        }
+    }
+    _adminIngredientSelectedIds = [];
+    _adminIngredientMergeMode = false;
+    _adminIngredientContextId = null;
+}
+
+// ========== ADMIN: QUẢN LÝ DANH SÁCH TÊN HAO PHÍ ==========
+var _adminWasteContextId = null;
+var _adminWasteSelectedIds = [];
+var _adminWasteMergeMode = false;
+
+function _adminShowWasteContext(wasteId, event) {
+    var currentUser = DB.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    _adminWasteContextId = wasteId;
+    _adminWasteSelectedIds = [wasteId];
+    _adminWasteMergeMode = false;
+
+    var cat = null;
+    for (var i = 0; i < expenseData.categories.length; i++) {
+        if (expenseData.categories[i].id === wasteId) { cat = expenseData.categories[i]; break; }
+    }
+    if (!cat) return;
+
+    var html =
+        '<div id="adminWasteContextOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCloseWasteContext()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">📦 Hao phí: ' + escapeHtml(cat.name) + '</div>' +
+                '<div class="admin-context-actions">' +
+                    '<button class="admin-context-btn" onclick="_adminEditWasteCategory()">✏️ Sửa tên</button>' +
+                    '<button class="admin-context-btn" onclick="_adminDeleteWasteCategory()">🗑️ Xóa hao phí</button>' +
+                    '<button class="admin-context-btn" onclick="_adminMergeWasteCategories()">🔗 Gộp hao phí</button>' +
+                '</div>' +
+                '<button class="admin-context-close" onclick="_adminCloseWasteContext()">Đóng</button>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+}
+
+function _adminCloseWasteContext() {
+    var overlay = document.getElementById('adminWasteContextOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+    _adminWasteContextId = null;
+    _adminWasteSelectedIds = [];
+    _adminWasteMergeMode = false;
+    var items = document.querySelectorAll('#expenseWasteGrid .waste-grid-item');
+    for (var i = 0; i < items.length; i++) {
+        items[i].classList.remove('waste-item-selected');
+    }
+}
+
+function _adminEditWasteCategory() {
+    var id = _adminWasteContextId;
+    _adminCloseWasteContext();
+    if (!id) return;
+
+    var cat = null;
+    for (var i = 0; i < expenseData.categories.length; i++) {
+        if (expenseData.categories[i].id === id) { cat = expenseData.categories[i]; break; }
+    }
+    if (!cat) return;
+
+    var html =
+        '<div id="editWasteOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelEditWaste()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">✏️ Sửa tên hao phí</div>' +
+                '<div class="edit-field"><label class="edit-label">Tên hao phí</label>' +
+                    '<input type="text" id="editWasteNameInput" class="form-input" value="' + escapeHtml(cat.name) + '"></div>' +
+                '<div class="edit-actions">' +
+                    '<button class="btn-save" onclick="_adminConfirmEditWaste(\'' + id + '\')">✅ Lưu</button>' +
+                    '<button class="btn-cancel" onclick="_adminCancelEditWaste()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+    setTimeout(function() {
+        var input = document.getElementById('editWasteNameInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+function _adminCancelEditWaste() {
+    var overlay = document.getElementById('editWasteOverlay');
+    if (overlay && document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+    }
+}
+
+function _adminConfirmEditWaste(id) {
+    var newName = document.getElementById('editWasteNameInput').value.trim();
+    if (!newName) {
+        showToast('Vui lòng nhập tên hao phí!', 'warning');
+        return;
+    }
+
+    DB.update('cost_categories', id, { name: newName }).then(function() {
+        // Cập nhật cache
+        for (var i = 0; i < expenseData.categories.length; i++) {
+            if (expenseData.categories[i].id === id) {
+                expenseData.categories[i].name = newName;
+                break;
+            }
+        }
+        showToast('✅ Đã cập nhật tên hao phí', 'success');
+        _adminCancelEditWaste();
+        renderWasteTypeList();
+    }).catch(function(err) {
+        console.error('Edit waste category error:', err);
+        showToast('Lỗi khi cập nhật!', 'error');
+    });
+}
+
+function _adminDeleteWasteCategory() {
+    var id = _adminWasteContextId;
+    _adminCloseWasteContext();
+    if (!id) return;
+
+    // Kiểm tra xem hao phí có giao dịch không
+    var hasTx = false;
+    var txs = expenseData.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+        if (txs[i].categoryId === id && !txs[i].deleted) {
+            hasTx = true;
+            break;
+        }
+    }
+
+    var msg = 'Bạn có chắc muốn xóa hao phí này?';
+    if (hasTx) {
+        msg = '⚠️ <strong>Cảnh báo:</strong> Hao phí này đã có giao dịch.<br><br>Xóa sẽ chỉ đánh dấu ẩn, không ảnh hưởng dữ liệu cũ. Tiếp tục?';
+    }
+
+    _showConfirmModal(msg, 'Xóa', 'Hủy').then(function(confirmed) {
+        if (!confirmed) return;
+        DB.update('cost_categories', id, { deleted: true }).then(function() {
+            // Cập nhật cache
+            for (var i = 0; i < expenseData.categories.length; i++) {
+                if (expenseData.categories[i].id === id) {
+                    expenseData.categories[i].deleted = true;
+                    break;
+                }
+            }
+            showToast('🗑️ Đã xóa hao phí', 'success');
+            renderWasteTypeList();
+        }).catch(function(err) {
+            console.error('Delete waste category error:', err);
+            showToast('Lỗi khi xóa!', 'error');
+        });
+    });
+}
+
+function _adminMergeWasteCategories() {
+    var firstId = _adminWasteContextId;
+    _adminWasteMergeMode = true;
+    _adminWasteSelectedIds = [firstId];
+
+    // Tạo danh sách tất cả hao phí (chưa bị xóa) với checkbox
+    var categories = expenseData.categories || [];
+    var checklistHtml = '';
+    for (var i = 0; i < categories.length; i++) {
+        var cat = categories[i];
+        if (cat.deleted) continue;
+        var checked = (cat.id === firstId) ? 'checked' : '';
+        checklistHtml +=
+            '<label class="merge-checkbox-item" data-id="' + cat.id + '">' +
+                '<input type="checkbox" class="merge-waste-checkbox" value="' + cat.id + '" ' + checked + '>' +
+                '<span class="merge-item-icon">📦</span>' +
+                '<span class="merge-item-name">' + escapeHtml(cat.name) + '</span>' +
+            '</label>';
+    }
+
+    var html =
+        '<div id="adminMergeWasteOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelMergeWaste()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🔗 Gộp hao phí</div>' +
+                '<div style="font-size:13px;color:#475569;margin-bottom:12px;line-height:1.5;">' +
+                    'Chọn các hao phí muốn gộp (tích vào ô checkbox).<br>' +
+                    'Đã chọn: <strong id="adminMergeWasteCount">1</strong> hao phí.<br>' +
+                    'Sau khi gộp, các giao dịch cũ sẽ trỏ về hao phí được giữ lại.' +
+                '</div>' +
+                '<div id="adminMergeWasteList" class="merge-checklist">' +
+                    checklistHtml +
+                '</div>' +
+                '<div style="display:flex;gap:8px;margin-top:12px;">' +
+                    '<button class="btn-save" style="flex:1;" onclick="_adminConfirmMergeWaste()">✅ Gộp</button>' +
+                    '<button class="btn-cancel" style="flex:1;" onclick="_adminCancelMergeWaste()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+
+    // Gắn sự kiện change cho checkbox
+    var checkboxes = document.querySelectorAll('.merge-waste-checkbox');
+    for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].addEventListener('change', function() {
+            _adminWasteSelectedIds = [];
+            var cbs = document.querySelectorAll('.merge-waste-checkbox:checked');
+            for (var j = 0; j < cbs.length; j++) {
+                _adminWasteSelectedIds.push(cbs[j].value);
+            }
+            if (_adminWasteSelectedIds.length === 0) {
+                this.checked = true;
+                _adminWasteSelectedIds.push(this.value);
+            }
+            _adminUpdateMergeWasteUI();
+        });
+    }
+
+    _adminUpdateMergeWasteUI();
+}
+
+function _adminUpdateMergeWasteUI() {
+    var countEl = document.getElementById('adminMergeWasteCount');
+    if (countEl) countEl.textContent = _adminWasteSelectedIds.length;
+}
+
+function _adminConfirmMergeWaste() {
+    if (_adminWasteSelectedIds.length < 1) {
+        showToast('Chưa chọn hao phí nào!', 'warning');
+        return;
+    }
+
+    var ids = _adminWasteSelectedIds.slice();
+    var categories = expenseData.categories || [];
+
+    // Lấy danh sách tên từ các hao phí được chọn
+    var nameOptions = [];
+    for (var i = 0; i < ids.length; i++) {
+        for (var j = 0; j < categories.length; j++) {
+            if (categories[j].id === ids[i]) {
+                nameOptions.push({ id: ids[i], name: categories[j].name });
+                break;
+            }
+        }
+    }
+
+    // Tạo modal chọn tên
+    var nameRadiosHtml = '';
+    for (var n = 0; n < nameOptions.length; n++) {
+        var checked = (n === 0) ? 'checked' : '';
+        nameRadiosHtml +=
+            '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:6px;cursor:pointer;background:#fff;">' +
+                '<input type="radio" name="mergeWasteName" value="' + escapeHtml(nameOptions[n].name) + '" ' + checked + ' style="width:16px;height:16px;">' +
+                '<span style="font-size:14px;">📦 ' + escapeHtml(nameOptions[n].name) + '</span>' +
+            '</label>';
+    }
+
+    var html =
+        '<div id="adminMergeWasteNameOverlay" class="modal-overlay" onclick="if(event.target===this)_adminCancelMergeWaste()">' +
+            '<div class="modal-box" style="text-align:left;">' +
+                '<div class="modal-title">🔗 Chọn tên hiển thị sau gộp</div>' +
+                '<div style="font-size:13px;color:#475569;margin-bottom:12px;line-height:1.5;">' +
+                    'Chọn tên từ danh sách hoặc nhập tên mới bên dưới:' +
+                '</div>' +
+                '<div style="margin-bottom:12px;">' +
+                    nameRadiosHtml +
+                '</div>' +
+                '<div style="margin-bottom:12px;">' +
+                    '<label class="edit-label">Hoặc nhập tên mới:</label>' +
+                    '<input id="mergeWasteNewNameInput" class="edit-field" type="text" placeholder="Nhập tên hao phí mới..." style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;">' +
+                '</div>' +
+                '<div style="display:flex;gap:8px;">' +
+                    '<button class="btn-save" style="flex:1;" onclick="_adminDoMergeWaste()">✅ Xác nhận gộp</button>' +
+                    '<button class="btn-cancel" style="flex:1;" onclick="_adminCancelMergeWaste()">❌ Hủy</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    document.body.appendChild(temp.firstElementChild);
+
+    // Focus vào input khi modal mở
+    setTimeout(function() {
+        var input = document.getElementById('mergeWasteNewNameInput');
+        if (input) input.focus();
+    }, 100);
+}
+
+function _adminDoMergeWaste() {
+    var ids = _adminWasteSelectedIds.slice();
+    if (ids.length < 1) {
+        showToast('Chưa chọn hao phí nào!', 'warning');
+        return;
+    }
+
+    // Lấy tên đã chọn từ radio hoặc input
+    var selectedRadio = document.querySelector('input[name="mergeWasteName"]:checked');
+    var newNameInput = document.getElementById('mergeWasteNewNameInput');
+    var newName = '';
+
+    if (newNameInput && newNameInput.value.trim()) {
+        newName = newNameInput.value.trim();
+    } else if (selectedRadio) {
+        newName = selectedRadio.value;
+    } else {
+        showToast('Vui lòng chọn tên hoặc nhập tên mới!', 'warning');
+        return;
+    }
+
+    if (!newName) {
+        showToast('Vui lòng chọn tên hoặc nhập tên mới!', 'warning');
+        return;
+    }
+
+    // Tìm targetId dựa trên tên đã chọn (nếu là tên từ danh sách)
+    var targetId = ids[0];
+    var categories = expenseData.categories || [];
+    for (var i = 0; i < categories.length; i++) {
+        if (categories[i].name === newName && ids.indexOf(categories[i].id) !== -1) {
+            targetId = categories[i].id;
+            break;
+        }
+    }
+
+    // Nếu là tên mới, cập nhật tên cho category đầu tiên
+    var updateTargetName = false;
+    var currentTargetName = '';
+    for (var i = 0; i < categories.length; i++) {
+        if (categories[i].id === targetId) {
+            currentTargetName = categories[i].name;
+            break;
+        }
+    }
+    if (currentTargetName !== newName) {
+        updateTargetName = true;
+    }
+
+    // Đóng modal chọn tên
+    var nameOverlay = document.getElementById('adminMergeWasteNameOverlay');
+    if (nameOverlay && document.body.contains(nameOverlay)) {
+        document.body.removeChild(nameOverlay);
+    }
+
+    // Cập nhật tất cả giao dịch cost_transactions trỏ về targetId
+    var promises = [];
+    var txs = expenseData.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+        var tx = txs[i];
+        if (tx.categoryId && ids.indexOf(tx.categoryId) !== -1 && tx.categoryId !== targetId) {
+            promises.push(DB.update('cost_transactions', tx.id, { categoryId: targetId }));
+        }
+    }
+
+    // Cập nhật tên nếu là tên mới
+    if (updateTargetName) {
+        promises.push(DB.update('cost_categories', targetId, { name: newName }));
+    }
+
+    // Xóa các category còn lại
+    for (var k = 0; k < ids.length; k++) {
+        if (ids[k] !== targetId) {
+            promises.push(DB.update('cost_categories', ids[k], { deleted: true }));
+        }
+    }
+
+    Promise.all(promises).then(function() {
+        return loadExpenseData();
+    }).then(function() {
+        showToast('✅ Đã gộp ' + ids.length + ' hao phí thành công', 'success');
+        _adminCancelMergeWaste();
+        renderWasteTypeList();
+    }).catch(function(err) {
+        console.error('Merge waste categories error:', err);
+        showToast('Lỗi khi gộp hao phí!', 'error');
+    });
+}
+
+function _adminCancelMergeWaste() {
+    // Đóng cả 2 overlay: danh sách chọn và chọn tên
+    var overlays = ['adminMergeWasteOverlay', 'adminMergeWasteNameOverlay'];
+    for (var oi = 0; oi < overlays.length; oi++) {
+        var overlay = document.getElementById(overlays[oi]);
+        if (overlay && document.body.contains(overlay)) {
+            document.body.removeChild(overlay);
+        }
+    }
+    _adminWasteSelectedIds = [];
+    _adminWasteMergeMode = false;
+    _adminWasteContextId = null;
 }
 
 // Giữ alias cho tương thích
@@ -646,110 +2072,106 @@ function renderTodayExpenses() {
 }
 
 // ========== TỔNG CHI PHÍ THÁNG (NHÓM THEO NGÀY, CÓ NÚT MỞ RỘNG) ==========
+// FIX 2: Dùng expenseData.transactions (memory cache) thay vì DB.getAll('cost_transactions')
 function renderMonthExpenseTotal() {
     var container = document.getElementById('expenseMonthTotal');
     if (!container) return;
 
-    // Lấy dữ liệu trực tiếp từ DB
-    DB.getAll('cost_transactions').then(function(allTx) {
-        var currentUser = DB.getCurrentUser();
-        var isAdminUser = currentUser && currentUser.role === 'admin';
-        var now = new Date();
-        var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-        var end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    var allTx = expenseData.transactions || [];
+    var currentUser = DB.getCurrentUser();
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    var now = new Date();
+    var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    var end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
 
-        // Lọc giao dịch trong tháng
-        var monthTxs = [];
-        for (var i = 0; i < allTx.length; i++) {
-            var tx = allTx[i];
-            if (tx && !tx.deleted && tx.dateKey >= start && tx.dateKey <= end) {
-                // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
-                if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
-                monthTxs.push(tx);
+    // Lọc giao dịch trong tháng
+    var monthTxs = [];
+    for (var i = 0; i < allTx.length; i++) {
+        var tx = allTx[i];
+        if (tx && !tx.deleted && tx.dateKey >= start && tx.dateKey <= end) {
+            // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
+            if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
+            monthTxs.push(tx);
+        }
+    }
+
+    if (monthTxs.length === 0) {
+        container.innerHTML = '<div class="empty-text">📭 Chưa có chi phí trong tháng</div>';
+        return;
+    }
+
+    // Nhóm theo ngày (dateKey)
+    var groups = {};
+    for (var j = 0; j < monthTxs.length; j++) {
+        var tx = monthTxs[j];
+        var key = tx.dateKey || 'unknown';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(tx);
+    }
+
+    // Sắp xếp ngày từ mới nhất đến cũ nhất
+    var sortedDates = Object.keys(groups).sort().reverse();
+
+    var grandTotal = 0;
+    var html = '';
+
+    for (var d = 0; d < sortedDates.length; d++) {
+        var dateKey = sortedDates[d];
+        var items = groups[dateKey];
+        var dayTotal = 0;
+        for (var k = 0; k < items.length; k++) {
+            dayTotal += items[k].amount;
+        }
+        grandTotal += dayTotal;
+
+        // Format ngày: DD/MM
+        var dateParts = dateKey.split('-');
+        var displayDate = dateParts[2] + '/' + dateParts[1];
+
+        // Tạo id duy nhất cho expandable section
+        var sectionId = 'expMonthDate_' + dateKey.replace(/-/g, '');
+
+        html += '<div class="month-cost-group">' +
+            '<div class="month-cost-group-header" onclick="toggleMonthDateDetail(\'' + sectionId + '\')">' +
+                '<span>📅 <strong>' + displayDate + '</strong> (' + items.length + ' khoản)</span>' +
+                '<span style="display:flex;align-items:center;gap:6px;">' +
+                    '<span style="font-weight:600;">' + formatMoney(dayTotal) + '</span>' +
+                    '<span class="exp-month-expand-icon" id="' + sectionId + '_icon">▶</span>' +
+                '</span>' +
+            '</div>' +
+            '<div class="month-cost-detail" id="' + sectionId + '" style="display:none;">';
+
+        // Sắp xếp items trong ngày: mới nhất lên đầu
+        items.sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+
+        for (var l = 0; l < items.length; l++) {
+            var tx2 = items[l];
+            var typeIcon = tx2.costType === 'ingredient' ? '🧂' : '📦';
+            var fundIcon = tx2.fundSource === 'pos_cash' ? '🏦' : '👔';
+            var timeStr = '';
+            if (tx2.date) {
+                try {
+                    var td = new Date(tx2.date);
+                    timeStr = td.getHours().toString().padStart(2, '0') + ':' + td.getMinutes().toString().padStart(2, '0');
+                } catch(e) { timeStr = ''; }
             }
-        }
-
-        if (monthTxs.length === 0) {
-            container.innerHTML = '<div class="empty-text">📭 Chưa có chi phí trong tháng</div>';
-            return;
-        }
-
-        // Nhóm theo ngày (dateKey)
-        var groups = {};
-        for (var j = 0; j < monthTxs.length; j++) {
-            var tx = monthTxs[j];
-            var key = tx.dateKey || 'unknown';
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(tx);
-        }
-
-        // Sắp xếp ngày từ mới nhất đến cũ nhất
-        var sortedDates = Object.keys(groups).sort().reverse();
-
-        var grandTotal = 0;
-        var html = '';
-
-        for (var d = 0; d < sortedDates.length; d++) {
-            var dateKey = sortedDates[d];
-            var items = groups[dateKey];
-            var dayTotal = 0;
-            for (var k = 0; k < items.length; k++) {
-                dayTotal += items[k].amount;
-            }
-            grandTotal += dayTotal;
-
-            // Format ngày: DD/MM
-            var dateParts = dateKey.split('-');
-            var displayDate = dateParts[2] + '/' + dateParts[1];
-
-            // Tạo id duy nhất cho expandable section
-            var sectionId = 'expMonthDate_' + dateKey.replace(/-/g, '');
-
-            html += '<div class="month-cost-group">' +
-                '<div class="month-cost-group-header" onclick="toggleMonthDateDetail(\'' + sectionId + '\')">' +
-                    '<span>📅 <strong>' + displayDate + '</strong> (' + items.length + ' khoản)</span>' +
-                    '<span style="display:flex;align-items:center;gap:6px;">' +
-                        '<span style="font-weight:600;">' + formatMoney(dayTotal) + '</span>' +
-                        '<span class="exp-month-expand-icon" id="' + sectionId + '_icon">▶</span>' +
-                    '</span>' +
-                '</div>' +
-                '<div class="month-cost-detail" id="' + sectionId + '" style="display:none;">';
-
-            // Sắp xếp items trong ngày: mới nhất lên đầu
-            items.sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-
-            for (var l = 0; l < items.length; l++) {
-                var tx2 = items[l];
-                var typeIcon = tx2.costType === 'ingredient' ? '🧂' : '📦';
-                var fundIcon = tx2.fundSource === 'pos_cash' ? '🏦' : '👔';
-                var timeStr = '';
-                if (tx2.date) {
-                    try {
-                        var td = new Date(tx2.date);
-                        timeStr = td.getHours().toString().padStart(2, '0') + ':' + td.getMinutes().toString().padStart(2, '0');
-                    } catch(e) { timeStr = ''; }
-                }
-                var detailStr = '';
-                if (tx2.costType === 'ingredient' && tx2.ingredientQty && tx2.ingredientUnitPrice) {
-                    detailStr = ' <span style="font-size:11px;color:#64748b;">x' + tx2.ingredientQty + ' × ' + formatMoney(tx2.ingredientUnitPrice) + '</span>';
-                }
-
-                html += '<div class="month-cost-item">' +
-                    '<span style="font-size:12px;color:#64748b;">' + timeStr + ' ' + typeIcon + ' ' + fundIcon + ' ' + escapeHtml(tx2.categoryName) + detailStr + '</span>' +
-                    '<span style="font-weight:500;">' + formatMoney(tx2.amount) + '</span>' +
-                '</div>';
+            var detailStr = '';
+            if (tx2.costType === 'ingredient' && tx2.ingredientQty && tx2.ingredientUnitPrice) {
+                detailStr = ' <span style="font-size:11px;color:#64748b;">x' + tx2.ingredientQty + ' × ' + formatMoney(tx2.ingredientUnitPrice) + '</span>';
             }
 
-            html += '</div></div>';
+            html += '<div class="month-cost-item">' +
+                '<span style="font-size:12px;color:#64748b;">' + timeStr + ' ' + typeIcon + ' ' + fundIcon + ' ' + escapeHtml(tx2.categoryName) + detailStr + '</span>' +
+                '<span style="font-weight:500;">' + formatMoney(tx2.amount) + '</span>' +
+            '</div>';
         }
 
-        // Tổng cuối tháng
-        html += '<div class="cost-total" style="margin-top:8px;">Tổng tháng: ' + formatMoney(grandTotal) + '</div>';
-        container.innerHTML = html;
-    }).catch(function(err) {
-        console.error('renderMonthExpenseTotal error:', err);
-        container.innerHTML = '<div class="empty-text">Lỗi tải dữ liệu</div>';
-    });
+        html += '</div></div>';
+    }
+
+    // Tổng cuối tháng
+    html += '<div class="cost-total" style="margin-top:8px;">Tổng tháng: ' + formatMoney(grandTotal) + '</div>';
+    container.innerHTML = html;
 }
 
 // ========== MỞ RỘNG/THU GỌN CHI TIẾT THEO NGÀY ==========
@@ -786,6 +2208,7 @@ function toggleAllMonthDates() {
 }
 
 // ========== SỬA CHI PHÍ ==========
+// FIX 13: Dùng HTML string template thay vì document.createElement + inline styles
 function editExpense(id) {
     var tx = null;
     for (var i = 0; i < expenseData.transactions.length; i++) {
@@ -810,38 +2233,38 @@ function editExpense(id) {
         }
     }
 
-    // Tạo modal inline sửa chi phí
-    var editHtml = '<div class="expense-edit-form">';
-    editHtml += '<div style="margin-bottom:8px;"><label style="font-size:13px;font-weight:600;">Tên chi phí</label>';
-    editHtml += '<input type="text" id="editExpenseName" class="form-input" value="' + escapeHtml(tx.categoryName) + '"></div>';
-
+    // Tạo modal inline sửa chi phí bằng HTML string template
+    var qtyFieldHtml = '';
     if (tx.costType === 'ingredient') {
-        editHtml += '<div style="margin-bottom:8px;"><label style="font-size:13px;font-weight:600;">Số lượng</label>';
-        editHtml += '<input type="number" id="editExpenseQty" class="form-input" value="' + (tx.ingredientQty || 1) + '" min="1" step="1"></div>';
+        qtyFieldHtml = '<div class="edit-field"><label class="edit-label">Số lượng</label>' +
+            '<input type="number" id="editExpenseQty" class="form-input" value="' + (tx.ingredientQty || 1) + '" min="1" step="1"></div>';
     }
 
-    editHtml += '<div style="margin-bottom:12px;"><label style="font-size:13px;font-weight:600;">Thành tiền</label>';
-    editHtml += '<input type="number" id="editExpenseAmount" class="form-input" value="' + tx.amount + '" step="1000"></div>';
+    var editHtml =
+        '<div id="editExpenseOverlay" class="modal-overlay" onclick="if(event.target===this)cancelEditExpense()">' +
+            '<div class="modal-box">' +
+                '<div class="modal-title">✏️ Sửa chi phí</div>' +
+                '<div class="expense-edit-form">' +
+                    '<div class="edit-field"><label class="edit-label">Tên chi phí</label>' +
+                        '<input type="text" id="editExpenseName" class="form-input" value="' + escapeHtml(tx.categoryName) + '"></div>' +
+                    qtyFieldHtml +
+                    '<div class="edit-field"><label class="edit-label">Thành tiền</label>' +
+                        '<input type="number" id="editExpenseAmount" class="form-input" value="' + tx.amount + '" step="1000"></div>' +
+                    '<div class="edit-actions">' +
+                        '<button class="btn-save" onclick="confirmEditExpense(\'' + tx.id + '\')">✅ Lưu</button>' +
+                        '<button class="btn-cancel" onclick="cancelEditExpense()">❌ Hủy</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
 
-    editHtml += '<div style="display:flex;gap:8px;">';
-    editHtml += '<button class="btn-save" style="flex:1;" onclick="confirmEditExpense(\'' + tx.id + '\')">✅ Lưu</button>';
-    editHtml += '<button class="btn-cancel" style="flex:1;" onclick="cancelEditExpense()">❌ Hủy</button>';
-    editHtml += '</div></div>';
-
-    // Hiển thị form sửa trong 1 overlay nhỏ
-    var overlay = document.createElement('div');
-    overlay.id = 'editExpenseOverlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    overlay.onclick = function(e) { if (e.target === overlay) cancelEditExpense(); };
-
-    var box = document.createElement('div');
-    box.style.cssText = 'background:#fff;border-radius:16px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);';
-    box.innerHTML = '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">✏️ Sửa chi phí</div>' + editHtml;
-
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    // Chèn vào body
+    var tempContainer = document.createElement('div');
+    tempContainer.innerHTML = editHtml;
+    document.body.appendChild(tempContainer.firstElementChild);
 }
 
+// FIX 5: confirmEditExpense dùng cache thay vì query lại expenseData.transactions
 function confirmEditExpense(id) {
     var newName = document.getElementById('editExpenseName').value.trim();
     var newAmount = parseInt(document.getElementById('editExpenseAmount').value) || 0;
@@ -870,14 +2293,8 @@ function confirmEditExpense(id) {
             updateData.ingredientUnitPrice = Math.round(newAmount / newQty);
         }
     } else {
-        // Waste: cập nhật unitPrice nếu có quantity
-        var tx = null;
-        for (var i = 0; i < expenseData.transactions.length; i++) {
-            if (expenseData.transactions[i].id === id) {
-                tx = expenseData.transactions[i];
-                break;
-            }
-        }
+        // Waste: cập nhật unitPrice nếu có quantity - dùng cache
+        var tx = _findTxInCache(id);
         if (tx && tx.ingredientQty > 0) {
             updateData.ingredientUnitPrice = Math.round(newAmount / tx.ingredientQty);
         }
@@ -896,6 +2313,15 @@ function confirmEditExpense(id) {
     });
 }
 
+// Helper: tìm transaction trong cache theo id
+function _findTxInCache(id) {
+    var txs = expenseData.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+        if (txs[i].id === id) return txs[i];
+    }
+    return null;
+}
+
 function cancelEditExpense() {
     var overlay = document.getElementById('editExpenseOverlay');
     if (overlay) {
@@ -904,6 +2330,7 @@ function cancelEditExpense() {
 }
 
 // ========== XÓA CHI PHÍ ==========
+// FIX 12: Dùng _showConfirmModal thay vì confirm() native
 function deleteExpense(id) {
     var tx = null;
     for (var i = 0; i < expenseData.transactions.length; i++) {
@@ -928,17 +2355,87 @@ function deleteExpense(id) {
         }
     }
 
-    if (!confirm('Bạn có chắc muốn xóa chi phí "' + tx.categoryName + '"?')) return;
-
-    // Nếu là chi phí nguyên liệu, cần hỏi có hoàn lại tồn kho không
-    var deletePromise;
-    if (tx.costType === 'ingredient' && tx.ingredientId && tx.ingredientQty) {
-        if (confirm('Chi phí này đã tăng tồn kho. Bạn có muốn hoàn lại tồn kho không?')) {
-            // Hoàn lại tồn kho: trừ đi số lượng đã nhập
-            deletePromise = addIngredientStock(tx.ingredientId, -tx.ingredientQty);
-        } else {
-            deletePromise = Promise.resolve();
+    // Admin: cảnh báo nếu trong kỳ có chi phí khác
+    if (isAdminUser) {
+        var periodCosts = _countPeriodCosts(tx);
+        if (periodCosts > 0) {
+            _showConfirmModal(
+                '⚠️ <strong>Cảnh báo:</strong> Trong kỳ này còn <strong>' + periodCosts + '</strong> chi phí khác.<br><br>' +
+                'Xóa chi phí này có thể ảnh hưởng đến báo cáo kỳ. Bạn có chắc muốn xóa?',
+                'Tiếp tục xóa',
+                'Hủy'
+            ).then(function(proceed) {
+                if (proceed) {
+                    _doDeleteConfirmSteps(tx, id);
+                }
+            });
+            return;
         }
+    }
+
+    _doDeleteConfirmSteps(tx, id);
+}
+
+// Đếm số chi phí khác trong cùng kỳ (kỳ 20-tháng trước → 19-tháng này)
+function _countPeriodCosts(tx) {
+    if (!tx || !tx.dateKey) return 0;
+    var parts = tx.dateKey.split('-');
+    if (parts.length !== 3) return 0;
+    var year = parseInt(parts[0], 10);
+    var month = parseInt(parts[1], 10);
+    var day = parseInt(parts[2], 10);
+
+    var now = new Date(year, month - 1, day);
+    var startDate, endDate;
+    if (day >= 20) {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 20);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 19, 23, 59, 59);
+    } else {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 20);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 19, 23, 59, 59);
+    }
+    var startStr = startDate.toISOString().slice(0, 10);
+    var endStr = endDate.toISOString().slice(0, 10);
+
+    var count = 0;
+    var allTx = expenseData.transactions || [];
+    for (var i = 0; i < allTx.length; i++) {
+        var c = allTx[i];
+        if (c && !c.deleted && c.id !== tx.id && c.dateKey >= startStr && c.dateKey <= endStr) {
+            count++;
+        }
+    }
+    return count;
+}
+
+function _doDeleteConfirmSteps(tx, id) {
+    // Bước 1: Xác nhận xóa
+    _showConfirmModal(
+        'Bạn có chắc muốn xóa chi phí "<strong>' + escapeHtml(tx.categoryName) + '</strong>"?',
+        'Xóa',
+        'Hủy'
+    ).then(function(confirmed) {
+        if (!confirmed) return;
+
+        // Bước 2: Nếu là chi phí nguyên liệu, hỏi có hoàn lại tồn kho không
+        if (tx.costType === 'ingredient' && tx.ingredientId && tx.ingredientQty) {
+            _showConfirmModal(
+                'Chi phí này đã tăng tồn kho.<br><br>Bạn có muốn <strong>hoàn lại tồn kho</strong> không?',
+                '✅ Hoàn lại',
+                '❌ Không hoàn'
+            ).then(function(revertStock) {
+                doDeleteExpense(tx, id, revertStock);
+            });
+        } else {
+            doDeleteExpense(tx, id, false);
+        }
+    });
+}
+
+function doDeleteExpense(tx, id, revertStock) {
+    var deletePromise;
+    if (revertStock && tx.ingredientId && tx.ingredientQty) {
+        deletePromise = addIngredientStock(tx.ingredientId, -tx.ingredientQty);
     } else {
         deletePromise = Promise.resolve();
     }
@@ -959,7 +2456,13 @@ function deleteExpense(id) {
 }
 
 // ========== GẮN SỰ KIỆN ==========
+// FIX 9: Kiểm tra _eventsAttached flag để tránh gắn listener chồng chéo
+var _expenseEventsAttached = false;
+
 function attachExpenseEvents() {
+    if (_expenseEventsAttached) return;
+    _expenseEventsAttached = true;
+
     // Nút lưu chi phí
     var saveBtn = document.getElementById('saveExpenseBtn');
     if (saveBtn) saveBtn.onclick = saveExpense;
@@ -987,13 +2490,33 @@ function attachExpenseEvents() {
     }
 
     // Filter chung cho cả ingredient và waste grid
+    // FIX: Loại bỏ dấu tiếng việt và khoảng trắng khi tìm kiếm
+    function _removeVietnameseTones(str) {
+        return str
+            .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
+            .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
+            .replace(/[ìíịỉĩ]/g, 'i')
+            .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
+            .replace(/[ùúụủũưừứựửữ]/g, 'u')
+            .replace(/[ỳýỵỷỹ]/g, 'y')
+            .replace(/[đ]/g, 'd')
+            .replace(/[ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ]/g, 'A')
+            .replace(/[ÈÉẸẺẼÊỀẾỆỂỄ]/g, 'E')
+            .replace(/[ÌÍỊỈĨ]/g, 'I')
+            .replace(/[ÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ]/g, 'O')
+            .replace(/[ÙÚỤỦŨƯỪỨỰỬỮ]/g, 'U')
+            .replace(/[ỲÝỴỶỸ]/g, 'Y')
+            .replace(/[Đ]/g, 'D');
+    }
     function _filterGrid(gridSelector, itemSelector, nameSelector) {
         var keyword = this.value.trim().toLowerCase();
+        keyword = _removeVietnameseTones(keyword).replace(/\s+/g, '');
         var items = document.querySelectorAll(gridSelector + ' ' + itemSelector);
         for (var i = 0; i < items.length; i++) {
             var nameEl = nameSelector ? items[i].querySelector(nameSelector) : items[i];
             if (!nameEl) continue;
             var name = nameEl.innerText.toLowerCase();
+            name = _removeVietnameseTones(name).replace(/\s+/g, '');
             items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
         }
     }
@@ -1013,130 +2536,6 @@ function attachExpenseEvents() {
     }
 }
 
-// ========== MANAGER TAB: HIỂN THỊ CHI PHÍ ==========
-// Hàm này được gọi từ app.js switchTab và realtime.js khi có data thay đổi
-function managerApplyFilter() {
-    var container = document.getElementById('managerExpenseList');
-    if (!container) return;
-
-    // Lấy period từ select
-    var modeSelect = document.getElementById('managerViewModeSelect');
-    var mode = modeSelect ? modeSelect.value : 'period';
-
-    // Tính date range
-    var now = new Date();
-    var startDate, endDate;
-
-    if (mode === 'day') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-    } else if (mode === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    } else {
-        // period: 20/tháng trước -> 19/tháng này
-        var day = now.getDate();
-        if (day >= 20) {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 20);
-            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 19, 23, 59, 59);
-        } else {
-            startDate = new Date(now.getFullYear(), now.getMonth() - 1, 20);
-            endDate = new Date(now.getFullYear(), now.getMonth(), 19, 23, 59, 59);
-        }
-    }
-
-    var startStr = startDate.toISOString().slice(0, 10);
-    var endStr = endDate.toISOString().slice(0, 10);
-
-    // Cập nhật label period
-    if (modeSelect) {
-        var label = '';
-        if (mode === 'period') {
-            label = 'Kỳ ' + formatDateDisplay(startStr) + ' → ' + formatDateDisplay(endStr);
-        } else if (mode === 'month') {
-            label = 'Tháng ' + (now.getMonth() + 1) + '/' + now.getFullYear();
-        } else {
-            label = 'Ngày ' + formatDateDisplay(startStr);
-        }
-        modeSelect.options[0].innerText = label;
-    }
-
-    // Lấy tất cả cost_transactions
-    DB.getAll('cost_transactions').then(function(allCosts) {
-        var filtered = allCosts.filter(function(c) {
-            return c.dateKey >= startStr && c.dateKey <= endStr && !c.deleted;
-        });
-
-        // Sắp xếp mới nhất lên đầu
-        filtered.sort(function(a, b) {
-            return (b.createdAt || 0) - (a.createdAt || 0);
-        });
-
-        // Tính tổng theo loại
-        var totalStaff = 0; // fundSource === 'pos_cash' (staff dùng Két POS)
-        var totalManagement = 0; // fundSource === 'management'
-        var totalIngredient = 0;
-        var totalWaste = 0;
-
-        for (var i = 0; i < filtered.length; i++) {
-            var c = filtered[i];
-            if (c.fundSource === 'pos_cash') totalStaff += c.amount;
-            else totalManagement += c.amount;
-            if (c.costType === 'ingredient') totalIngredient += c.amount;
-            else totalWaste += c.amount;
-        }
-
-        // Render danh sách
-        if (filtered.length === 0) {
-            container.innerHTML = '<div class="empty-state">📭 Không có chi phí trong kỳ</div>';
-        } else {
-            var html = '<div class="cost-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
-                '<span style="font-size:13px;background:#fff7ed;padding:6px 12px;border-radius:40px;">🧂 NL: ' + formatMoney(totalIngredient) + '</span>' +
-                '<span style="font-size:13px;background:#f0fdf4;padding:6px 12px;border-radius:40px;">📦 HP: ' + formatMoney(totalWaste) + '</span>' +
-                '<span style="font-size:13px;background:#fffbeb;padding:6px 12px;border-radius:40px;">🏦 POS: ' + formatMoney(totalStaff) + '</span>' +
-                '<span style="font-size:13px;background:#f0f9ff;padding:6px 12px;border-radius:40px;">👔 QL: ' + formatMoney(totalManagement) + '</span>' +
-            '</div>';
-
-            for (var j = 0; j < filtered.length; j++) {
-                var tx = filtered[j];
-                var typeIcon = tx.costType === 'ingredient' ? '🧂' : '📦';
-                var fundIcon = tx.fundSource === 'pos_cash' ? '🏦' : '👔';
-                var timeStr = '';
-                if (tx.date) {
-                    try {
-                        var d = new Date(tx.date);
-                        timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
-                    } catch(e) { timeStr = ''; }
-                }
-
-                html += '<div class="cost-item">' +
-                    '<div style="flex:1;">' +
-                        '<div>' + typeIcon + ' ' + fundIcon + ' <strong>' + escapeHtml(tx.categoryName) + '</strong></div>' +
-                        '<div style="font-size:11px;color:#94a3b8;">' + timeStr + ' ' + formatDateDisplay(tx.dateKey) + '</div>' +
-                    '</div>' +
-                    '<div style="font-weight:600;text-align:right;">' + formatMoney(tx.amount) + '</div>' +
-                '</div>';
-            }
-
-            var grandTotal = totalStaff + totalManagement;
-            html += '<div class="cost-total" style="margin-top:8px;">Tổng: ' + formatMoney(grandTotal) + '</div>';
-            container.innerHTML = html;
-        }
-
-        // Cập nhật KPI boxes
-        var expenseBox = document.getElementById('managerExpense');
-        if (expenseBox) {
-            var valEl = expenseBox.querySelector('.big-value');
-            if (valEl) valEl.innerText = formatMoney(totalStaff);
-        }
-        var adminExpenseBox = document.getElementById('managerAdminExpense');
-        if (adminExpenseBox) {
-            var valEl2 = adminExpenseBox.querySelector('.big-value');
-            if (valEl2) valEl2.innerText = formatMoney(totalManagement);
-        }
-    });
-}
-
 // Export global
 window.openExpenseModal = openExpenseModal;
 window.switchExpenseType = switchExpenseType;
@@ -1153,9 +2552,58 @@ window.loadExpenseData = loadExpenseData;
 window.renderTodayExpenses = renderTodayExpenses;
 window.renderExpensesByDate = renderExpensesByDate;
 window.renderMonthExpenseTotal = renderMonthExpenseTotal;
-window.managerApplyFilter = managerApplyFilter;
 window.toggleMonthDateDetail = toggleMonthDateDetail;
 window.expenseDateChange = expenseDateChange;
 window.expensePickDate = expensePickDate;
 window.toggleAllMonthDates = toggleAllMonthDates;
 
+// Export swipe + admin context menu functions (gọi từ HTML onclick)
+window._adminTouchStart = _adminTouchStart;
+window._adminTouchMove = _adminTouchMove;
+window._adminTouchEnd = _adminTouchEnd;
+window._adminSwipeDelete = _adminSwipeDelete;
+window._adminMouseDown = _adminMouseDown;
+window._adminMouseUp = _adminMouseUp;
+window._adminMouseLeave = _adminMouseLeave;
+window._showAdminContextMenu = _showAdminContextMenu;
+window._closeAdminContextMenu = _closeAdminContextMenu;
+window._adminEditExpense = _adminEditExpense;
+window._adminDeleteExpense = _adminDeleteExpense;
+window._adminStartMerge = _adminStartMerge;
+window._adminToggleMergeItem = _adminToggleMergeItem;
+window._adminConfirmMerge = _adminConfirmMerge;
+window._adminCancelMerge = _adminCancelMerge;
+
+// Export ingredient admin functions
+window._adminIngTouchStart = _adminIngTouchStart;
+window._adminIngTouchEnd = _adminIngTouchEnd;
+window._adminIngMouseDown = _adminIngMouseDown;
+window._adminIngMouseUp = _adminIngMouseUp;
+window._adminIngMouseLeave = _adminIngMouseLeave;
+window._adminShowIngredientContext = _adminShowIngredientContext;
+window._adminCloseIngredientContext = _adminCloseIngredientContext;
+window._adminEditIngredientName = _adminEditIngredientName;
+window._adminCancelEditIngredient = _adminCancelEditIngredient;
+window._adminConfirmEditIngredient = _adminConfirmEditIngredient;
+window._adminDeleteIngredient = _adminDeleteIngredient;
+window._adminMergeIngredients = _adminMergeIngredients;
+window._adminConfirmMergeIngredients = _adminConfirmMergeIngredients;
+window._adminDoMergeIngredients = _adminDoMergeIngredients;
+window._adminCancelMergeIngredients = _adminCancelMergeIngredients;
+
+// Export waste admin functions
+window._adminWasteTouchStart = _adminWasteTouchStart;
+window._adminWasteTouchEnd = _adminWasteTouchEnd;
+window._adminWasteMouseDown = _adminWasteMouseDown;
+window._adminWasteMouseUp = _adminWasteMouseUp;
+window._adminWasteMouseLeave = _adminWasteMouseLeave;
+window._adminShowWasteContext = _adminShowWasteContext;
+window._adminCloseWasteContext = _adminCloseWasteContext;
+window._adminEditWasteCategory = _adminEditWasteCategory;
+window._adminCancelEditWaste = _adminCancelEditWaste;
+window._adminConfirmEditWaste = _adminConfirmEditWaste;
+window._adminDeleteWasteCategory = _adminDeleteWasteCategory;
+window._adminMergeWasteCategories = _adminMergeWasteCategories;
+window._adminConfirmMergeWaste = _adminConfirmMergeWaste;
+window._adminDoMergeWaste = _adminDoMergeWaste;
+window._adminCancelMergeWaste = _adminCancelMergeWaste;

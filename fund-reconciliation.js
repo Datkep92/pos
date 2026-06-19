@@ -14,6 +14,8 @@ function loadFundReconciliationData() {
     ]).then(function(results) {
         managerCashPickups = results[0] || [];
         inventoryTransactions = results[1] || [];
+        // Đồng bộ window.managerCashPickups để report.js đọc được
+        window.managerCashPickups = managerCashPickups;
     });
 }
 
@@ -111,7 +113,9 @@ function renderManagerPickupHistory() {
         if (p.date) {
             try {
                 var d = new Date(p.date);
-                timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+                var hh = d.getHours();
+                var mm = d.getMinutes();
+                timeStr = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
             } catch(e) { timeStr = ''; }
         }
         html += '<div class="pickup-item">' +

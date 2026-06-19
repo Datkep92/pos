@@ -162,9 +162,9 @@ function _renderTxItem(tx) {
     '</div>';
 }
 
-function renderHistoryByDate(dateObj) {
-    // Fix timezone: dùng getFullYear/getMonth/getDate thay vì toISOString()
-    var dateStr = _toLocalDateStr(dateObj);
+// FIX: Gộp renderHistoryByDate và renderHistoryByDateStr thành 1 hàm core duy nhất
+// để tránh duplicate code ~160 dòng
+function _renderHistoryCore(dateStr) {
     document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
     
     var filter = document.getElementById('historyFilter').value;
@@ -245,86 +245,13 @@ function renderHistoryByDate(dateObj) {
     });
 }
 
-// renderHistoryByDateStr - render với dateStr YYYY-MM-DD có sẵn (tránh lỗi timezone)
+function renderHistoryByDate(dateObj) {
+    var dateStr = _toLocalDateStr(dateObj);
+    _renderHistoryCore(dateStr);
+}
+
 function renderHistoryByDateStr(dateStr) {
-    document.getElementById('historyDate').innerText = formatDateDisplay(dateStr);
-    
-    var filter = document.getElementById('historyFilter').value;
-    
-    DB.getTransactionsByDate(dateStr).then(function(transactions) {
-        if (filter !== 'all') {
-            transactions = transactions.filter(function(t) {
-                if (filter === 'dinein') return t.type === 'dinein';
-                if (filter === 'takeaway') return t.type === 'takeaway';
-                if (filter === 'grab') return t.type === 'grab';
-                if (filter === 'cash') return t.paymentMethod === 'cash';
-                if (filter === 'transfer') return t.paymentMethod === 'transfer';
-                if (filter === 'debt_payment') return t.type === 'debt_payment';
-                if (filter === 'cancelled') return t.refunded === true;
-                if (filter === 'credit') return t.type === 'credit';
-                return true;
-            });
-        }
-
-        // SẮP XẾP: GIAO DỊCH GẦN NHẤT LÊN TRÊN CÙNG
-        transactions.sort(function(a, b) {
-            var timeA = new Date(a.createdAt || a.date);
-            var timeB = new Date(b.createdAt || b.date);
-            return timeB - timeA;
-        });
-
-        var container = document.getElementById('historyList');
-        if (!container) return;
-
-        if (transactions.length === 0) {
-            container.innerHTML = '<div class="empty-state">📭 Không có giao dịch nào trong ngày</div>';
-            container.className = 'history-list';
-            return;
-        }
-
-        var mode = _historyViewMode || 1;
-        container.className = 'history-list view-' + mode;
-
-        if (mode === 1) {
-            // Chế độ 1: 1 hàng dọc
-            var html = '';
-            for (var i = 0; i < transactions.length; i++) {
-                html += _renderTxItem(transactions[i]);
-            }
-            container.innerHTML = html;
-        } else if (mode === 2) {
-            // Chế độ 2: 2 cột - dinein / takeaway+grab
-            var dinein = [];
-            var other = [];
-            for (var i = 0; i < transactions.length; i++) {
-                var tx = transactions[i];
-                if (tx.type === 'dinein') dinein.push(tx);
-                else other.push(tx);
-            }
-            var html1 = '', html2 = '';
-            for (var i = 0; i < dinein.length; i++) html1 += _renderTxItem(dinein[i]);
-            for (var i = 0; i < other.length; i++) html2 += _renderTxItem(other[i]);
-            container.innerHTML =
-                '<div class="history-column"><div class="history-column-title">🍽️ Tại bàn</div>' + (html1 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>' +
-                '<div class="history-column"><div class="history-column-title">🛵🚕 Mang đi / Grab</div>' + (html2 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>';
-        } else if (mode === 3) {
-            // Chế độ 3: 2 cột - cash / transfer+grab
-            var cash = [];
-            var otherPay = [];
-            for (var i = 0; i < transactions.length; i++) {
-                var tx = transactions[i];
-                if (tx.paymentMethod === 'cash') cash.push(tx);
-                else otherPay.push(tx);
-            }
-            var html1 = '', html2 = '';
-            for (var i = 0; i < cash.length; i++) html1 += _renderTxItem(cash[i]);
-            for (var i = 0; i < otherPay.length; i++) html2 += _renderTxItem(otherPay[i]);
-            container.innerHTML =
-                '<div class="history-column"><div class="history-column-title">💰 Tiền mặt</div>' + (html1 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>' +
-                '<div class="history-column"><div class="history-column-title">💳🚕 CK / Grab</div>' + (html2 || '<div class="empty-state" style="padding:12px;">Không có</div>') + '</div>';
-        }
-        _initHistorySwipe();
-    });
+    _renderHistoryCore(dateStr);
 }
 
 function showTransactionDetail(transactionId) {
@@ -439,26 +366,32 @@ function showTransactionDetail(transactionId) {
                     '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
                 renderDetail(tableTimeHtml);
             } else if (tx.tableId) {
-                // Fallback: lấy từ table (cho các giao dịch cũ chưa có startTime/endTime)
-                DB.get('tables', String(tx.tableId)).then(function(table) {
-                    if (table && table.startTime) {
-                        var startTime = new Date(table.startTime);
-                        var endTime = table.endTime ? new Date(table.endTime) : new Date(tx.createdAt || tx.date);
-                        var startStr = startTime.toLocaleString('vi-VN');
-                        var endStr = endTime.toLocaleString('vi-VN');
-                        
-                        var elapsed = endTime.getTime() - startTime.getTime();
-                        var hours = Math.floor(elapsed / 3600000);
-                        var mins = Math.floor((elapsed % 3600000) / 60000);
-                        var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
-                        
-                        tableTimeHtml =
-                            '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
-                            '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
-                            '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
+                // FIX 2: Dùng window.cachedTables thay vì DB.get('tables', ...)
+                var cachedTables = window.cachedTables || [];
+                var table = null;
+                for (var ti = 0; ti < cachedTables.length; ti++) {
+                    if (String(cachedTables[ti].id) === String(tx.tableId)) {
+                        table = cachedTables[ti];
+                        break;
                     }
-                    renderDetail(tableTimeHtml);
-                });
+                }
+                if (table && table.startTime) {
+                    var startTime = new Date(table.startTime);
+                    var endTime = table.endTime ? new Date(table.endTime) : new Date(tx.createdAt || tx.date);
+                    var startStr = startTime.toLocaleString('vi-VN');
+                    var endStr = endTime.toLocaleString('vi-VN');
+                    
+                    var elapsed = endTime.getTime() - startTime.getTime();
+                    var hours = Math.floor(elapsed / 3600000);
+                    var mins = Math.floor((elapsed % 3600000) / 60000);
+                    var durationStr = hours + 'h' + (mins > 0 ? mins + 'p' : '');
+                    
+                    tableTimeHtml =
+                        '<div class="detail-row"><span>🕐 Bàn mở lúc:</span><span>' + startStr + '</span></div>' +
+                        '<div class="detail-row"><span>🕐 Bàn đóng lúc:</span><span>' + endStr + '</span></div>' +
+                        '<div class="detail-row"><span>⏱ Thời gian hoạt động:</span><span>' + durationStr + '</span></div>';
+                }
+                renderDetail(tableTimeHtml);
             } else {
                 renderDetail('');
             }
@@ -468,24 +401,34 @@ function showTransactionDetail(transactionId) {
     });
 }
 
-function printTransactionDetail(transactionId) {
-    DB.get('transactions', transactionId).then(function(tx) {
-        if (!tx) return;
-        if (typeof printAfterPayment === 'function') {
-            printAfterPayment({
-                orderType: tx.type || 'dinein',
-                amount: tx.amount || 0,
-                paymentMethod: tx.paymentMethod || 'cash',
-                items: tx.items || [],
-                tableName: tx.tableName || null,
-                customer: tx.customer || null,
-                tableTime: tx.tableTime || null,
-                startTime: tx.startTime || null,
-                endTime: tx.endTime || null,
-                createdAt: tx.createdAt || tx.date
-            });
-        }
-    });
+// FIX 7: printTransactionDetail nhận tham số transaction từ cache (nếu có)
+// để tránh query DB lại. Nếu chỉ có transactionId thì mới query.
+function printTransactionDetail(transactionId, tx) {
+    if (!tx) {
+        DB.get('transactions', transactionId).then(function(fetchedTx) {
+            if (!fetchedTx) return;
+            _doPrintTransaction(fetchedTx);
+        });
+    } else {
+        _doPrintTransaction(tx);
+    }
+}
+
+function _doPrintTransaction(tx) {
+    if (typeof printAfterPayment === 'function') {
+        printAfterPayment({
+            orderType: tx.type || 'dinein',
+            amount: tx.amount || 0,
+            paymentMethod: tx.paymentMethod || 'cash',
+            items: tx.items || [],
+            tableName: tx.tableName || null,
+            customer: tx.customer || null,
+            tableTime: tx.tableTime || null,
+            startTime: tx.startTime || null,
+            endTime: tx.endTime || null,
+            createdAt: tx.createdAt || tx.date
+        });
+    }
 }
 
 // ========== LÝ DO HỦY MẪU ==========
@@ -523,6 +466,16 @@ function showRefundReasonModal(callback) {
     if (otherInput) otherInput.value = '';
     if (otherDiv) otherDiv.style.display = 'none';
     
+    // FIX 5: Cleanup event listeners cũ - xóa nút confirm cũ nếu có
+    var oldConfirmBtn = document.getElementById('refundReasonOtherConfirm');
+    if (oldConfirmBtn) {
+        oldConfirmBtn.onclick = null;
+        oldConfirmBtn.parentNode.removeChild(oldConfirmBtn);
+    }
+    if (otherInput) {
+        otherInput.onkeydown = null; // Xóa listener cũ
+    }
+    
     var html = '';
     for (var i = 0; i < REFUND_REASONS.length; i++) {
         (function(reason) {
@@ -550,15 +503,12 @@ function showRefundReasonModal(callback) {
                             }
                         };
                         // Nút xác nhận cho "Khác"
-                        var confirmBtn = document.getElementById('refundReasonOtherConfirm');
-                        if (!confirmBtn) {
-                            confirmBtn = document.createElement('button');
-                            confirmBtn.id = 'refundReasonOtherConfirm';
-                            confirmBtn.className = 'btn-save';
-                            confirmBtn.innerText = 'Xác nhận';
-                            confirmBtn.style.marginTop = '8px';
-                            otherDiv.appendChild(confirmBtn);
-                        }
+                        var confirmBtn = document.createElement('button');
+                        confirmBtn.id = 'refundReasonOtherConfirm';
+                        confirmBtn.className = 'btn-save';
+                        confirmBtn.innerText = 'Xác nhận';
+                        confirmBtn.style.marginTop = '8px';
+                        otherDiv.appendChild(confirmBtn);
                         confirmBtn.onclick = function() {
                             if (otherInput.value.trim()) {
                                 closeModal('refundReasonModal');
@@ -628,19 +578,27 @@ function proceedRefund(trans, needPassword) {
                     if (trans.paymentMethod === 'debt') {
                         // GHI NỢ: hoàn tác = trừ nợ (vì lúc ghi nợ đã cộng nợ)
                         debtPromise = new Promise(function(resolve) {
+                            // FIX 3: Dùng window.cachedCustomers thay vì vòng lặp customers + DB.getAll('customers')
+                            var cachedCustomers = window.cachedCustomers || [];
                             var c = null;
-                            for (var i = 0; i < customers.length; i++) {
-                                if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
+                            for (var i = 0; i < cachedCustomers.length; i++) {
+                                if (cachedCustomers[i].id === trans.customer.id) { c = cachedCustomers[i]; break; }
                             }
                             if (c) {
                                 c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
                                 c.debtHistory = c.debtHistory || [];
                                 c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
                                 DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
-                                    return DB.getAll('customers').then(function(newCusts) {
-                                        customers = newCusts;
-                                        resolve();
-                                    });
+                                    // Cập nhật lại window.cachedCustomers thay vì query lại toàn bộ
+                                    if (window.cachedCustomers) {
+                                        for (var j = 0; j < window.cachedCustomers.length; j++) {
+                                            if (window.cachedCustomers[j].id === c.id) {
+                                                window.cachedCustomers[j] = c;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    resolve();
                                 });
                             } else {
                                 resolve();
@@ -725,40 +683,39 @@ function restoreTable(trans) {
             recentAdds: []
         };
         
-        // Kiểm tra xem bàn đã tồn tại chưa (tránh ghi đè nếu bàn đã được tạo lại)
-        DB.get('tables', String(trans.tableId)).then(function(existingTable) {
-            if (existingTable && existingTable.items && existingTable.items.length > 0) {
-                // Bàn đã có dữ liệu (có thể đã được dùng lại) -> không ghi đè
-                console.warn('Table ' + trans.tableId + ' already has data, skipping restore');
-                resolve();
-            } else {
-                // Khôi phục bàn: tạo mới hoặc cập nhật
-                if (existingTable) {
-                    // Bàn đã tồn tại (rỗng) -> cập nhật
-                    DB.update('tables', String(trans.tableId), tableData).then(function() {
-                        resolve();
-                    }).catch(function() {
-                        resolve();
-                    });
-                } else {
-                    // Bàn chưa tồn tại -> tạo mới
-                    tableData.id = trans.tableId;
-                    DB.create('tables', tableData, String(trans.tableId)).then(function() {
-                        resolve();
-                    }).catch(function() {
-                        resolve();
-                    });
-                }
+        // FIX 4: Dùng window.cachedTables thay vì DB.get('tables', ...)
+        var cachedTables = window.cachedTables || [];
+        var existingTable = null;
+        for (var ti = 0; ti < cachedTables.length; ti++) {
+            if (String(cachedTables[ti].id) === String(trans.tableId)) {
+                existingTable = cachedTables[ti];
+                break;
             }
-        }).catch(function() {
-            // Nếu lỗi khi get, thử tạo mới
-            tableData.id = trans.tableId;
-            DB.create('tables', tableData, String(trans.tableId)).then(function() {
-                resolve();
-            }).catch(function() {
-                resolve();
-            });
-        });
+        }
+        
+        if (existingTable && existingTable.items && existingTable.items.length > 0) {
+            // Bàn đã có dữ liệu (có thể đã được dùng lại) -> không ghi đè
+            console.warn('Table ' + trans.tableId + ' already has data, skipping restore');
+            resolve();
+        } else {
+            // Khôi phục bàn: tạo mới hoặc cập nhật
+            if (existingTable) {
+                // Bàn đã tồn tại (rỗng) -> cập nhật
+                DB.update('tables', String(trans.tableId), tableData).then(function() {
+                    resolve();
+                }).catch(function() {
+                    resolve();
+                });
+            } else {
+                // Bàn chưa tồn tại -> tạo mới
+                tableData.id = trans.tableId;
+                DB.create('tables', tableData, String(trans.tableId)).then(function() {
+                    resolve();
+                }).catch(function() {
+                    resolve();
+                });
+            }
+        }
     });
 }
 
@@ -796,9 +753,15 @@ function addHistory(transaction) {
 }
 
 // ========== SWIPE TO REFUND ==========
+// FIX 6: Dùng data attribute để đánh dấu item đã có listener, tránh gắn listener chồng chéo
 function _initHistorySwipe() {
     var items = document.querySelectorAll('.history-item');
     for (var i = 0; i < items.length; i++) {
+        var el = items[i];
+        // Nếu đã có listener thì bỏ qua
+        if (el.getAttribute('data-swipe-initialized') === 'true') continue;
+        el.setAttribute('data-swipe-initialized', 'true');
+        
         (function(el) {
             var startX = 0, currentX = 0, isDragging = false;
             el.addEventListener('touchstart', function(e) {
@@ -827,9 +790,15 @@ function _initHistorySwipe() {
                     el.style.transform = '';
                 }
             }, { passive: true });
-        })(items[i]);
+        })(el);
     }
 }
 
-// Export global
+// FIX 8: Export global cho tất cả hàm cần thiết
 window.refundTransaction = refundTransaction;
+window.changeHistoryDate = changeHistoryDate;
+window.setHistoryView = setHistoryView;
+window.showTransactionDetail = showTransactionDetail;
+window.printTransactionDetail = printTransactionDetail;
+window.renderHistoryByDateStr = renderHistoryByDateStr;
+window.renderHistoryByDate = renderHistoryByDate;

@@ -156,13 +156,11 @@ function renderRecentTransactions() {
             else if (tx.type === 'grab') locationInfo = '🚕 Grab';
             else locationInfo = '🍽️ Tại chỗ';
             
-            html += `
-                <div class="recent-item" onclick="showTransactionDetail('${tx.id}')">
-                    <span class="recent-time">${timeText}</span>
-                    <span class="recent-info">${locationInfo} - ${totalItems} món</span>
-                    <span class="recent-amount">${formatMoney(tx.amount)}</span>
-                </div>
-            `;
+            html += '<div class="recent-item" onclick="showTransactionDetail(\'' + tx.id + '\')">' +
+                '<span class="recent-time">' + timeText + '</span>' +
+                '<span class="recent-info">' + locationInfo + ' - ' + totalItems + ' món</span>' +
+                '<span class="recent-amount">' + formatMoney(tx.amount) + '</span>' +
+            '</div>';
         }
         container.innerHTML = html;
     });
@@ -285,18 +283,16 @@ function switchTab(tabId) {
             renderCustomerList();
         } else if (tabId === 'manager') {
             if (typeof managerApplyFilter === 'function') managerApplyFilter();
-        } else if (tabId === 'staff') {
-            if (typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin()) {
-                if (typeof DB.getStaffs === 'function') {
-                    DB.getStaffs().then(function(staffs) {
-                        if (typeof renderStaffList === 'function') renderStaffList(staffs);
-                    });
-                }
-            }
         } else if (tabId === 'inventory') {
             if (typeof renderInventoryMenu === 'function') renderInventoryMenu();
             if (typeof renderInventoryIngredients === 'function') renderInventoryIngredients();
             if (typeof renderInventoryCategoryFilter === 'function') renderInventoryCategoryFilter();
+        } else if (tabId === 'cost') {
+            if (typeof initExpense === 'function') initExpense();
+            if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
+            if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
+            // Áp dụng phân quyền: ẩn nguồn tiền QL TT cho staff
+            if (typeof applyExpenseRoleRestrictions === 'function') applyExpenseRoleRestrictions();
         }
     }
 }
@@ -351,7 +347,16 @@ function hideToast(id) {
 }
 function closeModal(modalId) { var m = document.getElementById(modalId); if (m) m.style.display = 'none'; }
 function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, function(m) { if (m === '&') return '&'; if (m === '<') return '<'; if (m === '>') return '>'; return m; }); }
-function formatDateDisplay(dateStr) { var d = new Date(dateStr); return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
+function formatDateDisplay(dateStr) {
+    if (!dateStr) return '';
+    // Parse YYYY-MM-DD an toàn, không bị lệch múi giờ
+    var parts = dateStr.split('-');
+    if (parts.length === 3) {
+        return parseInt(parts[2], 10) + '/' + parseInt(parts[1], 10) + '/' + parts[0];
+    }
+    var d = new Date(dateStr);
+    return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+}
 function renderCurrentTime() {
     var now = new Date();
     var timeEl = document.getElementById('currentTime');

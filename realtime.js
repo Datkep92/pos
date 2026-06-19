@@ -26,14 +26,21 @@ function initRealtime() {
         if (!newTables) return;
         cachedTables = newTables;
         tablesCacheTime = Date.now();
-        if (currentTab !== 'tables') return;
-        // FIX: Render ngay nếu đang ở tab tables, không debounce
-        _renderNow('tables_render', function() {
-            updateTablesDiff(newTables);
-        });
-        // Đảm bảo timer luôn chạy khi ở tab tables
-        if (typeof startTableTimer === 'function') {
-            startTableTimer();
+        if (currentTab === 'tables') {
+            // FIX: Render ngay nếu đang ở tab tables, không debounce
+            _renderNow('tables_render', function() {
+                updateTablesDiff(newTables);
+            });
+            // Đảm bảo timer luôn chạy khi ở tab tables
+            if (typeof startTableTimer === 'function') {
+                startTableTimer();
+            }
+        }
+        // Realtime cho report: cập nhật "Bàn đang hoạt động"
+        if (currentTab === 'report') {
+            _debounceRealtime('tables_report', function() {
+                renderReport(currentReportDate);
+            }, 100);
         }
     });
     
@@ -68,6 +75,10 @@ function initRealtime() {
             }
             if (currentTab === 'manager' && typeof renderManagerDebtList === 'function') {
                 renderManagerDebtList(customers);
+            }
+            // Realtime cho report: cập nhật nợ, credit, tiền dư khách
+            if (currentTab === 'report') {
+                renderReport(currentReportDate);
             }
         }, 100);
     });

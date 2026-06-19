@@ -9,6 +9,12 @@
     <meta name="theme-color" content="#f97316">
     <title>MILANO COFFEE 259 - Bán hàng</title>
     <link rel="stylesheet" href="css/pos-base.css">
+    <link rel="stylesheet" href="css/report.css">
+   
+    <link rel="stylesheet" href="css/modals.css">
+   
+    <link rel="stylesheet" href="css/expense.css">
+
     
 </head>
 <body>
@@ -87,12 +93,18 @@
             <div class="header-notification-text" id="headerNotificationText"></div>
             <span class="header-notification-close" id="headerNotificationClose" onclick="dismissHeaderNotification()">✕</span>
         </div>
+        <!-- Offline indicator -->
+        <div class="offline-indicator" id="offlineIndicator" style="display:none;">
+            <span class="offline-indicator-icon">📡</span>
+            <span class="offline-indicator-text">Đang ngoại tuyến</span>
+        </div>
 
-        <!-- POS TABS: 3 tab chính + 1 tab cài đặt -->
+        <!-- POS TABS -->
         <div class="main-tabs">
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
             <div class="tab-btn" data-tab="customers">👥 Khách</div>
             <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
+            <div class="tab-btn" data-tab="cost">💰 Chi phí</div>
             <div class="tab-btn" data-tab="settings">⚙️</div>
         </div>
 
@@ -146,6 +158,88 @@
                     <span class="hvt-btn" data-view="3" onclick="setHistoryView(3)">💰💳 2 hàng</span>
                 </div>
                 <div class="history-list" id="historyList"></div>
+            </div>
+
+            <!-- TAB CHI PHÍ -->
+            <div id="costView" class="tab-content">
+                <div class="cost-tab-container">
+                    <!-- NGUỒN TIỀN -->
+                    <div class="cost-fund-source">
+                        <span class="fund-source-label">Nguồn tiền:</span>
+                        <div class="fund-source-buttons">
+                            <button class="fund-source-btn active" id="fundSourcePosBtn" onclick="switchFundSource('pos_cash')">🏦 Két POS</button>
+                            <button class="fund-source-btn" id="fundSourceMgmtBtn" onclick="switchFundSource('management')">👔 QL TT</button>
+                        </div>
+                    </div>
+
+                    <!-- TABS LOẠI CHI PHÍ -->
+                    <div class="cost-type-tabs">
+                        <button class="cost-type-tab active" id="expenseIngredientTab" onclick="switchExpenseType('ingredient')">🧂 Nguyên liệu</button>
+                        <button class="cost-type-tab" id="expenseWasteTab" onclick="switchExpenseType('waste')">📦 Hao phí</button>
+                    </div>
+
+                    <!-- FORM NHẬP LIỆU -->
+                    <div class="cost-form-card">
+                        <!-- KHU VỰC NGUYÊN LIỆU -->
+                        <div id="expenseIngredientArea" class="cost-type-area">
+                            <div class="cost-section-title">🧂 Chọn nguyên liệu</div>
+                            <div class="cost-search-row">
+                                <input type="text" id="expenseIngredientSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu...">
+                            </div>
+                            <div class="cost-ingredient-grid" id="expenseIngredientGrid"></div>
+
+                            <div class="cost-qty-price-row">
+                                <div class="cost-field">
+                                    <label>Số lượng</label>
+                                    <input type="number" id="expenseQty" class="cost-input" placeholder="0" value="0" min="0" step="1">
+                                </div>
+                                <div class="cost-field">
+                                    <label>Thành tiền</label>
+                                    <input type="number" id="expenseAmount" class="cost-input" placeholder="0đ" step="1000">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- KHU VỰC HAO PHÍ -->
+                        <div id="expenseWasteArea" class="cost-type-area" style="display:none;">
+                            <div class="cost-section-title">📦 Chọn loại hao phí</div>
+                            <div class="cost-search-row">
+                                <input type="text" id="expenseWasteSearch" class="cost-search-input" placeholder="🔍 Tìm kiếm hoặc thêm hao phí mới...">
+                            </div>
+                            <div class="cost-waste-grid" id="expenseWasteGrid"></div>
+
+                            <input type="number" id="expenseWasteAmount" class="cost-input" placeholder="Số tiền" step="1000">
+                        </div>
+
+                        <button class="cost-save-btn" id="saveExpenseBtn">💾 Lưu chi phí</button>
+                    </div>
+
+                    <!-- LỊCH SỬ CHI PHÍ NGÀY -->
+                    <div class="cost-history-card">
+                        <div class="cost-history-header">
+                            <div class="cost-date-nav">
+                                <button class="cost-date-nav-btn" onclick="expenseDateChange(-1)">◀</button>
+                                <div class="cost-date-display" id="expenseDateDisplay" onclick="expensePickDate()">📅 Hôm nay</div>
+                                <button class="cost-date-nav-btn" onclick="expenseDateChange(1)">▶</button>
+                            </div>
+                            <div class="cost-header-total" id="expenseHeaderTotal"></div>
+                        </div>
+                        <div class="cost-list-container">
+                            <div id="expenseTodayList"></div>
+                        </div>
+                    </div>
+
+                    <!-- CHI PHÍ THÁNG -->
+                    <div class="cost-month-card">
+                        <div class="cost-month-header">
+                            <span>📜 Chi phí tháng này</span>
+                            <button class="cost-expand-all-btn" id="expMonthToggleAll" onclick="toggleAllMonthDates()">📂 Mở rộng tất cả</button>
+                        </div>
+                        <div class="cost-month-list">
+                            <div id="expenseMonthTotal"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- TAB CÀI ĐẶT -->
@@ -514,6 +608,9 @@
     
     <!-- INGREDIENTS - kiểm tra tồn kho, trừ nguyên liệu (cần cho order.js, tables.js) -->
     <script src="ingredients.js"></script>
+    
+    <!-- Expense - Module chi phí thống nhất -->
+    <script src="expense.js"></script>
     
     <!-- ESP32 Cash Drawer Audit - Định nghĩa handleCashPayment mặc định TRƯỚC order.js -->
     <!-- để order.js, tables.js, customers.js có thể gọi ngay cả khi esp32_audit.js chưa load -->

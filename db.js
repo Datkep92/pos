@@ -157,9 +157,9 @@
         return dbReady.then(function() {
             if (!localDB) throw new Error('DB not ready');
             if (!localDB.objectStoreNames.contains(collection)) throw new Error('Store ' + collection + ' not found');
-            // Cáº­p nháº­t memory cache ngay láº­p tá»©c
+            // Cáº­p nháº­t memory cache ngay láº­p tá»©c (dÃ¹ng normalized data Ä‘á»ƒ cÃ³ dateKey, dateTypeKey)
             if (!memoryCache[collection]) memoryCache[collection] = {};
-            memoryCache[collection][data.id] = data;
+            memoryCache[collection][data.id] = normalizeIndexedFields(collection, data);
             cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
             // FIX: Notify local subscribers ngay, khÃ´ng chá» Firebase
             _notifyLocal(collection);
@@ -364,19 +364,24 @@
         });
     }
     
+    // FIX: Retry limit + exponential backoff + lưu retryCount vào IndexedDB
     function _handleSyncError(item, err) {
-        item.retryCount++;
-        if (item.retryCount < 5) {
+        item.retryCount = (item.retryCount || 0) + 1;
+        var MAX_RETRY = 5;
+        if (item.retryCount < MAX_RETRY) {
             item.status = 'pending';
-            return new Promise(function(r) { setTimeout(r, 2000 * item.retryCount); }).then(function() {
-                return syncToFirebase(item).then(function() {
-                    item.status = 'synced';
-                    return deleteFromLocal('sync_queue', item.id);
-                }).catch(function() {});
+            // Lưu retryCount vào IndexedDB để không bị mất khi reload
+            return saveToLocal('sync_queue', item).then(function() {
+                var delay = Math.min(2000 * Math.pow(2, item.retryCount - 1), 30000); // exponential backoff, max 30s
+                return new Promise(function(r) { setTimeout(r, delay); });
+            }).then(function() {
+                // Gọi lại processSyncQueue thay vì syncToFirebase trực tiếp
+                // để tận dụng batch mechanism
+                return processSyncQueue();
             });
         } else {
             item.status = 'failed';
-            console.error('Sync failed:', item.action, item.collection, item.targetId);
+            console.error('Sync failed after ' + MAX_RETRY + ' retries:', item.action, item.collection, item.targetId);
             return saveToLocal('sync_queue', item);
         }
     }
@@ -581,7 +586,61 @@
                         rows = rows.filter(function(r) { return toDateKey(r.date) === dateKey; });
                         if (type !== 'all') rows = rows.filter(function(r) { return r.type === type; });
                     }
+                    // FIX: Load vÃ o memoryCache Ä‘á»ƒ láº§n sau khÃ´ng pháº£i Ä‘á»c IndexedDB
+                    if (!memoryCache.transactions) memoryCache.transactions = {};
+                    for (var i = 0; i < rows.length; i++) {
+                        memoryCache.transactions[rows[i].id] = rows[i];
+                    }
                     resolve(rows);
+                };
+                req.onerror = function() { reject(req.error); };
+            });
+        });
+    }
+
+    function getTransactionsByDateRange(startDateKey, endDateKey, options) {
+        options = options || {};
+        var type = options.type || 'all';
+        return dbReady.then(function() {
+            if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
+            // Ưu tiên memory cache
+            if (memoryCache.transactions) {
+                var allTx = [];
+                for (var key in memoryCache.transactions) {
+                    if (memoryCache.transactions.hasOwnProperty(key)) {
+                        allTx.push(memoryCache.transactions[key]);
+                    }
+                }
+                var filtered = allTx.filter(function(t) {
+                    return t.dateKey >= startDateKey && t.dateKey <= endDateKey;
+                });
+                if (type !== 'all') filtered = filtered.filter(function(t) { return t.type === type; });
+                return filtered;
+            }
+            // Fallback: đọc từ IndexedDB theo dateKey index
+            return new Promise(function(resolve, reject) {
+                var tx = localDB.transaction(['transactions'], 'readonly');
+                var store = tx.objectStore('transactions');
+                var req;
+                if (store.indexNames.contains('dateKey')) {
+                    // Lấy tất cả transactions và filter trong memory
+                    req = store.index('dateKey').getAll();
+                } else {
+                    req = store.getAll();
+                }
+                req.onsuccess = function() {
+                    var rows = req.result || [];
+                    var filtered = rows.filter(function(r) {
+                        var dk = toDateKey(r.date);
+                        return dk >= startDateKey && dk <= endDateKey;
+                    });
+                    if (type !== 'all') filtered = filtered.filter(function(r) { return r.type === type; });
+                    // FIX: Load vÃ o memoryCache Ä‘á»ƒ láº§n sau khÃ´ng pháº£i Ä‘á»c IndexedDB
+                    if (!memoryCache.transactions) memoryCache.transactions = {};
+                    for (var i = 0; i < rows.length; i++) {
+                        memoryCache.transactions[rows[i].id] = rows[i];
+                    }
+                    resolve(filtered);
                 };
                 req.onerror = function() { reject(req.error); };
             });
@@ -1008,7 +1067,7 @@
             // Subscribe cÃ¡c collections cáº§n thiáº¿t cho POS
             // tables, customers, menu, menu_categories, transactions, notifications
             // Bá»: ingredients, cost_categories, cost_transactions, cost_transactions_admin,
-            //      admin_cost_categories, reports, daily_balances
+            //      admin_cost_categories, reports
             subscribeToCollection('tables');
             subscribeToCollection('customers');
             subscribeToCollection('menu');
@@ -1324,6 +1383,7 @@
         get: get,
         getAll: getAll,
         getTransactionsByDate: getTransactionsByDate,
+        getTransactionsByDateRange: getTransactionsByDateRange,
         subscribe: subscribeToCollection,
         isOnline: function() { return isOnline; },
         getDeviceId: function() { return CURRENT_DEVICE_ID; },

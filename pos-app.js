@@ -129,13 +129,13 @@ function loadData() {
         if (shopNameEl && shopInfo && shopInfo.name) {
             shopNameEl.textContent = shopInfo.name;
         }
-        // Shop config: ưu tiên dữ liệu từ Firebase (results[4]), fallback về IndexedDB, rồi hardcode
+        // Shop config: ưu tiên dữ liệu từ Firebase (results[4]), fallback về IndexedDB (shopInfo), rồi hardcode
         var fbConfig = results[4] || {};
         window.shopConfig = {
             telegramBotToken: fbConfig.telegramBotToken || (shopInfo && shopInfo.telegramBotToken) || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
             telegramChatId: fbConfig.telegramChatId || (shopInfo && shopInfo.telegramChatId) || '6372876364',
             lockPassword: fbConfig.lockPassword || (shopInfo && shopInfo.lockPassword) || '28122020',
-            lockStartHour: fbConfig.lockStartHour !== undefined ? fbConfig.lockStartHour : (shopInfo && shopInfo.lockStartHour !== undefined ? shopInfo.lockStartHour : 17),
+            lockStartHour: fbConfig.lockStartHour !== undefined ? fbConfig.lockStartHour : (shopInfo && shopInfo.lockStartHour !== undefined ? shopInfo.lockStartHour : 22),
             lockEndHour: fbConfig.lockEndHour !== undefined ? fbConfig.lockEndHour : (shopInfo && shopInfo.lockEndHour !== undefined ? shopInfo.lockEndHour : 5),
             lockEndMinute: fbConfig.lockEndMinute !== undefined ? fbConfig.lockEndMinute : (shopInfo && shopInfo.lockEndMinute !== undefined ? shopInfo.lockEndMinute : 30),
             tableLockHours: fbConfig.tableLockHours !== undefined ? fbConfig.tableLockHours : (shopInfo && shopInfo.tableLockHours !== undefined ? shopInfo.tableLockHours : 5)
@@ -265,6 +265,9 @@ function initEventListeners() {
 
     var confirmDelete = document.getElementById('confirmDeleteTableBtn');
     if (confirmDelete) confirmDelete.onclick = confirmDeleteTable;
+
+    // Khởi tạo offline indicator
+    updateOfflineIndicator();
 }
 
 function switchTab(tabId) {
@@ -308,19 +311,13 @@ function switchTab(tabId) {
             if (typeof renderInventoryMenu === 'function') renderInventoryMenu();
             if (typeof renderInventoryIngredients === 'function') renderInventoryIngredients();
             if (typeof renderInventoryCategoryFilter === 'function') renderInventoryCategoryFilter();
-        } else if (tabId === 'staff') {
-            if (typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin()) {
-                if (typeof DB.getStaffs === 'function') {
-                    DB.getStaffs().then(function(staffs) {
-                        if (typeof renderStaffList === 'function') renderStaffList(staffs);
-                    });
-                }
-            }
         } else if (tabId === 'cost') {
             if (typeof initExpense === 'function') initExpense();
             // renderTodayExpenses đã gọi renderExpensesByDate bên trong
             if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
             if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
+            // Áp dụng phân quyền: ẩn nguồn tiền QL TT cho staff
+            if (typeof applyExpenseRoleRestrictions === 'function') applyExpenseRoleRestrictions();
         } else if (tabId === 'manager') {
             if (typeof managerApplyFilter === 'function') managerApplyFilter();
         } else if (tabId === 'settings') {
@@ -439,34 +436,61 @@ document.querySelectorAll('.modal').forEach(function(modal) {
     });
 });
 
-// ========== TOAST ==========
-var _toastCounter = 0;
-var _toastMap = {};
-
-function showToast(message, type, duration) {
-    if (duration === undefined) duration = 2500;
-    var toast = document.createElement('div');
-    toast.className = 'toast ' + type;
-    toast.innerText = message;
-    document.getElementById('toastContainer').appendChild(toast);
-    var id = 'toast_' + (++_toastCounter);
-    toast.setAttribute('data-toast-id', id);
-    if (duration > 0) {
-        var timer = setTimeout(function() { toast.remove(); delete _toastMap[id]; }, duration);
-        _toastMap[id] = { element: toast, timer: timer };
-    } else {
-        _toastMap[id] = { element: toast, timer: null };
-    }
-    return id;
-}
-
-function hideToast(id) {
-    var entry = _toastMap[id];
-    if (entry) {
-        if (entry.timer) clearTimeout(entry.timer);
-        if (entry.element && entry.element.parentNode) entry.element.remove();
-        delete _toastMap[id];
-    }
-}
-
 // Settings code moved to settings.js
+
+// ========== OFFLINE INDICATOR ==========
+function updateOfflineIndicator() {
+    var indicator = document.getElementById('offlineIndicator');
+    if (!indicator) return;
+    var isOnline = typeof DB.isOnline === 'function' ? DB.isOnline() : navigator.onLine;
+    if (isOnline) {
+        indicator.style.display = 'none';
+    } else {
+        indicator.style.display = 'flex';
+    }
+}
+
+// Gọi updateOfflineIndicator khi online/offline event
+window.addEventListener('online', function() {
+    setTimeout(updateOfflineIndicator, 500);
+});
+window.addEventListener('offline', function() {
+    setTimeout(updateOfflineIndicator, 100);
+});
+
+// ========== LOADING OVERLAY ==========
+var _loadingOverlay = null;
+
+function _ensureLoadingOverlay() {
+    if (!_loadingOverlay) {
+        _loadingOverlay = document.createElement('div');
+        _loadingOverlay.className = 'loading-overlay';
+        _loadingOverlay.id = 'globalLoadingOverlay';
+        _loadingOverlay.innerHTML = '<div class="loading-spinner"></div>';
+        document.body.appendChild(_loadingOverlay);
+    }
+    return _loadingOverlay;
+}
+
+function showLoadingOverlay() {
+    var overlay = _ensureLoadingOverlay();
+    overlay.classList.add('active');
+}
+
+function hideLoadingOverlay() {
+    if (_loadingOverlay) {
+        _loadingOverlay.classList.remove('active');
+    }
+}
+
+// ========== BUTTON LOADING STATE ==========
+function setButtonLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+        btn.classList.add('btn-loading');
+        btn.disabled = true;
+    } else {
+        btn.classList.remove('btn-loading');
+        btn.disabled = false;
+    }
+}
