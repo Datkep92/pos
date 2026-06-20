@@ -163,7 +163,90 @@ function logDelete(action, details) {
         details: details
     };
     // Ghi vào Firebase qua DB.create (lưu local + sync lên Firebase)
-    return DB.create('delete_logs', logEntry);
+    return DB.create('delete_logs', logEntry).then(function() {
+        // Gửi thông báo Telegram
+        try {
+            var user = DB.getCurrentUser();
+            var staffName = user ? user.displayName : 'Nhân viên';
+            var now = new Date();
+            var timeStr = now.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+            var msg = '';
+            if (action === 'delete_table') {
+                var tableName = details.tableName || 'không tên';
+                var items = details.items || [];
+                var total = 0;
+                var itemLines = '';
+                for (var i = 0; i < items.length; i++) {
+                    var it = items[i];
+                    var line = '  ' + (i + 1) + '. ' + (it.name || '?') + ' x' + (it.qty || 0) + ' = ' + formatMoney((it.price || 0) * (it.qty || 0));
+                    itemLines += line + '\n';
+                    total += (it.price || 0) * (it.qty || 0);
+                }
+                // Thời gian tạo bàn & nhân viên tạo
+                var createdByName = details.createdByName || '?';
+                var startTimeStr = '?';
+                if (details.startTime) {
+                    var st = new Date(details.startTime);
+                    startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+                }
+                // Thời gian hoạt động
+                var durationStr = '?';
+                if (details.startTime) {
+                    var elapsed = Math.floor((now.getTime() - new Date(details.startTime).getTime()) / 60000);
+                    if (elapsed < 60) durationStr = elapsed + ' phút';
+                    else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
+                }
+                msg = '🗑️ <b>XÓA BÀN: ' + tableName + '</b>\n';
+                msg += '────────────────\n';
+                msg += '🕐 ' + timeStr + '\n';
+                msg += '👤 Người xóa: ' + staffName + '\n';
+                msg += '👤 Người tạo: ' + createdByName + '\n';
+                msg += '🕐 Tạo lúc: ' + startTimeStr + '\n';
+                msg += '⏱ Hoạt động: ' + durationStr + '\n';
+                if (details.customerName) msg += '👤 Khách: ' + details.customerName + '\n';
+                msg += '────────────────\n';
+                msg += '<b>CHI TIẾT MÓN:</b>\n';
+                msg += itemLines;
+                msg += '────────────────\n';
+                msg += '<b>TỔNG: ' + formatMoney(total) + '</b>';
+            } else if (action === 'delete_item') {
+                var tableName = details.tableName || 'không tên';
+                var item = details.item || {};
+                var itemTotal = (item.price || 0) * (item.qty || 0);
+                // Thông tin bàn hiện tại
+                var tableInfo = details.tableInfo || {};
+                var createdByName = tableInfo.createdByName || '?';
+                var startTimeStr = '?';
+                if (tableInfo.startTime) {
+                    var st = new Date(tableInfo.startTime);
+                    startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+                }
+                var durationStr = '?';
+                if (tableInfo.startTime) {
+                    var elapsed = Math.floor((now.getTime() - new Date(tableInfo.startTime).getTime()) / 60000);
+                    if (elapsed < 60) durationStr = elapsed + ' phút';
+                    else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
+                }
+                msg = '🗑️ <b>XÓA MÓN: ' + tableName + '</b>\n';
+                msg += '────────────────\n';
+                msg += '🕐 ' + timeStr + '\n';
+                msg += '👤 Người xóa: ' + staffName + '\n';
+                msg += '👤 Người tạo bàn: ' + createdByName + '\n';
+                msg += '🕐 Bàn tạo lúc: ' + startTimeStr + '\n';
+                msg += '⏱ Bàn hoạt động: ' + durationStr + '\n';
+                if (tableInfo.customerName) msg += '👤 Khách: ' + tableInfo.customerName + '\n';
+                msg += '────────────────\n';
+                msg += '🍽️ <b>' + (item.name || 'không tên') + ' x' + (item.qty || 0) + '</b>\n';
+                msg += '💰 Đơn giá: ' + formatMoney(item.price || 0) + '\n';
+                msg += '💵 Thành tiền: ' + formatMoney(itemTotal);
+            }
+            if (msg && typeof notifyTelegramCustom === 'function') {
+                notifyTelegramCustom(msg);
+            }
+        } catch(e) {
+            console.error('[logDelete] Lỗi gửi Telegram:', e);
+        }
+    });
 }
 
 // ========== XÓA MÓN TRÊN BÀN ==========
@@ -226,6 +309,11 @@ function doDeleteTableItem(table, itemIndex, removedItem) {
                 qty: removedItem.qty,
                 price: removedItem.price,
                 addedTime: removedItem.addedTime
+            },
+            tableInfo: {
+                createdByName: table.createdByName || '',
+                startTime: table.startTime || null,
+                customerName: table.customerName || null
             }
         };
         logDelete('delete_item', details);
@@ -333,6 +421,13 @@ function showTableDetail(tableId) {
 
 // ========== IN HÓA ĐƠN THỦ CÔNG ==========
 function printTableBill(tableId) {
+    // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận
+    var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+    if (isPortrait) {
+        if (!confirm('Xác nhận in hóa đơn?')) {
+            return;
+        }
+    }
     _getTableFromCache(tableId).then(function(table) {
         if (!table) return;
         if (typeof printAfterPayment === 'function') {
@@ -374,6 +469,13 @@ function _calcTableTime(startTime) {
 // tables.js - Phần sửa hàm openAddMenuForTable
 
 function openAddMenuForTable(tableId) {
+    // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận
+    var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+    if (isPortrait) {
+        if (!confirm('Xác nhận thêm món?')) {
+            return;
+        }
+    }
     currentAddToTableId = tableId;
     tempOrder = [];
     selectedCustomer = null;
@@ -390,6 +492,12 @@ function showPaymentForTable(tableId) {
 }
 
 function paymentAtTable(tableId, method) {
+    // Luôn yêu cầu xác nhận trước khi thanh toán
+    var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
+    var label = methodLabels[method] || method;
+    if (!confirm('Xác nhận thanh toán bằng ' + label + '?')) {
+        return;
+    }
     if (method === 'cash') {
         // Tiền mặt: ẩn toast tiền dư (nếu có) rồi thanh toán luôn
         _hideChangeToast();
@@ -402,6 +510,16 @@ function paymentAtTable(tableId, method) {
 
 // OPTIMIZE: paymentAtTableWithCredit - đóng modal ngay, xử lý credit nhanh hơn
 function paymentAtTableWithCredit(tableId, method) {
+    // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận
+    var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+    if (isPortrait) {
+        var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
+        var label = methodLabels[method] || method;
+        if (!confirm('Xác nhận thanh toán bằng ' + label + '?')) {
+            return;
+        }
+    }
+    
     // OPTIMIZE: Đóng modal ngay lập tức
     if (currentTableDetailId === tableId) closeModal('tableDetailModal');
     
@@ -784,12 +902,13 @@ function debtAtTable(tableId) {
                     var orderItem = table.items[i];
                     var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
                     var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
-                    if (menuItem && menuItem.ingredients) {
-                        for (var k = 0; k < menuItem.ingredients.length; k++) {
-                            var req = menuItem.ingredients[k];
+                    if (menuItem) {
+                        var ings = _getIngredientsForItem(menuItem, orderItem);
+                        for (var k = 0; k < ings.length; k++) {
+                            var req = ings[k];
                             var ing = _ingredientLookup[req.ingredientId];
                             if (ing) {
-                                var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                                var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
                                 // Check stock
                                 if (ing.stock < needed) {
                                     showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
@@ -820,7 +939,7 @@ function debtAtTable(tableId) {
                 }
                 
                 // OPTIMIZE: Chạy song song addCustomerDebt + (result là Promise.all đã resolve)
-                var debtPromise = addCustomerDebt(customer.id, table.total, 'Mua tai ' + table.name);
+                var debtPromise = addCustomerDebt(customer.id, table.total, 'Mua tai ' + table.name, table.items);
                 
                 debtPromise.then(function(debtResult) {
                     var debtAmount = debtResult.debtAmount;
@@ -985,7 +1104,7 @@ function confirmSplitPaymentWithMethod(method, customer) {
                     var historyPromise;
                     if (method === 'debt') {
                         // Ghi nợ: cộng nợ cho khách
-                        addCustomerDebt(customer.id, splitTotal, 'Chia hóa đơn tại bàn ' + table.name).then(function() {
+                        addCustomerDebt(customer.id, splitTotal, 'Chia hóa đơn tại bàn ' + table.name, splitItems).then(function() {
                             historyPromise = addHistory({
                                 type: 'debt_payment',
                                 amount: splitTotal,

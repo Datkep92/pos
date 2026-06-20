@@ -195,6 +195,81 @@ var _menuGridContainer = null;
 // OPTIMIZE: Biến lưu category đang hiển thị để event delegation biết
 var _currentRenderedCategory = null;
 
+// Hàm loại bỏ dấu tiếng Việt và khoảng trắng để tìm kiếm
+function _removeAccents(str) {
+    var map = {
+        'à':'a','á':'a','ạ':'a','ả':'a','ã':'a','â':'a','ầ':'a','ấ':'a','ậ':'a','ẩ':'a','ẫ':'a','ă':'a','ằ':'a','ắ':'a','ặ':'a','ẳ':'a','ẵ':'a',
+        'è':'e','é':'e','ẹ':'e','ẻ':'e','ẽ':'e','ê':'e','ề':'e','ế':'e','ệ':'e','ể':'e','ễ':'e',
+        'ì':'i','í':'i','ị':'i','ỉ':'i','ĩ':'i',
+        'ò':'o','ó':'o','ọ':'o','ỏ':'o','õ':'o','ô':'o','ồ':'o','ố':'o','ộ':'o','ổ':'o','ỗ':'o','ơ':'o','ờ':'o','ớ':'o','ợ':'o','ở':'o','ỡ':'o',
+        'ù':'u','ú':'u','ụ':'u','ủ':'u','ũ':'u','ư':'u','ừ':'u','ứ':'u','ự':'u','ử':'u','ữ':'u',
+        'ỳ':'y','ý':'y','ỵ':'y','ỷ':'y','ỹ':'y',
+        'đ':'d',
+        'À':'a','Á':'a','Ạ':'a','Ả':'a','Ã':'a','Â':'a','Ầ':'a','Ấ':'a','Ậ':'a','Ẩ':'a','Ẫ':'a','Ă':'a','Ằ':'a','Ắ':'a','Ặ':'a','Ẳ':'a','Ẵ':'a',
+        'È':'e','É':'e','Ẹ':'e','Ẻ':'e','Ẽ':'e','Ê':'e','Ề':'e','Ế':'e','Ệ':'e','Ể':'e','Ễ':'e',
+        'Ì':'i','Í':'i','Ị':'i','Ỉ':'i','Ĩ':'i',
+        'Ò':'o','Ó':'o','Ọ':'o','Ỏ':'o','Õ':'o','Ô':'o','Ồ':'o','Ố':'o','Ộ':'o','Ổ':'o','Ỗ':'o','Ơ':'o','Ờ':'o','Ớ':'o','Ợ':'o','Ở':'o','Ỡ':'o',
+        'Ù':'u','Ú':'u','Ụ':'u','Ủ':'u','Ũ':'u','Ư':'u','Ừ':'u','Ứ':'u','Ự':'u','Ử':'u','Ữ':'u',
+        'Ỳ':'y','Ý':'y','Ỵ':'y','Ỷ':'y','Ỹ':'y',
+        'Đ':'d'
+    };
+    return str.replace(/[^a-zA-Z0-9\s]/g, function(ch) { return map[ch] || ch; }).replace(/\s+/g, '');
+}
+
+// ========== LỌC MENU THEO TỪ KHÓA TÌM KIẾM ==========
+var _menuSearchTimeout = null;
+
+function filterMenuBySearch(keyword) {
+    if (_menuSearchTimeout) clearTimeout(_menuSearchTimeout);
+    _menuSearchTimeout = setTimeout(function() {
+        _menuSearchTimeout = null;
+        var container = document.getElementById('menuGrid');
+        if (!container) return;
+        
+        keyword = _removeAccents(keyword.trim().toLowerCase());
+        if (!keyword) {
+            // Nếu không có từ khóa, render lại theo category đang chọn
+            renderMenuByCategory(currentMenuCategory);
+            return;
+        }
+        
+        // Lọc items theo từ khóa (loại bỏ dấu + khoảng trắng cả 2 vế)
+        var filtered = menuItems.filter(function(item) {
+            var itemName = _removeAccents(item.name.toLowerCase());
+            return itemName.indexOf(keyword) !== -1;
+        });
+        
+        if (filtered.length === 0) {
+            container.innerHTML = '<div style="padding: 40px; text-align: center; color: #94a3b8;">🔍 Không tìm thấy món "' + escapeHtml(keyword) + '"</div>';
+            return;
+        }
+        
+        // Render kết quả tìm kiếm (dùng logic render giống renderMenuByCategory)
+        var html = '';
+        for (var i = 0; i < filtered.length; i++) {
+            var item = filtered[i];
+            if (item.hasVariants && item.variants && item.variants.length) {
+                var variantsHtml = '';
+                for (var v = 0; v < item.variants.length; v++) {
+                    var variant = item.variants[v];
+                    variantsHtml += '<button class="variant-btn" data-item-id="' + item.id + '" data-variant="' + escapeHtml(variant.name) + '" data-price="' + variant.price + '">' + escapeHtml(variant.name) + '</button>';
+                }
+                html += '<div class="menu-item-card" data-item-id="' + item.id + '">' +
+                    '<div class="menu-item-name">' + escapeHtml(item.name) + '</div>' +
+                    '<div class="menu-item-variants">' + variantsHtml + '</div>' +
+                '</div>';
+            } else {
+                var price = item.price || 0;
+                html += '<div class="menu-item-card" data-item-id="' + item.id + '" data-price="' + price + '">' +
+                    '<div class="menu-item-name">' + escapeHtml(item.name) + '</div>' +
+                    '<div class="menu-item-price">' + formatMoney(price) + '</div>' +
+                '</div>';
+            }
+        }
+        container.innerHTML = html;
+    }, 150); // Debounce 150ms
+}
+
 // ========== RENDER MENU THEO DANH MỤC - TỐI ƯU ==========
 // OPTIMIZE: Dùng event delegation thay vì inline onclick
 // OPTIMIZE: Cache HTML string để tránh rebuild khi chuyển qua lại giữa các category
@@ -1174,6 +1249,7 @@ function updateCartQty(idx, delta) {
 }
 // ========== TẠO BÀN MỚI - TỰ ĐỘNG (phiên bản đơn giản) ==========
 // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt (dùng chung)
+// FIX: Bỏ điều kiện menuItem.ingredients - dùng _getIngredientsForItem để hỗ trợ variant
 function _checkAndDeductIngredients(items) {
     _buildLookups();
     var updates = [];
@@ -1181,13 +1257,13 @@ function _checkAndDeductIngredients(items) {
         var orderItem = items[i];
         var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
         var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
-        if (menuItem && menuItem.ingredients) {
+        if (menuItem) {
             var ings = _getIngredientsForItem(menuItem, orderItem);
             for (var k = 0; k < ings.length; k++) {
                 var req = ings[k];
                 var ing = _ingredientLookup[req.ingredientId];
                 if (ing) {
-                    var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                    var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
                     // Check stock
                     if (ing.stock < needed) {
                         showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
@@ -1253,7 +1329,8 @@ function handleCreateNewTable() {
         total: initTotal,
         customerId: selectedCustomer ? selectedCustomer.id : null,
         customerName: selectedCustomer ? selectedCustomer.name : null,
-        recentAdds: [{ items: initItems, time: now.toISOString() }]
+        recentAdds: [{ items: initItems, time: now.toISOString() }],
+        createdByName: (DB.getCurrentUser() && DB.getCurrentUser().displayName) || ''
     };
     
     // OPTIMIZE: Gộp checkStock + deductIngredients, chạy song song với DB.create
@@ -1521,8 +1598,12 @@ function _processTakeawayDirect(method) {
             tableName: null,
             note: 'Mang đi - ' + (method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản') + (creditUsed > 0 ? ' (dùng ' + formatMoney(creditUsed) + ' tiền dư)' : ''),
             createdAt: now.toISOString(),
-            dateKey: now.toISOString().slice(0, 10)
+            dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
         });
+        
+        // FIX: Đồng bộ dateKey trong DB.create - normalizeIndexedFields sẽ tính lại dateKey theo local time
+        // Nhưng createdAt vẫn là ISO string (UTC) - cần đảm bảo dateKey đúng local time
+        // DB.create sẽ gọi saveToLocal -> normalizeIndexedFields -> toDateKey dùng getFullYear/getMonth/getDate (local)
         
         // OPTIMIZE: Chạy song song creditPromise + historyPromise
         Promise.all([creditPromise, historyPromise]).then(function() {
@@ -1693,7 +1774,7 @@ function handleGrabOrder() {
             tableName: null,
             note: 'Đơn Grab',
             createdAt: now.toISOString(),
-            dateKey: now.toISOString().slice(0, 10)
+            dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
         }).then(function() {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
             DB.flushRealtime();
@@ -1789,7 +1870,7 @@ function handleDebtOrder() {
             var preDebtAmount = total - preCreditUsed;
             
             // Chạy song song addCustomerDebt và addHistory
-            var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy');
+            var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items);
             var historyPromise = addHistory({
                 type: 'debt_payment',
                 amount: preDebtAmount,
@@ -1799,7 +1880,7 @@ function handleDebtOrder() {
                 tableName: null,
                 note: debtNote + (preCreditUsed > 0 ? ' (đã dùng ' + formatMoney(preCreditUsed) + ' tiền dư)' : ''),
                 createdAt: now.toISOString(),
-                dateKey: now.toISOString().slice(0, 10)
+                dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
             });
             
             return Promise.all([debtPromise, historyPromise]).then(function(results) {

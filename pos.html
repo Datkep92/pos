@@ -458,7 +458,8 @@
                         <!-- Dropdown chọn danh mục (mobile) -->
                         <select class="order-category-select" id="orderCategorySelect" onchange="onCategorySelectChange()"></select>
                         <div class="order-menu-header">
-                            <span>📋 Thực đơn</span>
+                            <span class="order-menu-title">📋 Thực đơn</span>
+                            <input class="order-menu-search" id="menuSearchInput" type="text" placeholder="🔍 Tìm món..." oninput="filterMenuBySearch(this.value)">
                             <button class="quick-create-menu-btn" onclick="showQuickCreateMenuItem()" title="Tạo món nhanh">➕</button>
                         </div>
                         <div class="menu-grid" id="menuGrid"></div>
@@ -536,7 +537,6 @@
     <!-- MODAL CHI TIẾT GIAO DỊCH -->
     <div class="modal" id="transactionDetailModal">
         <div class="modal-content">
-            <div class="modal-body" id="transactionDetailBody"></div>
             <div class="modal-header">
                 <div class="header-left">
                     <div class="modal-title">🧾 Chi tiết giao dịch</div>
@@ -544,6 +544,7 @@
                 </div>
                 <span class="modal-close" onclick="closeModal('transactionDetailModal')">&times;</span>
             </div>
+            <div class="modal-body" id="transactionDetailBody"></div>
         </div>
     </div>
 
@@ -649,8 +650,21 @@
     <!-- Chat nội bộ -->
     <script src="messages.js"></script>
     
-    <!-- Lunar calendar (giữ để có thông báo) -->
-    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/dist/lunar.min.js"></script>
+    <!-- Lunar calendar -->
+    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/lunar.min.js"></script>
+    <script>
+    // Cập nhật ngày âm lịch sau khi thư viện lunar đã load
+    try {
+        var _now = new Date();
+        var _dateEl = document.getElementById('headerDate');
+        if (_dateEl && typeof Lunar !== 'undefined') {
+            var _lunar = Lunar.fromDate(_now);
+            var _dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+            var _solar = _dayNames[_now.getDay()] + ', ' + _now.toLocaleDateString('vi-VN');
+            _dateEl.innerText = _solar + '  🏮 ' + _lunar.getDay() + '/' + _lunar.getMonth();
+        }
+    } catch(_e) {}
+    </script>
     
     <!-- Settings + Đếm tiền nhanh -->
     <script src="settings.js"></script>

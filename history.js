@@ -146,6 +146,8 @@ function _renderTxItem(tx) {
     var swipeHtml = isRefunded ? '' :
         '<div class="history-swipe-actions"><button class="swipe-refund-btn" onclick="event.stopPropagation(); refundTransaction(\'' + tx.id + '\')">↩️ Hoàn tác</button></div>';
 
+    var staffHtml = tx.createdByName ? '<span class="history-staff">👤 ' + escapeHtml(tx.createdByName) + '</span>' : '';
+
     return '<div class="' + itemClass + '" onclick="showTransactionDetail(\'' + tx.id + '\')">' +
         '<div class="history-line1">' +
             '<span class="history-time">' + time + '</span>' +
@@ -154,6 +156,7 @@ function _renderTxItem(tx) {
             '<span class="history-item-count">📦 ' + itemCount + ' món</span>' +
             '<span class="history-method ' + methodClass + '">' + method + '</span>' +
             customerHtml +
+            staffHtml +
             '<span class="' + amountClass + ' history-amount-inline">' +
                 amountSign + ' ' + formatMoney(tx.amount) +
             '</span>' +
@@ -328,15 +331,15 @@ function showTransactionDetail(transactionId) {
                 '<div class="detail-row"><span>🍽️ Loại:</span><span>' + typeName + '</span></div>' +
                 '<div class="detail-row"><span>💳 Thanh toán:</span><span>' + paymentMethodText + '</span></div>' +
                 (tx.tableName ? '<div class="detail-row"><span>🪑 Bàn:</span><span>' + escapeHtml(tx.customer && tx.customer.name ? tx.customer.name : tx.tableName) + '</span></div>' : '') +
+                (tx.createdByName ? '<div class="detail-row"><span>👤 Nhân viên:</span><span>' + escapeHtml(tx.createdByName) + '</span></div>' : '') +
                 tableTimeHtml +
-                '<div class="detail-row"><span>💰 Tổng tiền:</span><span class="detail-amount">' + formatMoney(tx.amount) + '</span></div>' +
-                (tx.note ? '<div class="detail-row"><span>📝 Ghi chú:</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
+                '<div class="detail-row" style="margin-top:4px;padding-top:6px;border-top:1px dashed #e2e8f0;"><span>💰 Tổng tiền:</span><span class="detail-amount">' + formatMoney(tx.amount) + '</span></div>' +
                 refundInfo;
             
             var html =
                 '<div class="detail-section">' + infoHtml + '</div>' +
                 '<div class="detail-section">' + itemsHtml + '</div>' +
-                '<div class="form-actions" style="margin-top:12px;">' +
+                '<div class="form-actions" style="margin-top:8px;">' +
                     '<button class="btn-save" onclick="printTransactionDetail(\'' + transactionId + '\')">🖨️ In hóa đơn</button>' +
                 '</div>';
             
@@ -578,41 +581,44 @@ function proceedRefund(trans, needPassword) {
                     if (trans.paymentMethod === 'debt') {
                         // GHI NỢ: hoàn tác = trừ nợ (vì lúc ghi nợ đã cộng nợ)
                         debtPromise = new Promise(function(resolve) {
-                            // FIX 3: Dùng window.cachedCustomers thay vì vòng lặp customers + DB.getAll('customers')
-                            var cachedCustomers = window.cachedCustomers || [];
+                            // Dùng global customers array (khai báo trong app.js) để tìm khách hàng
                             var c = null;
-                            for (var i = 0; i < cachedCustomers.length; i++) {
-                                if (cachedCustomers[i].id === trans.customer.id) { c = cachedCustomers[i]; break; }
+                            for (var i = 0; i < customers.length; i++) {
+                                if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
                             }
                             if (c) {
                                 c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
                                 c.debtHistory = c.debtHistory || [];
                                 c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
                                 DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory }).then(function() {
-                                    // Cập nhật lại window.cachedCustomers thay vì query lại toàn bộ
-                                    if (window.cachedCustomers) {
-                                        for (var j = 0; j < window.cachedCustomers.length; j++) {
-                                            if (window.cachedCustomers[j].id === c.id) {
-                                                window.cachedCustomers[j] = c;
-                                                break;
-                                            }
-                                        }
-                                    }
                                     resolve();
                                 });
                             } else {
-                                resolve();
+                                // Fallback: tìm trong DB nếu chưa có trong memory cache
+                                DB.getAll('customers').then(function(allCustomers) {
+                                    for (var i = 0; i < allCustomers.length; i++) {
+                                        if (allCustomers[i].id === trans.customer.id) { c = allCustomers[i]; break; }
+                                    }
+                                    if (c) {
+                                        c.totalDebt = Math.max(0, (c.totalDebt || 0) - trans.amount);
+                                        c.debtHistory = c.debtHistory || [];
+                                        c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: -trans.amount, note: 'Hoàn tác ghi nợ - ' + reason, status: 'cancelled' });
+                                        return DB.update('customers', c.id, { totalDebt: c.totalDebt, debtHistory: c.debtHistory });
+                                    }
+                                }).then(function() {
+                                    resolve();
+                                });
                             }
                         });
                     } else {
                         // THANH TOÁN NỢ: hoàn tác = cộng lại nợ (vì lúc thanh toán đã trừ nợ)
-                        debtPromise = addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason);
+                        debtPromise = addCustomerDebt(trans.customer.id, trans.amount, 'Hoàn tiền - ' + reason, trans.items);
                     }
                 }
                 
-                // Khôi phục bàn nếu là giao dịch dinein
+                // Khôi phục bàn nếu là giao dịch dinein hoặc ghi nợ tại bàn
                 var tablePromise = Promise.resolve();
-                if (trans.type === 'dinein' && trans.tableId) {
+                if (trans.tableId && (trans.type === 'dinein' || trans.type === 'debt_payment')) {
                     tablePromise = restoreTable(trans);
                 }
                 
@@ -747,6 +753,11 @@ function addHistory(transaction) {
         startTime: transaction.startTime || null, // Thời gian bắt đầu ngồi
         endTime: transaction.endTime || null      // Thời gian kết thúc (thanh toán)
     };
+    // Bổ sung tên nhân viên thực hiện
+    var user = DB.getCurrentUser();
+    if (user && user.displayName) {
+        newTrans.createdByName = user.displayName;
+    }
     return DB.create('transactions', newTrans).then(function(result) {
         // KHÔNG gọi render trực tiếp nữa, để realtime subscription tự cập nhật
     });

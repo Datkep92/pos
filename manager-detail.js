@@ -1589,6 +1589,8 @@ function renderDrinkStats(startStr, endStr) {
 
 // ========== MANAGER TAB: THỐNG KÊ NGUYÊN LIỆU ==========
 // Hiển thị số lượng nguyên liệu đã sử dụng trong kỳ, kèm quy đổi và ước tính tiền
+// Tính từ transactions (đơn bán) kết hợp recipe ingredients trong menuItems
+// Logic GIỐNG HỆT showIngredientUsage() trong inventory-manager.js để đảm bảo chính xác 100%
 function renderIngredientStats(startStr, endStr) {
     var container = document.getElementById('managerIngredientStats');
     if (!container) return;
@@ -1598,45 +1600,136 @@ function renderIngredientStats(startStr, endStr) {
     var getIngredient = function(id) {
         if (!ingList || !ingList.length) return null;
         for (var idx = 0; idx < ingList.length; idx++) {
-            if (ingList[idx].id === id) return ingList[idx];
+            if (ingList[idx].id === id && !ingList[idx].deleted) return ingList[idx];
         }
         return null;
     };
 
-    // Query cả ingredient_transactions và cost_transactions để tính tiền
+    // Build menuItems lookup
+    var menuItems = window.menuItems || [];
+
+    // Query transactions (đơn bán) + cost_transactions để tính đơn giá
+    // Dùng DB.getAll('transactions') giống showIngredientUsage để đảm bảo đủ dữ liệu
     Promise.all([
-        DB.getAll('ingredient_transactions'),
+        DB.getAll('transactions'),
         DB.getAll('cost_transactions')
     ]).then(function(results) {
-        var allTxs = results[0];
-        var allCosts = results[1];
+        var allTx = results[0] || [];
+        var allCosts = results[1] || [];
 
-        if (!allTxs || !allTxs.length) {
-            container.innerHTML = '<div class="empty-state">📭 Không có dữ liệu</div>';
+        // Lọc transactions trong kỳ, đã thanh toán, không refund
+        var validTx = allTx.filter(function(t) {
+            return !t.refunded && t.items && t.items.length && t.dateKey >= startStr && t.dateKey <= endStr;
+        });
+
+        if (!validTx.length) {
+            container.innerHTML = '<div class="empty-state">📭 Không có đơn bán trong kỳ</div>';
             return;
         }
 
-        // Lọc giao dịch xuất kho (export) trong kỳ
-        var filtered = allTxs.filter(function(tx) {
-            return tx.type === 'export' && tx.dateKey >= startStr && tx.dateKey <= endStr;
-        });
-
-        // Gom nhóm theo ingredientId
-        var ingMap = {};
-        for (var i = 0; i < filtered.length; i++) {
-            var tx = filtered[i];
-            var id = tx.ingredientId || 'unknown';
-            if (!ingMap[id]) {
-                var ingInfo = getIngredient(id);
-                ingMap[id] = {
-                    id: id,
-                    name: (ingInfo && ingInfo.name) || 'Không tên',
-                    totalQty: 0,
-                    count: 0
-                };
+        // ---- Bước 1: Build relatedMenuIds/relatedMenuNames cho TỪNG ingredient ----
+        // Giống hệt showIngredientUsage (lines 1807-1833): scan ALL menu items và variants
+        // để tìm những menu items nào có chứa ingredient nào
+        var ingRelatedMap = {}; // ingId -> { menuIds: {}, menuNames: {} }
+        for (var miIdx = 0; miIdx < menuItems.length; miIdx++) {
+            var mi = menuItems[miIdx];
+            // Check global ingredients
+            if (mi.ingredients && mi.ingredients.length > 0) {
+                for (var j = 0; j < mi.ingredients.length; j++) {
+                    var ingId = mi.ingredients[j].ingredientId || 'unknown';
+                    if (!ingRelatedMap[ingId]) ingRelatedMap[ingId] = { menuIds: {}, menuNames: {} };
+                    ingRelatedMap[ingId].menuIds[mi.id] = true;
+                    ingRelatedMap[ingId].menuNames[mi.id] = mi.name;
+                }
             }
-            ingMap[id].totalQty += tx.quantity || 0;
-            ingMap[id].count++;
+            // Check per-variant ingredients
+            var variantData = (mi.variants && mi.variants.length > 0) ? mi.variants : (mi.sizes || []);
+            for (var vi = 0; vi < variantData.length; vi++) {
+                var vIngs = variantData[vi].ingredients || [];
+                for (var j = 0; j < vIngs.length; j++) {
+                    var ingId = vIngs[j].ingredientId || 'unknown';
+                    if (!ingRelatedMap[ingId]) ingRelatedMap[ingId] = { menuIds: {}, menuNames: {} };
+                    ingRelatedMap[ingId].menuIds[mi.id] = true;
+                    ingRelatedMap[ingId].menuNames[mi.id] = mi.name;
+                }
+            }
+        }
+
+        // ---- Bước 2: Duyệt transactions, match items với relatedMenuIds ----
+        // Giống hệt showIngredientUsage (lines 2127-2204):
+        // Với mỗi orderItem, check xem nó có liên quan đến ingredient nào không
+        // bằng cách: orderItem.id === mid || relatedMenuNames[mid] === baseName
+        var ingMap = {};
+        for (var ti = 0; ti < validTx.length; ti++) {
+            var tx = validTx[ti];
+            var items = tx.items || [];
+            for (var ii = 0; ii < items.length; ii++) {
+                var orderItem = items[ii];
+                var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
+
+                // Với mỗi ingredient, kiểm tra xem orderItem có liên quan không
+                for (var ingId in ingRelatedMap) {
+                    if (!ingRelatedMap.hasOwnProperty(ingId)) continue;
+                    var rel = ingRelatedMap[ingId];
+                    var isRelated = false;
+                    for (var mid in rel.menuIds) {
+                        if (rel.menuIds.hasOwnProperty(mid)) {
+                            if (orderItem.id === mid || rel.menuNames[mid] === baseName) {
+                                isRelated = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!isRelated) continue;
+
+                    // Tìm recipe quantity cho ingredient này trong menu item match
+                    // (giống showIngredientUsage lines 2152-2178)
+                    var recipeQty = 0;
+                    for (var k = 0; k < menuItems.length; k++) {
+                        if (menuItems[k].id === orderItem.id || menuItems[k].name === baseName) {
+                            // Check global ingredients
+                            if (menuItems[k].ingredients) {
+                                for (var l = 0; l < menuItems[k].ingredients.length; l++) {
+                                    if (String(menuItems[k].ingredients[l].ingredientId) === String(ingId)) {
+                                        recipeQty = menuItems[k].ingredients[l].quantity || 0;
+                                        break;
+                                    }
+                                }
+                            }
+                            // If not found in global, check per-variant ingredients
+                            if (recipeQty === 0) {
+                                var variantData = (menuItems[k].variants && menuItems[k].variants.length > 0) ? menuItems[k].variants : (menuItems[k].sizes || []);
+                                for (var vi = 0; vi < variantData.length; vi++) {
+                                    var vIngs = variantData[vi].ingredients || [];
+                                    for (var l = 0; l < vIngs.length; l++) {
+                                        if (String(vIngs[l].ingredientId) === String(ingId)) {
+                                            recipeQty = vIngs[l].quantity || 0;
+                                            break;
+                                        }
+                                    }
+                                    if (recipeQty > 0) break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (recipeQty <= 0) continue;
+
+                    var qtyUsed = recipeQty * (orderItem.qty || 1);
+                    var ingInfo = getIngredient(ingId);
+
+                    if (!ingMap[ingId]) {
+                        ingMap[ingId] = {
+                            id: ingId,
+                            name: (ingInfo && ingInfo.name) || 'Không tên',
+                            totalQty: 0,
+                            count: 0
+                        };
+                    }
+                    ingMap[ingId].totalQty += qtyUsed;
+                    ingMap[ingId].count += (orderItem.qty || 1);
+                }
+            }
         }
 
         // Chuyển sang mảng và sắp xếp theo số lượng giảm dần
@@ -1649,19 +1742,17 @@ function renderIngredientStats(startStr, endStr) {
         sorted.sort(function(a, b) { return b.totalQty - a.totalQty; });
 
         if (sorted.length === 0) {
-            container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu đã sử dụng trong kỳ</div>';
+            container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu đã dùng trong kỳ</div>';
             return;
         }
 
         // ---- Tính đơn giá ước tính từ cost_transactions ----
-        // Lấy các giao dịch mua nguyên liệu (costType === 'ingredient') có ingredientUnitPrice
         var costIngMap = {};
         if (allCosts && allCosts.length) {
             for (var ci = 0; ci < allCosts.length; ci++) {
                 var ct = allCosts[ci];
                 if (ct.costType === 'ingredient' && ct.ingredientId && ct.ingredientUnitPrice && !ct.deleted) {
                     var cid = String(ct.ingredientId);
-                    // Chỉ lấy giá mới nhất cho mỗi nguyên liệu (theo createdAt)
                     if (!costIngMap[cid] || ct.createdAt > costIngMap[cid].createdAt) {
                         costIngMap[cid] = {
                             unitPrice: ct.ingredientUnitPrice,
@@ -1672,7 +1763,7 @@ function renderIngredientStats(startStr, endStr) {
             }
         }
 
-        // Gán đơn giá và tính thành tiền cho từng nguyên liệu đã dùng
+        // Gán đơn giá và tính thành tiền
         var grandCost = 0;
         var hasCost = false;
         for (var si = 0; si < sorted.length; si++) {
@@ -1728,15 +1819,24 @@ function renderIngredientStats(startStr, endStr) {
             var ingInfo = getIngredient(ing.id);
             var qtyVal = Math.round(ing.totalQty * 100) / 100;
             var qtyDisplay = '' + qtyVal;
+
+            // Xác định displayUnit GIỐNG showIngredientUsage (line 1843):
+            // Nếu có conversion, displayUnit = convTo (vd: "g"), nếu không thì = baseUnit (vd: "kg")
             if (ingInfo) {
-                var unit = ingInfo.unit || '';
-                qtyDisplay = qtyVal + ' ' + escapeHtml(unit);
-                if (ingInfo.conversionFrom && ingInfo.conversionTo && ingInfo.conversionRate) {
-                    var rate = parseFloat(ingInfo.conversionRate) || 1;
-                    var converted = ing.totalQty * rate;
-                    var convertedDisplay = Math.floor(converted);
-                    if (convertedDisplay < 1) convertedDisplay = Math.round(converted * 10) / 10;
-                    qtyDisplay += ' <span style="font-size:11px;color:#64748b;">(~' + convertedDisplay + ' ' + escapeHtml(ingInfo.conversionTo) + ')</span>';
+                var baseUnit = ingInfo.unit || '';
+                var convRate = parseFloat(ingInfo.conversionRate) || 0;
+                var convTo = ingInfo.conversionTo || '';
+                var hasConv = convRate > 0 && convTo;
+                var displayUnit = hasConv ? convTo : baseUnit;
+
+                // Hiển thị: số lượng + displayUnit (GIỐNG showIngredientUsage line 2214)
+                qtyDisplay = qtyVal + ' ' + escapeHtml(displayUnit);
+
+                // Nếu có conversion, hiển thị thêm baseUnit trong ngoặc (vd: "450 g (~0.45 kg)")
+                if (hasConv) {
+                    var baseQty = qtyVal / convRate;
+                    var baseDisplay = Math.round(baseQty * 100) / 100;
+                    qtyDisplay += ' <span style="font-size:11px;color:#64748b;">(~' + baseDisplay + ' ' + escapeHtml(baseUnit) + ')</span>';
                 }
             }
 
@@ -1763,6 +1863,7 @@ function renderIngredientStats(startStr, endStr) {
         html += '</div>';
         container.innerHTML = html;
     }).catch(function(err) {
+        console.error('renderIngredientStats error:', err);
         container.innerHTML = '<div class="empty-state">❌ Lỗi tải dữ liệu</div>';
     });
 }

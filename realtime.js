@@ -53,6 +53,13 @@ function initRealtime() {
                 }
             }, 100);
         }
+        // Realtime cho settings: cập nhật cash counter khi daily_balances thay đổi
+        // (vd: máy nhân viên chốt ngày -> máy quản lý tự động cập nhật số tiền thực tế)
+        if (currentTab === 'settings' && typeof loadPosCashData === 'function') {
+            _debounceRealtime('daily_balances_settings', function() {
+                loadPosCashData();
+            }, 200);
+        }
     });
     
     DB.subscribe('customers', function(data) {

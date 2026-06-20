@@ -90,7 +90,12 @@ function showCustomerDetail(customerId) {
     // Lấy từ debtHistory và paymentHistory
     if (c.debtHistory) {
         for (var i = 0; i < c.debtHistory.length; i++) {
-            all.push({ type: 'debt', date: c.debtHistory[i].date, amount: c.debtHistory[i].amount, note: c.debtHistory[i].note, transactionId: null });
+            var debtEntry = c.debtHistory[i];
+            var allItem = { type: 'debt', date: debtEntry.date, amount: debtEntry.amount, note: debtEntry.note, transactionId: null };
+            if (debtEntry.items && debtEntry.items.length > 0) {
+                allItem.items = debtEntry.items;
+            }
+            all.push(allItem);
         }
     }
     if (c.paymentHistory) {
@@ -178,11 +183,24 @@ function _renderCustomerHistoryHtml(all, expanded) {
         var sign = h.type === 'debt' ? '-' : (h.type === 'credit' ? '+' : '+');
         var typeLabel = h.type === 'credit' ? '💰 Trả dư' : (h.type === 'debt' ? '📝 Nợ' : '💵 Trả nợ');
         
+        // Nếu có items, hiển thị dạng clickable để xem chi tiết
+        var hasItems = h.items && h.items.length > 0;
         var itemsHtml = '';
-        if (h.items && h.items.length > 0) {
-            itemsHtml = '<div style="font-size:11px;color:#666;margin:4px 0 8px 12px;">';
+        if (hasItems) {
+            // Tạo ID duy nhất cho phần items
+            var itemsId = 'cus_items_' + i + '_' + Date.now();
+            // Chỉ hiển thị tóm tắt số lượng món, click để xem chi tiết
+            var itemSummary = h.items.length + ' món';
+            itemsHtml = '<div style="font-size:11px;color:#2563eb;margin:2px 0 4px 12px;cursor:pointer;" onclick="document.getElementById(\'' + itemsId + '\').style.display=document.getElementById(\'' + itemsId + '\').style.display===\'none\'?\'block\':\'none\'">📦 ' + itemSummary + ' <span style="font-size:10px;">[xem chi tiết]</span></div>';
+            itemsHtml += '<div id="' + itemsId + '" style="display:none;font-size:11px;color:#666;margin:0 0 8px 12px;padding:4px 8px;background:#f8f9fa;border-radius:4px;">';
             for (var j = 0; j < h.items.length; j++) {
-                itemsHtml += '• ' + escapeHtml(h.items[j].name) + ' x' + h.items[j].qty + ' - ' + formatMoney(h.items[j].price * h.items[j].qty) + '<br>';
+                var itemName = escapeHtml(h.items[j].name);
+                var itemQty = h.items[j].qty;
+                var itemTotal = formatMoney(h.items[j].price * h.items[j].qty);
+                itemsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:1px 0;">';
+                itemsHtml += '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">• ' + itemName + ' <span style="color:#999;">x' + itemQty + '</span></span>';
+                itemsHtml += '<span style="white-space:nowrap;font-weight:500;color:#333;">' + itemTotal + '</span>';
+                itemsHtml += '</div>';
             }
             itemsHtml += '</div>';
         }
@@ -293,12 +311,13 @@ function confirmInlineDebtPayment(customerId, method) {
         var historyNote = 'Thanh toán nợ (' + methodLabel + ')';
         if (creditUsed > 0) historyNote += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
         if (overpay > 0) historyNote += ' (dư ' + formatMoney(overpay) + ')';
-        return addHistory({ type: 'debt_payment', amount: payment, paymentMethod: method, items: [], customer: { id: customer.id, name: customer.name }, note: historyNote });
+        // FIX: Ghi actualPayment (tổng tiền khách đưa) thay vì payment (chỉ phần trả nợ)
+        // vì tiền đã vào quỹ nên phải tính đủ doanh thu
+        return addHistory({ type: 'debt_payment', amount: actualPayment, paymentMethod: method, items: [], customer: { id: customer.id, name: customer.name }, note: historyNote });
     }).then(function() {
-        // AUDIT: Nếu thanh toán nợ bằng tiền mặt VÀ có tiền thực tế (payment > 0), kiểm tra két
-        // FIX: Chỉ gọi handleCashPayment nếu payment > 0 (tránh gọi khi đã dùng hết credit)
-        if (method === 'cash' && payment > 0) {
-            handleCashPayment(payment, null, {type: 'debt_payment', tableName: null, customer: {id: customer.id, name: customer.name}}).catch(function(err) {
+        // AUDIT: Nếu thanh toán nợ bằng tiền mặt, ghi nhận actualPayment (tổng tiền vào két)
+        if (method === 'cash' && actualPayment > 0) {
+            handleCashPayment(actualPayment, null, {type: 'debt_payment', tableName: null, customer: {id: customer.id, name: customer.name}}).catch(function(err) {
                 console.error('[AUDIT] handleCashPayment lỗi:', err);
             });
         }
@@ -307,7 +326,7 @@ function confirmInlineDebtPayment(customerId, method) {
         if (typeof notifyPaymentToTelegram === 'function') {
             notifyPaymentToTelegram({
                 type: 'debt_payment',
-                amount: payment,
+                amount: actualPayment,
                 paymentMethod: method,
                 items: [],
                 tableName: null,
@@ -316,7 +335,7 @@ function confirmInlineDebtPayment(customerId, method) {
             });
         }
         
-        var msg = '✅ Đã thanh toán ' + formatMoney(payment) + ' (' + methodLabel + ')';
+        var msg = '✅ Đã thanh toán ' + formatMoney(actualPayment) + ' (' + methodLabel + ')';
         if (creditUsed > 0) msg += ', đã dùng ' + formatMoney(creditUsed) + ' tiền dư';
         if (overpay > 0) msg += ', dư ' + formatMoney(overpay) + ' làm tiền trả trước';
         showToast(msg, 'success');
@@ -325,7 +344,7 @@ function confirmInlineDebtPayment(customerId, method) {
     });
 }
 
-function addCustomerDebt(customerId, amount, note) {
+function addCustomerDebt(customerId, amount, note, items) {
     var c = null;
     for (var i = 0; i < customers.length; i++) { if (customers[i].id === customerId) { c = customers[i]; break; } }
     if (!c) return Promise.resolve({ debtAmount: amount, creditUsed: 0 });
@@ -346,7 +365,12 @@ function addCustomerDebt(customerId, amount, note) {
     if (debtAmount > 0) {
         c.totalDebt = (c.totalDebt || 0) + debtAmount;
         c.debtHistory = c.debtHistory || [];
-        c.debtHistory.unshift({ id: Date.now(), date: new Date().toISOString(), amount: debtAmount, note: note, status: 'unpaid' });
+        // Lưu items vào debtHistory để hiển thị chi tiết mặt hàng trong tab khách hàng
+        var debtEntry = { id: Date.now(), date: new Date().toISOString(), amount: debtAmount, note: note, status: 'unpaid' };
+        if (items && items.length > 0) {
+            debtEntry.items = items.map(function(it) { return { name: it.name, qty: it.qty, price: it.price }; });
+        }
+        c.debtHistory.unshift(debtEntry);
     }
     
     var updateData = { totalDebt: c.totalDebt || 0, debtHistory: c.debtHistory || [] };

@@ -24,22 +24,69 @@ function _invalidateLookups() {
 }
 
 // Helper: tính số lượng thực tế cần trừ/hoàn dựa trên quy đổi
-// Nếu nguyên liệu có conversionRate (VD: 1 kg = 1600 ml),
-// và recipe yêu cầu 10 ml, thì lượng cần trừ = 10 / 1600 = 0.00625 kg
-function _getConvertedQuantity(ingredient, recipeQuantity) {
+// NGUYÊN TẮC:
+// - Mặc định: recipeQuantity là số lượng ở đơn vị tồn kho (ingredient.unit)
+// - Nếu recipeUnit được nhập:
+//   + recipeUnit === ingredient.unit (đơn vị tồn kho): giữ nguyên, KHÔNG quy đổi
+//   + recipeUnit === conversionFrom (đơn vị lớn, VD: "hộp"): nhân với rate để ra đơn vị nhỏ
+//   + recipeUnit === conversionTo (đơn vị nhỏ, VD: "điếu"): chia cho rate để ra đơn vị tồn kho
+// - QUAN TRỌNG: Luôn trả về số lượng ở đơn vị tồn kho (ingredient.unit)
+function _getConvertedQuantity(ingredient, recipeQuantity, recipeUnit) {
     if (!ingredient) return recipeQuantity;
-    var rate = parseFloat(ingredient.conversionRate) || 0;
-    if (rate > 0 && ingredient.conversionTo && ingredient.conversionFrom) {
-        // Recipe quantity is in conversionTo unit (e.g., ml)
-        // Stock is in conversionFrom unit (e.g., kg)
-        // Convert: stock to deduct = recipe quantity / conversion rate
-        return recipeQuantity / rate;
+    
+    var normUnit = recipeUnit ? recipeUnit.trim() : '';
+    var ingUnit = ingredient.unit ? ingredient.unit.trim() : '';
+    
+    console.log('🔍 _getConvertedQuantity:', {
+        ingName: ingredient.name,
+        ingUnit: ingUnit,
+        recipeUnit: normUnit,
+        recipeQty: recipeQuantity,
+        convFrom: ingredient.conversionFrom,
+        convTo: ingredient.conversionTo,
+        rate: ingredient.conversionRate
+    });
+    
+    if (normUnit) {
+        // QUAN TRỌNG: Nếu recipeUnit trùng với ingredient.unit (đơn vị tồn kho),
+        // thì KHÔNG quy đổi, giữ nguyên số lượng (đã đúng đơn vị tồn kho)
+        if (normUnit === ingUnit) {
+            console.log('✅ _getConvertedQuantity: recipeUnit === ingUnit, giữ nguyên:', recipeQuantity);
+            return recipeQuantity;
+        }
+        
+        var rate = parseFloat(ingredient.conversionRate) || 0;
+        var convFrom = ingredient.conversionFrom ? ingredient.conversionFrom.trim() : '';
+        var convTo = ingredient.conversionTo ? ingredient.conversionTo.trim() : '';
+        
+        if (rate > 0 && convFrom && convTo) {
+            // NGUYÊN TẮC:
+            // - Nếu recipeUnit === conversionFrom (đơn vị lớn, VD: "hộp"): nhân với rate
+            //   VD: gán 1 "hộp" → 1 * 200 = 200 (điếu) - cần chia để ra hộp? KHÔNG!
+            //   Thực tế: convFrom là đơn vị lớn tương đương ingUnit, nên giữ nguyên
+            //   VD: "1" = 1 hộp, gán 1 "1" → giữ nguyên 1 (hộp)
+            if (normUnit === convFrom) {
+                // convFrom là đơn vị lớn, tương đương với ingUnit
+                // VD: convFrom="1" (1 hộp), ingUnit="hộp" → giữ nguyên
+                console.log('✅ _getConvertedQuantity: recipeUnit === convFrom, giữ nguyên (đơn vị lớn tương đương tồn kho):', recipeQuantity);
+                return recipeQuantity;
+            }
+            // - Nếu recipeUnit === conversionTo (đơn vị nhỏ, VD: "điếu"): chia cho rate
+            //   để quy đổi về đơn vị tồn kho (ingUnit)
+            //   VD: gán 20 "điếu" → 20 / 200 = 0.1 (hộp)
+            if (normUnit === convTo) {
+                var result = recipeQuantity / rate;
+                console.log('✅ _getConvertedQuantity: recipeUnit === convTo, chia:', recipeQuantity, '/', rate, '=', result);
+                return result;
+            }
+        }
     }
-    // No conversion: recipe quantity is in same unit as stock
+    console.log('✅ _getConvertedQuantity: mặc định, giữ nguyên:', recipeQuantity);
     return recipeQuantity;
 }
 
 // ========== NGUYÊN LIỆU ==========
+// FIX: Dùng _getIngredientsForItem để check cả nguyên liệu chung + variant
 function checkStock(items) {
     _buildLookups();
     return new Promise(function(resolve) {
@@ -47,12 +94,13 @@ function checkStock(items) {
             var orderItem = items[i];
             var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
             var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
-            if (menuItem && menuItem.ingredients) {
-                for (var k = 0; k < menuItem.ingredients.length; k++) {
-                    var req = menuItem.ingredients[k];
+            if (menuItem) {
+                var ings = _getIngredientsForItem(menuItem, orderItem);
+                for (var k = 0; k < ings.length; k++) {
+                    var req = ings[k];
                     var ing = _ingredientLookup[req.ingredientId];
                     if (ing) {
-                        var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                        var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
                         if (ing.stock < needed) {
                             showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
                             resolve(false);
@@ -67,24 +115,46 @@ function checkStock(items) {
 }
 
 // Helper: lấy danh sách nguyên liệu cho một menu item, hỗ trợ variant
+// FIX: Gộp cả nguyên liệu chung + nguyên liệu riêng theo variant (nếu có)
 function _getIngredientsForItem(menuItem, orderItem) {
     if (!menuItem) return [];
+    
+    // Luôn lấy ingredients chung trước
+    var result = [];
+    if (menuItem.ingredients && menuItem.ingredients.length > 0) {
+        result = result.concat(menuItem.ingredients);
+    }
     
     // Get variant data from either variants or sizes field
     var variantData = (menuItem.variants && menuItem.variants.length > 0) ? menuItem.variants : (menuItem.sizes || []);
     
-    // Nếu orderItem có variant (id chứa '_'), tìm variant-specific ingredients
+    console.log('🔍 _getIngredientsForItem:', {
+        menuItemName: menuItem.name,
+        menuItemId: menuItem.id,
+        orderItemId: orderItem.id,
+        hasGlobalIngs: (menuItem.ingredients && menuItem.ingredients.length > 0),
+        globalIngsCount: menuItem.ingredients ? menuItem.ingredients.length : 0,
+        variantDataCount: variantData.length,
+        variantNames: variantData.map(function(v) { return v.name; }),
+        hasUnderscore: orderItem.id ? orderItem.id.indexOf('_') !== -1 : false
+    });
+    
+    // Nếu orderItem có variant (id chứa '_'), thêm variant-specific ingredients
     if (orderItem.id && orderItem.id.indexOf('_') !== -1 && variantData.length) {
         var variantName = orderItem.id.split('_').slice(1).join('_');
+        console.log('🔍 _getIngredientsForItem: looking for variant:', variantName);
         for (var v = 0; v < variantData.length; v++) {
+            console.log('🔍 _getIngredientsForItem: checking variant:', variantData[v].name, '===', variantName, '?', variantData[v].name === variantName);
             if (variantData[v].name === variantName && variantData[v].ingredients && variantData[v].ingredients.length) {
-                return variantData[v].ingredients;
+                console.log('🔍 _getIngredientsForItem: FOUND variant ingredients:', JSON.stringify(variantData[v].ingredients));
+                result = result.concat(variantData[v].ingredients);
+                break;
             }
         }
     }
     
-    // Fallback: dùng ingredients chung của menu item
-    return menuItem.ingredients || [];
+    console.log('🔍 _getIngredientsForItem: FINAL result:', JSON.stringify(result));
+    return result;
 }
 
 // FIX: Idempotency key cho ingredient deductions để chống double-deduction
@@ -119,13 +189,17 @@ function deductIngredients(items, idempotencyKey) {
         var orderItem = items[i];
         var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
         var menuItem = _menuLookup[orderItem.id] || _menuLookup[baseName];
+        console.log('🔍 deductIngredients item:', { id: orderItem.id, name: orderItem.name, qty: orderItem.qty, baseName: baseName, foundMenuItem: menuItem ? menuItem.name : 'NOT FOUND' });
         if (menuItem) {
             var ings = _getIngredientsForItem(menuItem, orderItem);
             for (var k = 0; k < ings.length; k++) {
                 var req = ings[k];
                 var ing = _ingredientLookup[req.ingredientId];
+                console.log('🔍 deductIngredients req:', { ingId: req.ingredientId, qty: req.quantity, unit: req.unit, foundIng: ing ? ing.name : 'NOT FOUND' });
                 if (ing) {
-                    var deductQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                    var rawQty = req.quantity * orderItem.qty;
+                    var deductQty = _getConvertedQuantity(ing, rawQty, req.unit);
+                    console.log('🔍 deductIngredients deduct:', { rawQty: rawQty, deductQty: deductQty, oldStock: ing.stock, newStock: ing.stock - deductQty });
                     var oldStock = ing.stock || 0;
                     ing.stock -= deductQty;
                     if (ing.stock < 0) ing.stock = 0;
@@ -159,7 +233,7 @@ function restoreIngredients(items) {
                 var req = ings[k];
                 var ing = _ingredientLookup[req.ingredientId];
                 if (ing) {
-                    var restoreQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty);
+                    var restoreQty = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
                     var oldStock = ing.stock || 0;
                     ing.stock += restoreQty;
                     updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));

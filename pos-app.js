@@ -392,7 +392,17 @@ function renderCurrentTime() {
     var dateEl = document.getElementById('headerDate');
     if (dateEl) {
         var dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-        dateEl.innerText = dayNames[now.getDay()] + ', ' + now.toLocaleDateString('vi-VN');
+        var solarStr = dayNames[now.getDay()] + ', ' + now.toLocaleDateString('vi-VN');
+        var lunarStr = '';
+        if (typeof Lunar !== 'undefined') {
+            try {
+                var lunar = Lunar.fromDate(now);
+                var day = lunar.getDay();
+                var month = lunar.getMonth();
+                lunarStr = '  🏮 ' + day + '/' + month;
+            } catch(e) {}
+        }
+        dateEl.innerText = solarStr + lunarStr;
     }
 }
 

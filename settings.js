@@ -1,6 +1,6 @@
 // settings.js - Cài đặt ứng dụng + Tiền mặt tại POS
 // ES5, tương thích Android 6, iOS 12
-console.log('[settings.js] Loaded');
+console.log('[settings.js] Loaded v2 - ' + new Date().toLocaleString());
 
 // ============================================================
 // 0. HÀM KIỂM TRA CHỐT NGÀY (dùng chung cho toàn bộ POS)
@@ -36,6 +36,16 @@ var CASH_DENOMS = [
 ];
 var cashCounts = {};
 var _posCashData = null; // Cache dữ liệu đối soát
+var _selectedCloseDate = null; // Ngày đang chọn để chốt (null = hôm nay)
+
+// Hàm lấy ngày hôm nay theo giờ Việt Nam (UTC+7), trả về định dạng YYYY-MM-DD
+// Tránh lỗi timezone khi dùng new Date().toISOString()
+function getTodayDateKey() {
+    var now = new Date();
+    // Chuyển sang giờ Việt Nam (UTC+7)
+    var vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    return vnTime.toISOString().slice(0, 10);
+}
 
 function initQuickCashCounter() {
     cashCounts = {};
@@ -43,11 +53,18 @@ function initQuickCashCounter() {
         cashCounts[CASH_DENOMS[i].value] = 0;
     }
     _posCashData = null;
+    _selectedCloseDate = null;
     loadPosCashData();
 
     // Subscribe realtime vào daily_balances hôm nay để cập nhật _dayClosedCache
     // Khi admin hủy chốt từ thiết bị khác, nhân viên sẽ thấy ngay
     _subscribeDayClosedRealtime();
+
+    // Tự động fix dữ liệu cũ: các ngày đã chốt nhưng thiếu cashKept
+    // Chỉ chạy 1 lần khi khởi tạo, không block UI
+    setTimeout(function() {
+        fixMissingCashKept();
+    }, 2000);
 }
 
 // Lắng nghe realtime thay đổi daily_balances (chốt ngày, chênh lệch, hủy chốt...)
@@ -76,17 +93,23 @@ function _subscribeDayClosedRealtime() {
     }
 }
 
-function loadPosCashData() {
+function loadPosCashData(targetDate) {
     try {
-    var today = new Date().toISOString().slice(0, 10);
+    // FIX: Dùng hàm getTodayDateKey() để lấy ngày theo giờ Việt Nam (UTC+7), tránh lỗi timezone
+    var today = targetDate || getTodayDateKey();
     var isAdmin = typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin();
 
     // Lấy ngày hôm trước để tính số dư đầu kỳ
-    var prevDate = new Date(today);
+    // FIX: Dùng Date.UTC để tránh lỗi timezone (toISOString trả về UTC, trong khi setDate tính theo local time)
+    var prevDate = new Date(Date.UTC(
+        parseInt(today.split('-')[0], 10),
+        parseInt(today.split('-')[1], 10) - 1,
+        parseInt(today.split('-')[2], 10)
+    ));
     prevDate.setDate(prevDate.getDate() - 1);
     var prevDateStr = prevDate.toISOString().slice(0, 10);
 
-    console.log('[POS Cash] Loading data for:', today, 'prev:', prevDateStr);
+    console.log('[POS Cash] Loading data for:', today, 'prev:', prevDateStr, 'targetDate:', targetDate);
 
     // Lấy shopId từ DB
     var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
@@ -103,7 +126,7 @@ function loadPosCashData() {
         dbRef.child('cost_transactions').once('value'),
         // Tiền quản lý nhận - đọc trực tiếp từ Firebase
         dbRef.child('manager_cash_pickups').once('value'),
-        // daily_balances hôm nay (đã lưu) - đọc trực tiếp từ Firebase
+        // daily_balances của ngày target (đã lưu) - đọc trực tiếp từ Firebase
         dbRef.child('daily_balances/' + today).once('value')
     ]).then(function(results) {
         var prevBalance = results[0].val() || {};
@@ -139,6 +162,7 @@ function loadPosCashData() {
         }
 
         console.log('[POS Cash] prevBalance:', prevBalance);
+        console.log('[POS Cash] prevBalance.cashKept:', prevBalance ? prevBalance.cashKept : 'N/A (prevBalance is null/empty)');
         console.log('[POS Cash] transactions:', transactions.length, 'items');
         console.log('[POS Cash] allCosts (from Firebase):', allCosts.length, 'items');
         console.log('[POS Cash] pickups (from Firebase):', pickups.length, 'items');
@@ -146,7 +170,6 @@ function loadPosCashData() {
 
         // Số dư đầu kỳ
         var openingBalance = (prevBalance && prevBalance.cashKept) || 0;
-
         // Doanh thu tiền mặt
         var cashRevenue = 0;
         for (var i = 0; i < transactions.length; i++) {
@@ -202,13 +225,18 @@ function loadPosCashData() {
             expectedClosing: expectedClosing,
             actualClosing: (savedBalance.actualClosing !== undefined && savedBalance.actualClosing !== null) ? savedBalance.actualClosing : null,
             isClosed: savedBalance.isClosed || false,
+            cashKept: (savedBalance.cashKept !== undefined && savedBalance.cashKept !== null) ? savedBalance.cashKept : null,
             difference: (savedBalance.difference !== undefined && savedBalance.difference !== null) ? savedBalance.difference : null,
             diffPercent: (savedBalance.diffPercent !== undefined && savedBalance.diffPercent !== null) ? savedBalance.diffPercent : null,
-            status: savedBalance.status || null
+            status: savedBalance.status || null,
+            dateKey: today
         };
 
         // Cập nhật cache isDayClosed để các module khác (refund, xóa món, xóa bàn) kiểm tra
-        _updateDayClosedCache();
+        // CHỈ cập nhật cache nếu đang xem ngày hôm nay (không phải ngày trước đó)
+        if (!targetDate) {
+            _updateDayClosedCache();
+        }
 
         renderCashCounter(isAdmin);
     }).catch(function(err) {
@@ -237,7 +265,7 @@ function renderCashCounter(isAdmin) {
     var data = _posCashData || {
         openingBalance: 0, cashRevenue: 0, posCashExpense: 0, posCostCount: 0,
         managerPickupTotal: 0, pickupHistory: [], expectedClosing: 0, actualClosing: null,
-        isClosed: false, difference: null, diffPercent: null, status: null
+        isClosed: false, cashKept: null, difference: null, diffPercent: null, status: null
     };
 
     // expectedClosing đã trừ QL nhận, nên chênh lệch = đếm được - dự kiến còn
@@ -254,11 +282,27 @@ function renderCashCounter(isAdmin) {
     html += '<div class="cash-counter">';
 
     // ===== HEADER =====
+    var displayDate = data.dateKey || new Date().toISOString().slice(0, 10);
+    var todayStr = new Date().toISOString().slice(0, 10);
+    var isToday = (displayDate === todayStr);
+    var minDate = '2020-01-01';
     html += '  <div class="cash-counter-header">';
     html += '    <span class="cash-counter-title">💰 Tiền mặt tại POS</span>';
     if (data.isClosed) {
         html += '    <span class="cash-closed-badge">🔒 Đã chốt</span>';
     }
+    if (!isToday && !data.isClosed) {
+        html += '    <span style="font-size:11px;color:#e67e22;background:#fef3e2;padding:2px 6px;border-radius:4px;margin-left:6px;">⚠️ Chưa chốt</span>';
+    }
+    if (!isToday) {
+        html += '    <button class="cash-action-btn" style="padding:4px 8px;font-size:11px;margin-left:auto;" onclick="selectCloseDate(\'' + todayStr + '\')">📅 Hôm nay</button>';
+    }
+    html += '  </div>';
+    // Date selector: ◀ Ngày ▶
+    html += '  <div class="pos-cash-date-selector" style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f8f9fa;border-radius:8px;margin-bottom:8px;">';
+    html += '    <button class="cash-action-btn" style="padding:6px 10px;font-size:14px;line-height:1;" onclick="changeCloseDate(-1)" ' + (displayDate <= minDate ? 'disabled' : '') + '>◀</button>';
+    html += '    <span style="flex:1;text-align:center;font-size:14px;font-weight:600;color:#2c3e50;">' + formatDateDisplay(displayDate) + '</span>';
+    html += '    <button class="cash-action-btn" style="padding:6px 10px;font-size:14px;line-height:1;" onclick="changeCloseDate(1)" ' + (isToday ? 'disabled' : '') + '>▶</button>';
     html += '  </div>';
 
     // ===== THÔNG TIN ĐỐI SOÁT (chỉ Quản lý mới thấy) =====
@@ -273,11 +317,14 @@ function renderCashCounter(isAdmin) {
         html += '      <span class="pos-cash-expected" id="posCashExpected">' + formatMoney(data.expectedClosing) + '</span>';
         html += '    </div>';
 
-        // Số tiền thực tế = tổng đếm được
-        html += '    <div class="pos-cash-row">';
-        html += '      <span>📊 Số tiền thực tế:</span>';
-        html += '      <span class="cash-counter-total" id="cashGrandTotal">' + formatMoney(countedTotal) + '</span>';
-        html += '    </div>';
+        // Số tiền quỹ POS thực tế sau khi nhân viên chốt (chỉ hiển thị khi đã chốt)
+        if (data.isClosed) {
+            var closedCashDisplay = (data.cashKept !== null && data.cashKept !== undefined) ? data.cashKept : data.expectedClosing;
+            html += '    <div class="pos-cash-row" style="border-top:2px solid #2ecc71;padding-top:8px;margin-top:4px;">';
+            html += '      <span style="font-weight:700;color:#27ae60;">💰 Số tiền quỹ POS thực tế sau chốt:</span>';
+            html += '      <span style="font-weight:700;color:#27ae60;font-size:16px;">' + formatMoney(closedCashDisplay) + '</span>';
+            html += '    </div>';
+        }
 
         // Chênh lệch: nếu đã chốt thì hiển thị difference đã lưu, nếu chưa thì tính realtime
         var displayDiff = data.difference !== null && data.difference !== undefined ? data.difference : liveDiff;
@@ -294,49 +341,56 @@ function renderCashCounter(isAdmin) {
         html += '  </div>';
     }
 
-    // ===== HIỂN THỊ THÔNG TIN CHO NHÂN VIÊN (đưa LÊN TRÊN bộ đếm) =====
+    // ===== HIỂN THỊ THÔNG TIN CHO NHÂN VIÊN =====
     if (!isAdmin) {
         html += '  <div class="pos-cash-staff-result">';
 
-        // Nhân viên: chỉ hiển thị chi phí POS và QL nhận (ẩn số dư đầu kỳ, doanh thu...)
+        // Nhân viên: chỉ hiển thị chi phí POS và QL nhận
         html += '    <div class="pos-cash-row"><span>🏦 Chi phí Két POS</span><span>' + data.posCostCount + ' khoản - ' + formatMoney(data.posCashExpense) + '</span></div>';
         html += '    <div class="pos-cash-row"><span>💰 QL nhận</span><span>' + formatMoney(data.managerPickupTotal) + '</span></div>';
 
-        // 💵 Số tiền tại POS hiện tại = số nhân viên đếm
+        // 💵 Số tiền tại POS hiện tại
+        // - Nếu đã đếm tiền (countedTotal > 0): hiển thị số đếm được
+        // - Nếu chưa đếm (countedTotal === 0): hiển thị expectedClosing (dự kiến còn trong két)
+        //   expectedClosing = openingBalance + cashRevenue - posCashExpense - managerPickupTotal
+        // - Sau khi chốt: hiển thị số đã chốt (countedTotal)
+        var staffPosCashDisplay = countedTotal > 0 ? countedTotal : data.expectedClosing;
         html += '    <div class="pos-cash-row">';
         html += '      <span>💵 Số tiền tại POS hiện tại:</span>';
-        html += '      <span class="' + (countedTotal >= 0 ? 'pos-cash-positive' : 'pos-cash-negative') + '" id="staffPosCashValue">' + formatMoney(countedTotal) + '</span>';
+        html += '      <span class="' + (staffPosCashDisplay >= 0 ? 'pos-cash-positive' : 'pos-cash-negative') + '" id="staffPosCashValue">' + formatMoney(staffPosCashDisplay) + '</span>';
         html += '    </div>';
 
-        // 📊 Chênh lệch + đầy đủ thông tin - chỉ hiển thị khi đã chốt
-        // Dùng data.difference từ Firebase (do nhân viên A đã chốt ghi lên)
-        // KHÔNG tính lại staffDiff = countedTotal - data.expectedClosing vì:
-        //   - Nhân viên B chưa đếm tiền -> countedTotal = 0 -> sai
-        //   - Cần hiển thị chênh lệch thực tế từ máy đã chốt
+        // Chỉ hiển thị doanh thu, dự kiến còn, chênh lệch SAU KHI đã chốt ngày
         if (data.isClosed) {
+            // 📂 Số dư đầu kỳ
             html += '    <div class="pos-cash-row"><span>📂 Số dư đầu kỳ</span><span>' + formatMoney(data.openingBalance) + '</span></div>';
+            // 💵 Doanh thu tiền mặt
             html += '    <div class="pos-cash-row"><span>💵 Doanh thu tiền mặt</span><span>' + formatMoney(data.cashRevenue) + '</span></div>';
 
-            // Lấy difference từ Firebase (do nhân viên A chốt ghi lên)
+            // 📐 Dự kiến còn
+            var expectedClosing = (data.openingBalance || 0) + (data.cashRevenue || 0) - (data.posCashExpense || 0) - (data.managerPickupTotal || 0);
+            html += '    <div class="pos-cash-row" style="border-top:1px dashed #ddd;padding-top:6px;">';
+            html += '      <span>📐 Dự kiến còn:</span>';
+            html += '      <span style="font-weight:600;color:#2c3e50;">' + formatMoney(expectedClosing) + '</span>';
+            html += '    </div>';
+
+            // 📊 Chênh lệch - dùng data.difference từ Firebase (do nhân viên A đã chốt ghi lên)
             var savedDiff = (data.difference !== null && data.difference !== undefined) ? data.difference : null;
             if (savedDiff !== null) {
                 if (savedDiff > 0) {
-                    // Dư tiền: không hiển thị số dư
                     html += '    <div class="pos-cash-row pos-cash-diff" id="staffDiffRow">';
                     html += '      <span>📊 Chênh lệch thực tế:</span>';
-                    html += '      <span class="pos-cash-warning" id="staffDiffValue">Nhập máy bị thiếu - Yêu cầu nhập dữ liệu lần sau đầy đủ (đã chốt)</span>';
+                    html += '      <span class="pos-cash-warning" id="staffDiffValue">Nhập máy bị thiếu - Yêu cầu lần sau nhập đầy đủ (đã chốt)</span>';
                     html += '    </div>';
                 } else if (savedDiff < 0) {
-                    // Thiếu tiền: hiển thị số tiền thiếu + cảnh báo nhập máy
                     html += '    <div class="pos-cash-row pos-cash-diff" id="staffDiffRow">';
                     html += '      <span>📊 Chênh lệch thực tế:</span>';
                     html += '      <span class="pos-cash-negative" id="staffDiffValue">' + formatMoney(savedDiff) + ' (đã chốt)</span>';
                     html += '    </div>';
                     html += '    <div class="pos-cash-row" style="margin-top:4px;">';
-                    html += '      <span style="color:#e74c3c;font-size:12px;">⚠️ Nhập máy bị thiếu - Yêu cầu lần sau nhập máy đầy đủ</span>';
+                    html += '      <span style="color:#e74c3c;font-size:12px;">⚠️ Thiếu tiền mặt so với nhập máy - Kiểm tra lại và báo quản lý</span>';
                     html += '    </div>';
                 } else {
-                    // Không chênh lệch
                     html += '    <div class="pos-cash-row pos-cash-diff" id="staffDiffRow">';
                     html += '      <span>📊 Chênh lệch thực tế:</span>';
                     html += '      <span class="pos-cash-positive" id="staffDiffValue">' + formatMoney(savedDiff) + ' (đã chốt)</span>';
@@ -370,13 +424,15 @@ function renderCashCounter(isAdmin) {
     html += '  </div>';
 
     // ===== NÚT HÀNH ĐỘNG =====
+    var displayDate = data.dateKey || new Date().toISOString().slice(0, 10);
+    var dateLabel = formatDateDisplay(displayDate);
     if (isAdmin) {
         html += '  <div class="cash-counter-actions">';
         html += '    <button class="cash-action-btn cash-reset-btn" onclick="resetCashCounter()">🔄 Làm lại</button>';
         html += '    <button class="cash-action-btn cash-copy-btn" onclick="copyCashResult()">📋 Sao chép</button>';
         if (data.isClosed) {
             // Admin có nút "Hủy chốt" để mở khóa cho nhân viên chốt lại
-            html += '    <button class="cash-action-btn cash-unlock-btn" onclick="unlockDayClose()">🔓 Hủy chốt</button>';
+            html += '    <button class="cash-action-btn cash-unlock-btn" onclick="unlockDayClose()">🔓 Hủy chốt ' + dateLabel + '</button>';
         }
         html += '  </div>';
     } else {
@@ -384,7 +440,7 @@ function renderCashCounter(isAdmin) {
         html += '    <button class="cash-action-btn cash-reset-btn" onclick="resetCashCounter()">🔄 Làm lại</button>';
         html += '    <button class="cash-action-btn cash-copy-btn" onclick="copyCashResult()">📋 Sao chép</button>';
         if (!data.isClosed) {
-            html += '    <button class="cash-action-btn cash-close-btn" onclick="staffCloseDay()">🔒 Chốt ngày</button>';
+            html += '    <button class="cash-action-btn cash-close-btn" onclick="staffCloseDay()">🔒 Chốt ngày ' + dateLabel + '</button>';
         }
         html += '  </div>';
     }
@@ -461,9 +517,21 @@ function updateCashGrandTotal() {
         total += denom.value * (cashCounts[denom.value] || 0);
     }
 
-    // Số tiền thực tế = tổng đếm được
+    // Số tiền thực tế
+    // - Nếu đã chốt ngày: hiển thị cashKept đã lưu (không thay đổi theo số đếm)
+    //   Nếu cashKept null (dữ liệu cũ): fallback về expectedClosing
+    // - Nếu chưa chốt: hiển thị tổng đếm được (total)
     var el = document.getElementById('cashGrandTotal');
-    if (el) el.textContent = formatMoney(total);
+    if (el) {
+        var isClosed = _posCashData && _posCashData.isClosed;
+        var displayTotal;
+        if (isClosed) {
+            displayTotal = (_posCashData.cashKept !== null && _posCashData.cashKept !== undefined) ? _posCashData.cashKept : _posCashData.expectedClosing;
+        } else {
+            displayTotal = total;
+        }
+        el.textContent = formatMoney(displayTotal);
+    }
 
     // Cập nhật chênh lệch realtime (admin)
     var expectedClosing = _posCashData ? _posCashData.expectedClosing : 0;
@@ -475,11 +543,14 @@ function updateCashGrandTotal() {
         diffEl.className = diffClass;
     }
 
-    // Cập nhật Số tiền tại POS hiện tại (staff) = số nhân viên đếm
+    // Cập nhật Số tiền tại POS hiện tại (staff)
+    // - Nếu đã đếm tiền (total > 0): hiển thị số đếm được
+    // - Nếu chưa đếm (total === 0): hiển thị expectedClosing (dự kiến còn trong két)
     var staffPosCashEl = document.getElementById('staffPosCashValue');
     if (staffPosCashEl) {
-        staffPosCashEl.textContent = formatMoney(total);
-        staffPosCashEl.className = total >= 0 ? 'pos-cash-positive' : 'pos-cash-negative';
+        var staffDisplay = total > 0 ? total : (_posCashData ? _posCashData.expectedClosing : 0);
+        staffPosCashEl.textContent = formatMoney(staffDisplay);
+        staffPosCashEl.className = staffDisplay >= 0 ? 'pos-cash-positive' : 'pos-cash-negative';
     }
 }
 
@@ -598,6 +669,30 @@ function saveManagerPickup() {
 }
 
 
+// ========== HÀM CHỌN NGÀY TRƯỚC ĐÓ ĐỂ CHỐT ==========
+function selectCloseDate(dateStr) {
+    if (!dateStr) return;
+    _selectedCloseDate = dateStr;
+    // Reset bộ đếm tiền khi chuyển ngày
+    for (var i = 0; i < CASH_DENOMS.length; i++) {
+        cashCounts[CASH_DENOMS[i].value] = 0;
+    }
+    loadPosCashData(dateStr);
+}
+
+// Lùi/Tiến ngày (delta = -1: lùi, delta = 1: tiến)
+function changeCloseDate(delta) {
+    var currentDate = _selectedCloseDate || (_posCashData && _posCashData.dateKey) || getTodayDateKey();
+    var d = new Date(Date.UTC(
+        parseInt(currentDate.split('-')[0], 10),
+        parseInt(currentDate.split('-')[1], 10) - 1,
+        parseInt(currentDate.split('-')[2], 10)
+    ));
+    d.setDate(d.getDate() + delta);
+    var newDateStr = d.toISOString().slice(0, 10);
+    selectCloseDate(newDateStr);
+}
+
 // ========== NHÂN VIÊN: CHỐT NGÀY ==========
 function staffCloseDay() {
     var countedTotal = 0;
@@ -622,12 +717,14 @@ function staffCloseDay() {
     // Dùng cho admin lọc danh sách chốt ngày dễ dàng
     var differenceType = isSurplus ? 'surplus' : (isNegative ? 'deficit' : 'balanced');
 
-    var today = new Date().toISOString().slice(0, 10);
+    // Dùng ngày đã chọn (nếu có), nếu không thì dùng hôm nay
+    var closeDate = _selectedCloseDate || data.dateKey || new Date().toISOString().slice(0, 10);
 
     // Ghi lên Firebase - các máy khác đọc realtime sẽ tự cập nhật
     var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
-    var dbRef = firebase.database().ref(shopId + '/daily_balances/' + today);
+    var dbRef = firebase.database().ref(shopId + '/daily_balances/' + closeDate);
     dbRef.update({
+        cashKept: countedTotal,       // <-- THÊM: số tiền đếm được, dùng làm số dư đầu kỳ ngày hôm sau
         difference: difference,
         differenceType: differenceType,
         isClosed: true,
@@ -639,7 +736,7 @@ function staffCloseDay() {
         var toastMsg = '';
         var isSurplus = difference > 0;
         if (isNegative) {
-            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(today) + '\n' +
+            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(closeDate) + '\n' +
                        '🔴 THIẾU ' + formatMoney(Math.abs(difference)) + ' - BÁO QUẢN LÝ!\n\n' +
                        '📂 Đầu kỳ: ' + formatMoney(data.openingBalance) + '\n' +
                        '💵 Đếm được: ' + formatMoney(countedTotal) + '\n' +
@@ -648,7 +745,7 @@ function staffCloseDay() {
                        '📋 Thiếu: ' + formatMoney(Math.abs(difference));
             showCloseableToast(toastMsg, 'error');
         } else if (isSurplus) {
-            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(today) + '\n' +
+            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(closeDate) + '\n' +
                        '⚠️ Dư tiền! Vui lòng nhập dữ liệu lần sau chính xác hơn.\n\n' +
                        '📂 Đầu kỳ: ' + formatMoney(data.openingBalance) + '\n' +
                        '💵 Đếm được: ' + formatMoney(countedTotal) + '\n' +
@@ -656,7 +753,7 @@ function staffCloseDay() {
                        '📐 Dự kiến còn: ' + formatMoney(expectedAfterPickup);
             showCloseableToast(toastMsg, 'warning');
         } else {
-            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(today) + '\n' +
+            toastMsg = '🔒 ĐÃ CHỐT NGÀY ' + formatDateDisplay(closeDate) + '\n' +
                        '✅ Số dư đầu kỳ mai: ' + formatMoney(countedTotal) + '\n\n' +
                        '📂 Đầu kỳ: ' + formatMoney(data.openingBalance) + '\n' +
                        '💵 Đếm được: ' + formatMoney(countedTotal) + '\n' +
@@ -669,7 +766,7 @@ function staffCloseDay() {
         // Gửi Telegram cho admin
         if (typeof sendTelegramMessage === 'function') {
             var icon = isNegative ? '🔴' : (isSurplus ? '⚠️' : '✅');
-            var tgMsg = icon + ' NHÂN VIÊN CHỐT NGÀY ' + formatDateDisplay(today) + '\n\n' +
+            var tgMsg = icon + ' NHÂN VIÊN CHỐT NGÀY ' + formatDateDisplay(closeDate) + '\n\n' +
                         '📂 Đầu kỳ: ' + formatMoney(data.openingBalance) + '\n' +
                         '💵 Doanh thu TM: ' + formatMoney(data.cashRevenue) + '\n' +
                         '🏦 Chi phí POS: ' + formatMoney(data.posCashExpense) + '\n' +
@@ -685,7 +782,9 @@ function staffCloseDay() {
             sendTelegramMessage(tgMsg);
         }
 
-        loadPosCashData(); // Reload
+        // Sau khi chốt, quay về ngày hôm nay
+        _selectedCloseDate = null;
+        loadPosCashData();
     }).catch(function(err) {
         console.error('staffCloseDay error:', err);
         showToast('❌ Lỗi khi chốt ngày!', 'error');
@@ -695,26 +794,30 @@ function staffCloseDay() {
 // ========== ADMIN: HỦY CHỐT NGÀY ==========
 // Admin có thể hủy chốt để cho phép nhân viên chốt lại
 function unlockDayClose() {
-    if (!confirm('🔓 Xác nhận hủy chốt ngày hôm nay?\n\nSau khi hủy chốt:\n- Nhân viên có thể chốt lại\n- Hoàn tác/xóa món/xóa bàn sẽ yêu cầu mật khẩu (đã chốt)\n\nTiếp tục?')) return;
+    var closeDate = _selectedCloseDate || (_posCashData && _posCashData.dateKey) || new Date().toISOString().slice(0, 10);
+    var dateLabel = formatDateDisplay(closeDate);
 
-    var today = new Date().toISOString().slice(0, 10);
+    if (!confirm('🔓 Xác nhận hủy chốt ngày ' + dateLabel + '?\n\nSau khi hủy chốt:\n- Nhân viên có thể chốt lại\n- Hoàn tác/xóa món/xóa bàn sẽ yêu cầu mật khẩu (đã chốt)\n\nTiếp tục?')) return;
+
     var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
 
-    var dbRef = firebase.database().ref(shopId + '/daily_balances/' + today);
+    var dbRef = firebase.database().ref(shopId + '/daily_balances/' + closeDate);
     dbRef.update({
         isClosed: false,
         closedAt: null,
         closedBy: null,
         updatedAt: Date.now()
     }).then(function() {
-        showToast('🔓 Đã hủy chốt ngày hôm nay', 'success');
+        showToast('🔓 Đã hủy chốt ngày ' + dateLabel, 'success');
 
         if (typeof sendTelegramMessage === 'function') {
-            var msg = '🔓 QUẢN LÝ HỦY CHỐT NGÀY ' + formatDateDisplay(today) + '\n\n' +
-                      'Nhân viên có thể chốt lại ngày hôm nay.';
+            var msg = '🔓 QUẢN LÝ HỦY CHỐT NGÀY ' + dateLabel + '\n\n' +
+                      'Nhân viên có thể chốt lại ngày này.';
             sendTelegramMessage(msg);
         }
 
+        // Quay về ngày hôm nay sau khi hủy chốt
+        _selectedCloseDate = null;
         loadPosCashData();
     }).catch(function(err) {
         console.error('unlockDayClose error:', err);
@@ -777,23 +880,36 @@ function initSettingsTab() {
     var esp32Section = document.getElementById('settingsEsp32Section');
     var chatLockField = document.getElementById('chatLockField');
     var staffNoteSection = document.getElementById('settingsStaffNoteSection');
+    var lockSection = document.getElementById('settingsLockSection');
 
-    // App section: staff thấy, admin ẩn (admin đã có các section khác)
-    if (appSection) appSection.style.display = isAdmin ? 'none' : '';
-    // Staff note section: chỉ nhân viên mới thấy
-    if (staffNoteSection) staffNoteSection.style.display = isAdmin ? 'none' : '';
-    // Shop section: chỉ admin mới thấy
-    if (shopSection) shopSection.style.display = isAdmin ? '' : 'none';
-    // Telegram section: chỉ admin mới thấy
-    if (telegramSection) telegramSection.style.display = isAdmin ? '' : 'none';
-    // ESP32 section: chỉ admin mới thấy
-    if (esp32Section) esp32Section.style.display = isAdmin ? '' : 'none';
-    // Permission section: luôn ẩn (đã chuyển sang modal employees.js)
-    if (permSection) permSection.style.display = 'none';
-    // Chat section: chỉ admin mới thấy
-    if (chatSection) chatSection.style.display = isAdmin ? '' : 'none';
-    // Lock chat field: chỉ admin mới thấy
-    if (chatLockField) chatLockField.style.display = isAdmin ? '' : 'none';
+    // Admin: hiển thị TOÀN BỘ các section - chỉ ẩn "Ghi chú nhân viên"
+    // Nhân viên: ẩn TOÀN BỘ các section - chỉ hiển thị "Ghi chú nhân viên"
+    if (isAdmin) {
+        // Admin: hiển thị tất cả section cài đặt
+        if (appSection) appSection.style.display = '';
+        if (shopSection) shopSection.style.display = '';
+        if (telegramSection) telegramSection.style.display = '';
+        if (esp32Section) esp32Section.style.display = '';
+        if (chatSection) chatSection.style.display = '';
+        if (chatLockField) chatLockField.style.display = '';
+        if (lockSection) lockSection.style.display = '';
+        // Staff note section: ẩn với admin
+        if (staffNoteSection) staffNoteSection.style.display = 'none';
+        // Permission section: luôn ẩn (đã chuyển sang modal employees.js)
+        if (permSection) permSection.style.display = 'none';
+    } else {
+        // Nhân viên: ẩn tất cả section cài đặt, chỉ hiển thị "Ghi chú"
+        if (appSection) appSection.style.display = 'none';
+        if (shopSection) shopSection.style.display = 'none';
+        if (telegramSection) telegramSection.style.display = 'none';
+        if (esp32Section) esp32Section.style.display = 'none';
+        if (chatSection) chatSection.style.display = 'none';
+        if (chatLockField) chatLockField.style.display = 'none';
+        if (lockSection) lockSection.style.display = 'none';
+        if (permSection) permSection.style.display = 'none';
+        // Staff note section: hiển thị cho nhân viên
+        if (staffNoteSection) staffNoteSection.style.display = '';
+    }
 
     // Load Telegram config nếu có
     var savedToken = localStorage.getItem('telegram_bot_token');
@@ -1348,6 +1464,78 @@ function compareVersions(v1, v2) {
         if (n1 < n2) return -1;
     }
     return 0;
+}
+
+// ============================================================
+// 6b. TỰ ĐỘNG FIX DỮ LIỆU CŨ: cashKept CHO CÁC NGÀY ĐÃ CHỐT
+// ============================================================
+// Trước đây khi chốt ngày không lưu cashKept, khiến số dư đầu kỳ ngày hôm sau = 0.
+// Hàm này dò tìm các ngày đã chốt nhưng thiếu cashKept và tự động điền.
+// Chạy 1 lần khi khởi tạo, không ảnh hưởng hiệu năng.
+
+function fixMissingCashKept() {
+    try {
+        var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+        var dbRef = firebase.database().ref(shopId + '/daily_balances');
+
+        // Đọc tất cả daily_balances để tìm ngày thiếu cashKept
+        dbRef.once('value').then(function(snapshot) {
+            var allBalances = snapshot.val() || {};
+            var fixedCount = 0;
+
+            // Chuyển object thành mảng và sắp xếp theo ngày tăng dần
+            var dates = Object.keys(allBalances).sort();
+
+            for (var di = 0; di < dates.length; di++) {
+                var dateKey = dates[di];
+                var balance = allBalances[dateKey];
+
+                // Chỉ fix những ngày đã chốt (isClosed === true) nhưng thiếu cashKept
+                if (balance && balance.isClosed === true) {
+                    if (balance.cashKept === undefined || balance.cashKept === null) {
+                        // Tính cashKept = expectedClosing (đã lưu) hoặc actualClosing hoặc difference
+                        // expectedClosing = openingBalance + cashRevenue - posCashExpense - managerPickupTotal
+                        // Nhưng nếu không có expectedClosing, thử dùng actualClosing
+                        var cashKeptValue = null;
+
+                        if (balance.expectedClosing !== undefined && balance.expectedClosing !== null) {
+                            // expectedClosing đã là số tiền dự kiến còn trong két
+                            // Nếu difference = 0 (cân bằng) thì cashKept = expectedClosing
+                            // Nếu difference != 0 thì cashKept = expectedClosing + difference
+                            var diff = (balance.difference !== undefined && balance.difference !== null) ? balance.difference : 0;
+                            cashKeptValue = balance.expectedClosing + diff;
+                        } else if (balance.actualClosing !== undefined && balance.actualClosing !== null) {
+                            cashKeptValue = balance.actualClosing;
+                        } else if (balance.difference !== undefined && balance.difference !== null) {
+                            // Nếu chỉ có difference, không đủ để tính, bỏ qua
+                            console.log('[FixCashKept] Skip ' + dateKey + ': only difference available, cannot calculate cashKept');
+                            continue;
+                        }
+
+                        if (cashKeptValue !== null && cashKeptValue >= 0) {
+                            // Ghi cashKept lên Firebase
+                            var dateRef = dbRef.child(dateKey);
+                            dateRef.update({ cashKept: cashKeptValue });
+                            fixedCount++;
+                            console.log('[FixCashKept] Fixed ' + dateKey + ': cashKept = ' + cashKeptValue);
+                        }
+                    }
+                }
+            }
+
+            if (fixedCount > 0) {
+                console.log('[FixCashKept] Đã fix ' + fixedCount + ' ngày thiếu cashKept');
+                // Reload lại dữ liệu để UI cập nhật
+                loadPosCashData();
+            } else {
+                console.log('[FixCashKept] Không có ngày nào cần fix');
+            }
+        }).catch(function(err) {
+            console.error('[FixCashKept] Error reading daily_balances:', err);
+        });
+    } catch(e) {
+        console.error('[FixCashKept] Fatal error:', e);
+    }
 }
 
 // ============================================================

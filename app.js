@@ -119,7 +119,8 @@ function loadData() {
 }
 
 function renderRecentTransactions() {
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var now = new Date();
+    var todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     DB.getTransactionsByDate(todayStr).then(function(transactions) {
         var validTx = transactions.filter(function(tx) { return !tx.refunded; });
         validTx.sort(function(a, b) {
@@ -364,7 +365,18 @@ function renderCurrentTime() {
     var dateEl = document.getElementById('headerDate');
     if (dateEl) {
         var dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-        dateEl.innerText = dayNames[now.getDay()] + ', ' + now.toLocaleDateString('vi-VN');
+        var solarStr = dayNames[now.getDay()] + ', ' + now.toLocaleDateString('vi-VN');
+        // Thêm ngày âm lịch nếu thư viện lunar-javascript đã load
+        var lunarStr = '';
+        if (typeof Lunar !== 'undefined') {
+            try {
+                var lunar = Lunar.fromDate(now);
+                var day = lunar.getDay();
+                var month = lunar.getMonth();
+                lunarStr = '  🏮 ' + day + '/' + month;
+            } catch(e) {}
+        }
+        dateEl.innerText = solarStr + lunarStr;
     }
 }
 

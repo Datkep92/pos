@@ -55,7 +55,8 @@ function restoreRecentToastState() {
 
 // ========== UPDATE RECENT TOAST ==========
 function updateRecentToast() {
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var now = new Date();
+    var todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     DB.getTransactionsByDate(todayStr).then(function(transactions) {
         // FIX: Hiển thị cả giao dịch hủy (refund) trong recentToast
         // Chỉ lọc bỏ các transaction bị đánh dấu trùng lặp tự động (có note chứa 'Tự động')
@@ -89,42 +90,56 @@ function updateRecentToast() {
             else if (timeDiff < 60) timeText = timeDiff + 'p';
             else timeText = Math.floor(timeDiff / 60) + 'h';
             
-            var shortInfo = '';
+            // Xác định icon chính dựa trên loại giao dịch
+            var mainIcon = '';
+            var labelSuffix = '';
             if (tx.refunded) {
-                shortInfo = '↩️ Hoàn tác';
+                mainIcon = '↩️';
             } else if (tx.type === 'debt_payment') {
-                shortInfo = '💢 Thanh toán nợ';
+                mainIcon = tx.paymentMethod === 'debt' ? '📝' : '💢';
             } else if (tx.type === 'credit') {
-                shortInfo = '💰 Tiền dư';
+                mainIcon = '💰';
             } else if (tx.tableName) {
-                var displayLabel = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
-                shortInfo = '🍽️ ' + displayLabel;
+                mainIcon = '🍽️';
+                labelSuffix = (tx.customer && tx.customer.name) ? tx.customer.name : tx.tableName;
             } else if (tx.type === 'takeaway') {
-                shortInfo = '🛵 Mang đi';
+                mainIcon = '🛵';
             } else if (tx.type === 'grab') {
-                shortInfo = '🚕 Grab';
+                mainIcon = '🚕';
             } else {
-                shortInfo = '🍽️ Tại chỗ';
+                mainIcon = '🍽️';
             }
             
+            // Icon phương thức thanh toán (nếu không phải refund)
+            var methodIcon = '';
+            if (!tx.refunded) {
+                if (tx.paymentMethod === 'cash') methodIcon = '💰';
+                else if (tx.paymentMethod === 'transfer') methodIcon = '💳';
+                else if (tx.paymentMethod === 'debt') methodIcon = '📝';
+                else if (tx.paymentMethod === 'grab') methodIcon = '🚕';
+                else methodIcon = '💵';
+            }
+            
+            // Đếm tổng số món
             var totalItems = 0;
             if (tx.items && tx.items.length) {
                 for (var j = 0; j < tx.items.length; j++) totalItems += tx.items[j].qty;
             }
-            var itemInfo = totalItems > 0 ? ' (' + totalItems + ' món)' : '';
+            var itemInfo = totalItems > 0 ? totalItems + ' món' : '';
             
-            var methodIcon = '';
-            if (tx.refunded) {
-                methodIcon = '↩️';
-            } else if (tx.paymentMethod === 'cash') methodIcon = '💰';
-            else if (tx.paymentMethod === 'transfer') methodIcon = '💳';
-            else if (tx.paymentMethod === 'debt') methodIcon = '💢';
-            else if (tx.paymentMethod === 'grab') methodIcon = '🚕';
-            else methodIcon = '💵';
+            var staffHtml = tx.createdByName ? ' <span class="toast-staff">👤 ' + escapeHtml(tx.createdByName) + '</span>' : '';
+            
+            // Gom các phần tử lại: icon + nhãn + số món + staff
+            var infoParts = [];
+            infoParts.push(mainIcon);
+            if (labelSuffix) infoParts.push(labelSuffix);
+            if (itemInfo) infoParts.push(itemInfo);
+            if (methodIcon && methodIcon !== mainIcon) infoParts.push(methodIcon);
+            var infoText = infoParts.join(' ');
             
             html += '<div class="recent-toast-item" onclick="showTransactionDetail(\'' + tx.id + '\')" data-tx-time="' + txTime + '">' +
                 '<span class="toast-time">' + timeText + '</span>' +
-                '<span class="toast-info">' + shortInfo + itemInfo + ' ' + methodIcon + '</span>' +
+                '<span class="toast-info">' + infoText + staffHtml + '</span>' +
                 '<span class="toast-amount">' + formatMoney(tx.amount) + '</span>' +
             '</div>';
         }
@@ -193,27 +208,38 @@ function createTableCard(table) {
     div.setAttribute('data-start-time', table.startTime || '');
     div.onclick = function(id) { return function() { showTableDetail(id); }; }(table.id);
     
-    // FIX: Luôn hiển thị nút Thêm món, kể cả khi bàn chưa có startTime hoặc bị khóa
+    // FIX: Luôn hiển thị nút Thêm món, kể cả khi bàn chưa có startTime
     // Nút thanh toán chỉ hiện khi bàn có items
     var actionBtnsHtml = '';
     var hasItems = itemCount > 0;
     
-    // Nút Thêm món - luôn hiện
-    actionBtnsHtml +=
-        '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
-    
-    // Nếu bàn có items và không bị khóa -> hiện thêm nút in và thanh toán
-    if (hasItems && !isLocked) {
+    // Nếu bàn bị khóa: chỉ ẩn nút Thêm món, vẫn hiện In + Tiền mặt + Chuyển khoản
+    if (isLocked) {
+        // Khi khóa: chỉ hiện nút thanh toán nếu có items
+        if (hasItems) {
+            actionBtnsHtml +=
+                '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+                '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+                '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+        }
+    } else {
+        // Không khóa: hiện Thêm món + In + thanh toán (nếu có items)
         actionBtnsHtml +=
-            '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
-            '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
-            '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+            '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
+        if (hasItems) {
+            actionBtnsHtml +=
+                '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+                '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+                '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+        }
     }
     
     // Bọc trong table-act-row nếu có action buttons
     if (actionBtnsHtml) {
         actionBtnsHtml = '<span class="table-act-row">' + actionBtnsHtml + '</span>';
     }
+    
+    var creatorHtml = table.createdByName ? '<span class="table-creator">👤 ' + escapeHtml(table.createdByName) + '</span>' : '';
     
     div.innerHTML =
         '<div class="table-header">' +
@@ -223,6 +249,7 @@ function createTableCard(table) {
         '<div class="table-stats">' +
             '<span class="table-item-count">📦 ' + itemCount + ' món</span>' +
             '<span class="table-total">' + formatMoney(table.total) + '</span>' +
+            creatorHtml +
         '</div>' +
         '<div class="table-actions">' +
             _renderRecentAddsHtml(table.recentAdds) +
@@ -291,16 +318,25 @@ function updateTableCard(card, table) {
         var hasItems = itemCount > 0;
         var newActionBtns = '';
         
-        // Nút Thêm món - luôn hiện
-        newActionBtns +=
-            '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
-        
-        // Nếu bàn có items và không bị khóa -> hiện thêm nút in và thanh toán
-        if (hasItems && !isLocked) {
+        // Nếu bàn bị khóa: chỉ ẩn nút Thêm món, vẫn hiện In + Tiền mặt + Chuyển khoản
+        if (isLocked) {
+            // Khi khóa: chỉ hiện nút thanh toán nếu có items
+            if (hasItems) {
+                newActionBtns +=
+                    '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+                    '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+                    '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+            }
+        } else {
+            // Không khóa: hiện Thêm món + In + thanh toán (nếu có items)
             newActionBtns +=
-                '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
-                '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
-                '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+                '<span class="table-act-btn table-act-add" onclick="event.stopPropagation(); openAddMenuForTable(\'' + table.id + '\')" title="Thêm món">➕</span>';
+            if (hasItems) {
+                newActionBtns +=
+                    '<span class="table-act-btn table-act-print" onclick="event.stopPropagation(); printTableBill(\'' + table.id + '\')" title="In hóa đơn">🖨️</span>' +
+                    '<span class="table-act-btn table-act-cash" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'cash\')" title="Tiền mặt">💵 TM</span>' +
+                    '<span class="table-act-btn table-act-transfer" onclick="event.stopPropagation(); paymentAtTable(\'' + table.id + '\',\'transfer\')" title="Chuyển khoản">💳 CK</span>';
+            }
         }
         
         if (newActionBtns) {
@@ -639,6 +675,16 @@ DB.subscribe('manager_cash_pickups', function(data) {
     }, 100);
 });
 
+// Daily balances - cập nhật realtime cash counter (settings tab)
+// Khi nhân viên chốt ngày ở máy khác, máy quản lý tự động cập nhật số tiền thực tế
+DB.subscribe('daily_balances', function() {
+    _debounceRealtime('daily_balances', function() {
+        if (currentTab === 'settings' && typeof loadPosCashData === 'function') {
+            loadPosCashData();
+        }
+    }, 200);
+});
+
     // Ingredients - cập nhật realtime tồn kho nguyên liệu
     DB.subscribe('ingredients', function(data) {
         if (!data) return;
@@ -703,7 +749,6 @@ DB.subscribe('manager_cash_pickups', function(data) {
                 if (shopNameEl) shopNameEl.textContent = infoItem.name;
             }
             
-            console.log('🔄 Shop config updated realtime:', JSON.stringify(window.shopConfig));
         }, 200);
     });
     

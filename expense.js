@@ -112,6 +112,7 @@ function openExpenseModal() {
 function applyExpenseRoleRestrictions() {
     var currentUser = DB.getCurrentUser();
     var isStaff = currentUser && currentUser.role !== 'admin';
+    var isAdmin = currentUser && currentUser.role === 'admin';
     // Selector hỗ trợ cả .fund-source-row (pos.html) và .cost-fund-source (index.html)
     var fundSourceRow = document.querySelector('.fund-source-row, .cost-fund-source');
     if (fundSourceRow) {
@@ -122,6 +123,12 @@ function applyExpenseRoleRestrictions() {
         } else {
             fundSourceRow.style.display = '';
         }
+    }
+
+    // Hiển thị nút "Xóa chi phí cũ" cho admin
+    var deleteOldBtn = document.getElementById('deleteOldExpensesBtn');
+    if (deleteOldBtn) {
+        deleteOldBtn.style.display = isAdmin ? '' : 'none';
     }
 }
 
@@ -382,35 +389,66 @@ function doSaveExpense() {
         var qty = parseInt(document.getElementById('expenseQty').value) || 0;
         var amount = parseInt(document.getElementById('expenseAmount').value) || 0;
 
-        if (qty <= 0) {
-            showToast('Số lượng phải lớn hơn 0!', 'warning');
-            return;
-        }
-        if (amount <= 0) {
-            showToast('Thành tiền phải lớn hơn 0!', 'warning');
-            return;
-        }
+        // Cho phép tạo tên nguyên liệu ngay cả khi số lượng=0 và thành tiền=0
+        // Nếu qty=0 và amount=0 thì chỉ tạo tên nguyên liệu, không ghi nhận chi phí
 
-        // Nếu chưa chọn nguyên liệu, lấy từ ô tìm kiếm để tạo mới
+        // Nếu chưa chọn nguyên liệu, lấy từ ô tìm kiếm để tạo mới hoặc tìm lại nguyên liệu đã xóa
         var ingredientId = _expenseSelectedIngredientId;
         var ingredientName = _expenseSelectedIngredientName;
         if (!ingredientId) {
             var searchVal = document.getElementById('expenseIngredientSearch').value.trim();
             ingredientName = searchVal || 'Nguyên liệu mới';
-            ingredientId = Date.now().toString();
-            // Tạo nguyên liệu mới trong danh sách và lưu vào DB
-            var newIng = { id: ingredientId, name: ingredientName, stock: 0, createdAt: Date.now() };
-            if (window.ingredients) window.ingredients.push(newIng);
-            // Lưu vào IndexedDB trước để addIngredientStock() có thể DB.update() được
-            DB.create('ingredients', newIng).then(function() {
-                saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
-            }).catch(function(err) {
-                console.error('Create ingredient error:', err);
-                showToast('Lỗi khi tạo nguyên liệu mới!', 'error');
-            });
+
+            // Tìm trong danh sách nguyên liệu đã bị xóa (deleted) để tái sử dụng tên
+            var existingDeletedIng = null;
+            var ingList = window.ingredients || [];
+            for (var di = 0; di < ingList.length; di++) {
+                if (ingList[di].name === ingredientName && ingList[di].deleted) {
+                    existingDeletedIng = ingList[di];
+                    break;
+                }
+            }
+
+            if (existingDeletedIng) {
+                // Tái sử dụng nguyên liệu đã xóa: bỏ đánh dấu deleted
+                ingredientId = existingDeletedIng.id;
+                DB.update('ingredients', ingredientId, { deleted: false }).then(function() {
+                    existingDeletedIng.deleted = false;
+                    // Nếu có số lượng và tiền thì lưu chi phí
+                    if (qty > 0 && amount > 0) {
+                        saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
+                    } else {
+                        showToast('✅ Đã khôi phục nguyên liệu: ' + ingredientName, 'success');
+                        renderIngredientList();
+                    }
+                }).catch(function(err) {
+                    console.error('Restore ingredient error:', err);
+                    showToast('Lỗi khi khôi phục nguyên liệu!', 'error');
+                });
+            } else {
+                // Tạo nguyên liệu mới
+                ingredientId = Date.now().toString();
+                var newIng = { id: ingredientId, name: ingredientName, stock: 0, createdAt: Date.now() };
+                if (window.ingredients) window.ingredients.push(newIng);
+                DB.create('ingredients', newIng).then(function() {
+                    if (qty > 0 && amount > 0) {
+                        saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
+                    } else {
+                        showToast('✅ Đã tạo nguyên liệu: ' + ingredientName, 'success');
+                        renderIngredientList();
+                    }
+                }).catch(function(err) {
+                    console.error('Create ingredient error:', err);
+                    showToast('Lỗi khi tạo nguyên liệu mới!', 'error');
+                });
+            }
         } else {
-            // Lưu chi phí nguyên liệu (kèm tăng tồn kho + ghi inventory)
-            saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
+            if (qty > 0 && amount > 0) {
+                // Lưu chi phí nguyên liệu (kèm tăng tồn kho + ghi inventory)
+                saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
+            } else {
+                showToast('✅ Đã chọn nguyên liệu: ' + ingredientName, 'success');
+            }
         }
 
     } else {
@@ -422,11 +460,8 @@ function doSaveExpense() {
             showToast('Vui lòng nhập tên chi phí!', 'warning');
             return;
         }
-        if (amount <= 0) {
-            showToast('Số tiền phải lớn hơn 0!', 'warning');
-            return;
-        }
 
+        // Cho phép tạo tên hao phí ngay cả khi số tiền=0
         saveWasteExpense(categoryName, amount, fundSource);
     }
 }
@@ -515,16 +550,40 @@ function saveWasteExpense(categoryName, amount, fundSource) {
     var now = new Date();
     var dateKey = now.toISOString().slice(0, 10);
 
-    // Tìm hoặc tạo category
+    // Tìm category (kể cả đã bị xóa) để tái sử dụng tên
     var cat = null;
+    var deletedCat = null;
     for (var i = 0; i < expenseData.categories.length; i++) {
         if (expenseData.categories[i].name === categoryName) {
-            cat = expenseData.categories[i];
-            break;
+            if (expenseData.categories[i].deleted) {
+                deletedCat = expenseData.categories[i];
+            } else {
+                cat = expenseData.categories[i];
+                break;
+            }
         }
     }
 
+    // Nếu tìm thấy category đã bị xóa, khôi phục nó trước
+    if (!cat && deletedCat) {
+        cat = deletedCat;
+        // Khôi phục: bỏ đánh dấu deleted
+        DB.update('cost_categories', cat.id, { deleted: false }).then(function() {
+            cat.deleted = false;
+            renderWasteTypeList();
+        });
+    }
+
     var doSave = function(category) {
+        // Nếu amount=0 thì chỉ tạo/kích hoạt tên, không ghi cost_transactions
+        if (amount <= 0) {
+            showToast('✅ Đã tạo hao phí: ' + categoryName, 'success');
+            document.getElementById('expenseWasteSearch').value = '';
+            document.getElementById('expenseWasteAmount').value = '';
+            renderWasteTypeList();
+            return;
+        }
+
         var txId = Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
         var costData = {
             id: txId,
@@ -550,7 +609,7 @@ function saveWasteExpense(categoryName, amount, fundSource) {
 
     var savePromise;
     if (cat) {
-        savePromise = doSave(cat);
+        savePromise = Promise.resolve(cat).then(doSave);
     } else {
         var newId = Date.now().toString();
         var newCat = { id: newId, name: categoryName, createdAt: Date.now(), createdBy: (DB.getCurrentUser() && DB.getCurrentUser().id) || window.currentDeviceId || '' };
@@ -560,30 +619,32 @@ function saveWasteExpense(categoryName, amount, fundSource) {
         }).then(doSave);
     }
 
-    savePromise.then(function() {
-        // Gửi thông báo Telegram
-        if (typeof notifyExpenseToTelegram === 'function') {
-            notifyExpenseToTelegram({
-                type: 'waste',
-                amount: amount,
-                categoryName: categoryName,
-                fundSource: fundSource,
-                createdAt: new Date().toISOString()
-            });
-        }
-        return loadExpenseData();
-    }).then(function() {
-        showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
-        document.getElementById('expenseWasteSearch').value = '';
-        document.getElementById('expenseWasteAmount').value = '';
+    if (amount > 0) {
+        savePromise.then(function() {
+            // Gửi thông báo Telegram
+            if (typeof notifyExpenseToTelegram === 'function') {
+                notifyExpenseToTelegram({
+                    type: 'waste',
+                    amount: amount,
+                    categoryName: categoryName,
+                    fundSource: fundSource,
+                    createdAt: new Date().toISOString()
+                });
+            }
+            return loadExpenseData();
+        }).then(function() {
+            showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
+            document.getElementById('expenseWasteSearch').value = '';
+            document.getElementById('expenseWasteAmount').value = '';
 
-        renderTodayExpenses();
-        renderMonthExpenseTotal();
-        renderWasteTypeList();
-    }).catch(function(err) {
-        console.error('Save waste expense error:', err);
-        showToast('Lỗi khi lưu chi phí!', 'error');
-    });
+            renderTodayExpenses();
+            renderMonthExpenseTotal();
+            renderWasteTypeList();
+        }).catch(function(err) {
+            console.error('Save waste expense error:', err);
+            showToast('Lỗi khi lưu chi phí!', 'error');
+        });
+    }
 }
 
 // ========== DATE NAVIGATION ==========
@@ -2536,6 +2597,149 @@ function attachExpenseEvents() {
     }
 }
 
+// ========== XÓA CHI PHÍ CŨ THEO NGÀY ==========
+function _showDeleteOldExpensesModal() {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) { cleanup(); } };
+
+    var now = new Date();
+    var firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    var yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    function fmt(d) { return d.toISOString().slice(0, 10); }
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:380px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);';
+
+    box.innerHTML =
+        '<div style="font-size:17px;font-weight:600;margin-bottom:16px;color:#1e293b;">🗑️ Xóa chi phí cũ</div>' +
+        '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">Chọn khoảng ngày để xóa chi phí. Chi phí trong khoảng này sẽ bị xóa nhưng <b>danh sách tên nguyên liệu/hao phí vẫn được giữ nguyên</b>.</div>' +
+        '<div style="margin-bottom:12px;">' +
+            '<label style="display:block;font-size:13px;font-weight:500;color:#374151;margin-bottom:4px;">Từ ngày</label>' +
+            '<input type="date" id="deleteFromDate" value="' + fmt(firstDay) + '" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">' +
+        '</div>' +
+        '<div style="margin-bottom:16px;">' +
+            '<label style="display:block;font-size:13px;font-weight:500;color:#374151;margin-bottom:4px;">Đến ngày</label>' +
+            '<input type="date" id="deleteToDate" value="' + fmt(yesterday) + '" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">' +
+        '</div>' +
+        '<div id="deletePreviewInfo" style="font-size:13px;color:#64748b;margin-bottom:16px;padding:10px;background:#f8fafc;border-radius:8px;">Đang tính toán...</div>' +
+        '<div style="display:flex;gap:10px;justify-content:center;">' +
+            '<button id="deleteOldCancelBtn" style="flex:1;padding:10px 16px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;cursor:pointer;">Hủy</button>' +
+            '<button id="deleteOldConfirmBtn" style="flex:1;padding:10px 16px;border:none;border-radius:10px;background:#ef4444;color:#fff;font-size:14px;font-weight:600;cursor:pointer;" disabled>Xóa</button>' +
+        '</div>';
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    function cleanup() {
+        if (document.body.contains(overlay)) document.body.removeChild(overlay);
+    }
+
+    // Cập nhật preview khi thay đổi ngày
+    function updatePreview() {
+        var fromDate = document.getElementById('deleteFromDate').value;
+        var toDate = document.getElementById('deleteToDate').value;
+        var previewEl = document.getElementById('deletePreviewInfo');
+        var confirmBtn = document.getElementById('deleteOldConfirmBtn');
+
+        if (!fromDate || !toDate) {
+            previewEl.innerHTML = 'Vui lòng chọn đầy đủ ngày bắt đầu và kết thúc.';
+            confirmBtn.disabled = true;
+            return;
+        }
+        if (fromDate > toDate) {
+            previewEl.innerHTML = '⚠️ Ngày bắt đầu phải trước ngày kết thúc.';
+            confirmBtn.disabled = true;
+            return;
+        }
+
+        // Đếm số giao dịch trong khoảng
+        var count = 0;
+        var totalAmount = 0;
+        var txList = window.expenseData ? (window.expenseData.transactions || []) : [];
+        for (var i = 0; i < txList.length; i++) {
+            var tx = txList[i];
+            if (tx.dateKey >= fromDate && tx.dateKey <= toDate && !tx.deleted) {
+                count++;
+                totalAmount += tx.amount || 0;
+            }
+        }
+
+        if (count === 0) {
+            previewEl.innerHTML = '✅ Không có chi phí nào trong khoảng ngày này.';
+            confirmBtn.disabled = true;
+        } else {
+            previewEl.innerHTML = '📋 Có <b>' + count + '</b> giao dịch chi phí, tổng tiền: <b>' + formatMoney(totalAmount) + '</b>';
+            confirmBtn.disabled = false;
+        }
+    }
+
+    document.getElementById('deleteFromDate').addEventListener('change', updatePreview);
+    document.getElementById('deleteToDate').addEventListener('change', updatePreview);
+    document.getElementById('deleteOldCancelBtn').onclick = cleanup;
+    document.getElementById('deleteOldConfirmBtn').onclick = function() {
+        var fromDate = document.getElementById('deleteFromDate').value;
+        var toDate = document.getElementById('deleteToDate').value;
+        cleanup();
+        _doDeleteOldExpenses(fromDate, toDate);
+    };
+
+    // Preview ngay khi mở
+    setTimeout(updatePreview, 50);
+}
+
+function _doDeleteOldExpenses(fromDate, toDate) {
+    var txList = window.expenseData ? (window.expenseData.transactions || []) : [];
+    var toDelete = [];
+    var totalAmount = 0;
+    for (var i = 0; i < txList.length; i++) {
+        var tx = txList[i];
+        if (tx.dateKey >= fromDate && tx.dateKey <= toDate && !tx.deleted) {
+            toDelete.push(tx);
+            totalAmount += tx.amount || 0;
+        }
+    }
+
+    if (toDelete.length === 0) {
+        showToast('Không có chi phí nào để xóa!', 'info');
+        return;
+    }
+
+    _showConfirmModal(
+        'Bạn có chắc chắn muốn xóa <b>' + toDelete.length + '</b> giao dịch chi phí (tổng <b>' + formatMoney(totalAmount) + '</b>) trong khoảng từ <b>' + fromDate + '</b> đến <b>' + toDate + '</b>?<br><br>📌 <b>Danh sách tên nguyên liệu và hao phí sẽ được giữ nguyên.</b>',
+        'Xóa tất cả',
+        'Hủy'
+    ).then(function(confirmed) {
+        if (!confirmed) return;
+
+        var deletedCount = 0;
+        var promises = [];
+        for (var j = 0; j < toDelete.length; j++) {
+            (function(tx) {
+                promises.push(
+                    DB.update('cost_transactions', tx.id, { deleted: true }).then(function() {
+                        tx.deleted = true;
+                        deletedCount++;
+                    }).catch(function(err) {
+                        console.error('Delete expense error:', tx.id, err);
+                    })
+                );
+            })(toDelete[j]);
+        }
+
+        Promise.all(promises).then(function() {
+            showToast('✅ Đã xóa ' + deletedCount + '/' + toDelete.length + ' giao dịch chi phí!', 'success');
+            // Reload dữ liệu
+            loadExpenseData().then(function() {
+                renderTodayExpenses();
+                renderMonthExpenseTotal();
+            });
+        });
+    });
+}
+
 // Export global
 window.openExpenseModal = openExpenseModal;
 window.switchExpenseType = switchExpenseType;
@@ -2607,3 +2811,7 @@ window._adminMergeWasteCategories = _adminMergeWasteCategories;
 window._adminConfirmMergeWaste = _adminConfirmMergeWaste;
 window._adminDoMergeWaste = _adminDoMergeWaste;
 window._adminCancelMergeWaste = _adminCancelMergeWaste;
+
+// Export delete old expenses functions
+window._showDeleteOldExpensesModal = _showDeleteOldExpensesModal;
+window._doDeleteOldExpenses = _doDeleteOldExpenses;

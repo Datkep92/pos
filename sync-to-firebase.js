@@ -105,6 +105,40 @@
         });
     }
 
+    // Helper: tính dateKey theo local time (+7) - copy từ db.js
+    function toLocalDateKey(value) {
+        if (!value) return '';
+        var d;
+        if (typeof value === 'string') {
+            if (value.length >= 10 && value[4] === '-' && value[7] === '-') return value.slice(0, 10);
+            var parsed = Date.parse(value);
+            if (isNaN(parsed)) return '';
+            d = new Date(parsed);
+        } else if (typeof value === 'number') {
+            d = new Date(value);
+        } else {
+            return '';
+        }
+        var y = d.getFullYear();
+        var m = ('0' + (d.getMonth() + 1)).slice(-2);
+        var day = ('0' + d.getDate()).slice(-2);
+        return y + '-' + m + '-' + day;
+    }
+
+    // FIX: Tính lại dateKey/dateTypeKey theo local time trước khi đồng bộ
+    // Dữ liệu cũ trong IndexedDB có thể có dateKey sai (do dùng UTC trước đây)
+    function normalizeTransactionForSync(data) {
+        if (!data || typeof data !== 'object') return data;
+        var norm = {};
+        for (var k in data) if (data.hasOwnProperty(k)) norm[k] = data[k];
+        // Tính lại dateKey từ createdAt/date theo local time
+        var dateKey = toLocalDateKey(norm.date || norm.createdAt || norm.updatedAt);
+        norm.dateKey = dateKey;
+        norm.type = norm.type || 'unknown';
+        norm.dateTypeKey = dateKey + '|' + norm.type;
+        return norm;
+    }
+
     // Ghi dữ liệu lên Firebase
     function syncToFirebase(shopId, storeName, items) {
         if (!items || items.length === 0) {
@@ -149,13 +183,16 @@
                             log('  ⚠️ ' + storeName + ': item bỏ qua do thiếu id', true);
                             return Promise.resolve();
                         }
-                        // Loại bỏ các field không cần thiết
-                        var cleanData = {};
-                        for (var k in itemData) {
-                            if (itemData.hasOwnProperty(k)) {
-                                cleanData[k] = itemData[k];
-                            }
-                        }
+                        // FIX: Tính lại dateKey cho transactions theo local time
+                        var cleanData = (storeName === 'transactions')
+                            ? normalizeTransactionForSync(itemData)
+                            : (function() {
+                                var c = {};
+                                for (var k in itemData) {
+                                    if (itemData.hasOwnProperty(k)) c[k] = itemData[k];
+                                }
+                                return c;
+                            })();
                         return db.ref(shopId + '/' + storeName + '/' + id).set(cleanData).then(function() {
                             count++;
                         }).catch(function(err) {

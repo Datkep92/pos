@@ -3,13 +3,19 @@
 
 // ========== BÁO CÁO ==========
 function renderReport(dateObj) {
-    var dateStr = dateObj.toISOString().slice(0, 10);
+    var dateStr = dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
     document.getElementById('reportDate').innerText = formatDateDisplay(dateStr);
+    
+    // Tính ngày hôm trước để lấy số dư đầu kỳ (cashKept)
+    var prevDate = new Date(dateObj);
+    prevDate.setDate(prevDate.getDate() - 1);
+    var prevDateStr = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0') + '-' + String(prevDate.getDate()).padStart(2, '0');
     
     Promise.all([
         DB.getTransactionsByDate(dateStr),
         DB.getAll('cost_transactions'),
         DB.get('daily_balances', dateStr),
+        DB.get('daily_balances', prevDateStr), // Lấy cashKept của ngày hôm trước làm số dư đầu kỳ
         DB.getAll('tables'),
         DB.getAll('customers'),
         typeof loadFundReconciliationData === 'function' ? loadFundReconciliationData() : Promise.resolve()
@@ -17,8 +23,9 @@ function renderReport(dateObj) {
         var transactions = results[0].filter(function(t) { return !t.refunded; });
         var allCosts = results[1] || [];
         var dailyBalance = results[2] || { cashKept: 0, cashReceived: 0 };
-        var allTables = results[3] || [];
-        var allCustomers = results[4] || [];
+        var prevDayBalance = results[3] || {}; // Số dư đầu kỳ từ ngày hôm trước
+        var allTables = results[4] || [];
+        var allCustomers = results[5] || [];
         var isAdmin = typeof DB !== 'undefined' && DB.isAdmin && DB.isAdmin();
         
         // ===== 1. DOANH THU - ĐẾM SỐ LƯỢNG =====
@@ -132,18 +139,20 @@ function renderReport(dateObj) {
             pickupHistory.sort(function(a, b) { return a.time.localeCompare(b.time); });
         }
         
-        // Kiểm tra đã lưu đối soát chưa
-        var isReconSaved = dailyBalance && dailyBalance.actualClosing !== undefined && dailyBalance.actualClosing !== null;
+        // Kiểm tra đã chốt ngày chưa (nhân viên chốt qua staffCloseDay ghi isClosed=true)
+        // Dùng isClosed thay vì actualClosing vì staffCloseDay chỉ ghi isClosed + cashKept, không ghi actualClosing
+        var isDayClosed = dailyBalance && dailyBalance.isClosed === true;
         
         // ===== RENDER HTML =====
         // QUY TẮC:
-        // - Trước khi lưu đối soát: Ẩn số tiền TM/CK/Grab - chỉ hiển thị số lượng
-        // - Sau khi lưu đối soát: Hiển thị đầy đủ số lượng + số tiền
+        // - Trước khi chốt ngày: Ẩn số tiền TM/CK/Grab - chỉ hiển thị số lượng
+        // - Sau khi chốt ngày: Hiển thị đầy đủ số lượng + số tiền
         // - Các mục khác (bàn, chi phí, nợ, thanh toán nợ, QL nhận): Luôn hiển thị đầy đủ
         var html = '';
-        // Số tiền đầu kỳ (cashKept từ daily_balances) - chỉ hiển thị khi đã chốt hoặc admin
-        var openingCash = dailyBalance && dailyBalance.cashKept ? dailyBalance.cashKept : 0;
-        if (isAdmin || isReconSaved) {
+        // Số tiền đầu kỳ (cashKept từ ngày hôm trước) - chỉ hiển thị khi đã chốt hoặc admin
+        // FIX: Dùng prevDayBalance.cashKept (số tiền chốt cuối ngày hôm trước) thay vì dailyBalance.cashKept (số tiền chốt cuối ngày hôm nay)
+        var openingCash = prevDayBalance && prevDayBalance.cashKept ? prevDayBalance.cashKept : 0;
+        if (isAdmin || isDayClosed) {
             html += '<div class="stat-card">' +
                 '<div class="stat-row">' +
                     '<span>\uD83D\uDCB5 Tiền đầu kỳ</span>' +
@@ -160,10 +169,11 @@ function renderReport(dateObj) {
         // Admin: luôn thấy số lượng + số tiền
         // Nhân viên: chỉ thấy số tiền sau khi chốt ngày, trước đó chỉ thấy số lượng
         html += '<div class="stat-card">' +
-            '<div class="stat-row"><span>\uD83D\uDCB0 Tiền mặt</span><span>' + (isAdmin ? cashCount + ' giao dịch - ' + formatMoney(cashTotal) : (isReconSaved ? formatMoney(cashTotal) : cashCount + ' giao dịch')) + '</span></div>' +
-            '<div class="stat-row"><span>\uD83D\uDCB3 Chuyển khoản</span><span>' + (isAdmin ? transferCount + ' giao dịch - ' + formatMoney(transferTotal) : (isReconSaved ? formatMoney(transferTotal) : transferCount + ' giao dịch')) + '</span></div>' +
-            '<div class="stat-row"><span>\uD83D\uDE95 Grab</span><span>' + (isAdmin ? grabCount + ' đơn - ' + formatMoney(grabTotal) : (isReconSaved ? formatMoney(grabTotal) : grabCount + ' đơn')) + '</span></div>' +
-            '<div class="stat-row"><span>\uD83D\uDCA2 Thanh toán nợ</span><span>' + formatMoney(debtPaymentTotal) + '</span></div>' +
+            '<div class="stat-row"><span>\uD83D\uDCB0 Tiền mặt</span><span>' + (isAdmin ? cashCount + ' giao dịch - ' + formatMoney(cashTotal) : (isDayClosed ? cashCount + ' giao dịch - ' + formatMoney(cashTotal) : cashCount + ' giao dịch')) + '</span></div>' +
+            '<div class="stat-row"><span>\uD83D\uDCB3 Chuyển khoản</span><span>' + (isAdmin ? transferCount + ' giao dịch - ' + formatMoney(transferTotal) : (isDayClosed ? transferCount + ' giao dịch - ' + formatMoney(transferTotal) : transferCount + ' giao dịch')) + '</span></div>' +
+            '<div class="stat-row"><span>\uD83D\uDE95 Grab</span><span>' + (isAdmin ? grabCount + ' đơn - ' + formatMoney(grabTotal) : (isDayClosed ? grabCount + ' đơn - ' + formatMoney(grabTotal) : grabCount + ' đơn')) + '</span></div>' +
+            '<div class="stat-row" style="border-top:1px dashed var(--border);padding-top:4px;margin-top:4px;font-weight:600;"><span>\uD83D\uDCC8 Tổng doanh thu (TM+CK+Grab)</span><span>' + (isAdmin ? formatMoney(totalRevenue) : (isDayClosed ? formatMoney(totalRevenue) : '***')) + '</span></div>' +
+            '<div class="stat-row"><span>\uD83D\uDCA2 Nợ trong ngày</span><span>' + formatMoney(debtPaymentTotal) + '</span></div>' +
         '</div>';
         html += '<div class="stat-card">' +
             '<div class="stat-row" style="font-size:12px;padding-left:16px;">' +
@@ -267,7 +277,8 @@ function showActiveTablesModal() {
 
 // ========== MODAL NỢ PHÁT SINH TRONG NGÀY ==========
 function showDebtTodayModal() {
-    var dateStr = currentReportDate.toISOString().slice(0, 10);
+    var d = currentReportDate;
+    var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     DB.getAll('customers').then(function(allCustomers) {
         var container = document.getElementById('infoModalList');
         if (!container) return;

@@ -552,6 +552,33 @@
         return loadFromLocal(collection).then(function(data) { return data || []; });
     }
 
+    // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai do UTC vs Local time (+7)
+    // Kiá»ƒm tra náº¿u dateKey khÃ´ng khá»›p vá»›i createdAt (tÃ­nh theo local time), thÃ¬ cáº­p nháº­t láº¡i
+    function _fixDateKeyIfNeeded(tx) {
+        if (!tx || !tx.id) return tx;
+        var correctKey = toDateKey(tx.createdAt || tx.date || tx.updatedAt);
+        if (correctKey && tx.dateKey !== correctKey) {
+            
+            tx.dateKey = correctKey;
+            tx.dateTypeKey = correctKey + '|' + (tx.type || 'unknown');
+            // Cáº­p nháº­t trong memoryCache vÃ  IndexedDB
+            if (memoryCache.transactions) {
+                memoryCache.transactions[tx.id] = tx;
+            }
+            // Ghi Ä‘Ã¨ vÃ o IndexedDB (fire & forget)
+            if (localDB) {
+                try {
+                    var writeTx = localDB.transaction(['transactions'], 'readwrite');
+                    var store = writeTx.objectStore('transactions');
+                    store.put(tx);
+                } catch(e) {
+                    console.warn('KhÃ´ng thá»ƒ ghi fix dateKey vÃ o IndexedDB:', e.message);
+                }
+            }
+        }
+        return tx;
+    }
+
     function getTransactionsByDate(dateKey, options) {
         options = options || {};
         var type = options.type || 'all';
@@ -564,6 +591,10 @@
                     if (memoryCache.transactions.hasOwnProperty(key)) {
                         allTx.push(memoryCache.transactions[key]);
                     }
+                }
+                // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai UTC
+                for (var i = 0; i < allTx.length; i++) {
+                    _fixDateKeyIfNeeded(allTx[i]);
                 }
                 var filtered = allTx.filter(function(t) { return t.dateKey === dateKey; });
                 if (type !== 'all') filtered = filtered.filter(function(t) { return t.type === type; });
@@ -586,7 +617,11 @@
                         rows = rows.filter(function(r) { return toDateKey(r.date) === dateKey; });
                         if (type !== 'all') rows = rows.filter(function(r) { return r.type === type; });
                     }
-                    // FIX: Load vÃ o memoryCache Ä‘á»ƒ láº§n sau khÃ´ng pháº£i Ä‘á»c IndexedDB
+                    // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai UTC
+                    for (var i = 0; i < rows.length; i++) {
+                        _fixDateKeyIfNeeded(rows[i]);
+                    }
+                    // FIX: Load vÃ o memoryCache Ä‘á»ƒ láº§n sau khÃ´ng pháº£i Ä‘á»c IndexedDB
                     if (!memoryCache.transactions) memoryCache.transactions = {};
                     for (var i = 0; i < rows.length; i++) {
                         memoryCache.transactions[rows[i].id] = rows[i];
@@ -611,6 +646,10 @@
                         allTx.push(memoryCache.transactions[key]);
                     }
                 }
+                // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai UTC
+                for (var i = 0; i < allTx.length; i++) {
+                    _fixDateKeyIfNeeded(allTx[i]);
+                }
                 var filtered = allTx.filter(function(t) {
                     return t.dateKey >= startDateKey && t.dateKey <= endDateKey;
                 });
@@ -630,6 +669,10 @@
                 }
                 req.onsuccess = function() {
                     var rows = req.result || [];
+                    // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai UTC
+                    for (var i = 0; i < rows.length; i++) {
+                        _fixDateKeyIfNeeded(rows[i]);
+                    }
                     var filtered = rows.filter(function(r) {
                         var dk = toDateKey(r.date);
                         return dk >= startDateKey && dk <= endDateKey;
@@ -800,7 +843,7 @@
     function initLocalDB() {
         if (dbReady) return dbReady;
         dbReady = new Promise(function(resolve, reject) {
-            var request = indexedDB.open(STORE_NAME, 18);
+            var request = indexedDB.open(STORE_NAME, 19);
             request.onerror = function(e) { reject(e.target.error); };
             request.onsuccess = function(e) {
                 localDB = e.target.result;
@@ -817,7 +860,8 @@
     'inventory_transactions', 'manager_cash_pickups',
     'ingredient_transactions', 'notifications',
     'info',
-    'messages'
+    'messages',
+    'delete_logs'
 ];
                 for (var i = 0; i < stores.length; i++) {
                     if (!db.objectStoreNames.contains(stores[i])) {
@@ -1076,6 +1120,7 @@
             subscribeToCollection('notifications');
             subscribeToCollection('info');
             subscribeToCollection('messages');
+            subscribeToCollection('daily_balances');
             console.log('âœ… Database ready, device:', CURRENT_DEVICE_ID);
             return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
         });

@@ -507,6 +507,25 @@ function saveActualClosing(dateStr, expectedClosing) {
             savedAt: Date.now()
         });
 
+        // Đồng bộ lên Firebase để settings.js (loadPosCashData) đọc được cashKept
+        try {
+            var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+            var fbRef = firebase.database().ref(shopId + '/daily_balances/' + dateStr);
+            fbRef.update({
+                cashKept: data.cashKept || actualClosing,
+                actualClosing: actualClosing,
+                expectedClosing: expectedClosing,
+                difference: difference,
+                diffPercent: diffPercent,
+                status: statusInfo.status,
+                updatedAt: Date.now()
+            }).catch(function(err) {
+                console.error('[SaveActualClosing] Firebase sync error:', err);
+            });
+        } catch(e) {
+            console.error('[SaveActualClosing] Firebase sync exception:', e);
+        }
+
         return DB.create('daily_balances', data, dateStr).then(function() {
             // Kiểm tra: lần 2 khớp nhưng lần 1 lệch => gửi cảnh báo cho quản lý
             var isRetrySave = (prevActualClosing !== undefined && prevActualClosing !== null);
@@ -640,7 +659,34 @@ function closeDay(dateStr) {
         saved.closedBy = window.currentDeviceId || '';
         if (note) saved.closeNote = note;
 
+        // Đồng bộ cashKept = actualClosing để settings.js đọc được làm số dư đầu kỳ ngày hôm sau
+        saved.cashKept = actualClosing;
+
         return DB.create('daily_balances', saved, dateStr).then(function() {
+            // Đồng bộ lên Firebase để settings.js (loadPosCashData) đọc được
+            // Vì settings.js đọc daily_balances từ Firebase, không phải IndexedDB
+            try {
+                var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+                var fbRef = firebase.database().ref(shopId + '/daily_balances/' + dateStr);
+                fbRef.update({
+                    cashKept: actualClosing,
+                    actualClosing: actualClosing,
+                    expectedClosing: expectedClosing,
+                    difference: difference,
+                    diffPercent: diffPercent,
+                    status: statusInfo.status,
+                    isClosed: true,
+                    closedAt: Date.now(),
+                    closedBy: window.currentDeviceId || '',
+                    closeNote: note || '',
+                    updatedAt: Date.now()
+                }).catch(function(err) {
+                    console.error('[CloseDay] Firebase sync error:', err);
+                });
+            } catch(e) {
+                console.error('[CloseDay] Firebase sync exception:', e);
+            }
+
             showToast('🔒 Đã chốt ngày ' + formatDateDisplay(dateStr), 'success');
             
             // Luôn gửi Telegram khi chốt ngày (dù khớp hay lệch)

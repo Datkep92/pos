@@ -63,7 +63,7 @@ function confirmSplitPaymentWithMethod(method, customer) {
                     var historyPromise;
                     if (method === 'debt') {
                         // Ghi nợ: cộng nợ cho khách
-                        addCustomerDebt(customer.id, splitTotal, 'Chia hóa đơn tại bàn ' + table.name).then(function() {
+                        addCustomerDebt(customer.id, splitTotal, 'Chia hóa đơn tại bàn ' + table.name, splitItems).then(function() {
                             historyPromise = addHistory({
                                 type: 'debt_payment',
                                 amount: splitTotal,
@@ -504,7 +504,10 @@ function doDeleteTable(table) {
             tableId: table.id,
             tableName: table.name,
             items: itemsSnapshot,
-            customerName: table.customerName || null
+            customerName: table.customerName || null,
+            createdByName: table.createdByName || '',
+            startTime: table.startTime || null,
+            total: table.total || 0
         };
         logDelete('delete_table', details);
         

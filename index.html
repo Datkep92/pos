@@ -177,6 +177,9 @@
                             <h2>📋 Quản lý thực đơn</h2>
                             <span class="inv-pos-id" id="invPosId" style="font-size:12px;color:#94a3b8;font-weight:400;"></span>
                         </div>
+                        <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+                            <input class="inv-search-input" id="invMenuSearch" type="text" placeholder="🔍 Tìm món..." oninput="filterInventoryMenu(this.value)">
+                        </div>
                         <div class="card-body">
                             <div class="inv-section">
                                 <div id="invCategoryList" class="inv-category-list"></div>
@@ -226,6 +229,9 @@
                     <div class="card">
                         <div class="card-header">
                             <h2>🧂 Quản lý tồn kho</h2>
+                        </div>
+                        <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+                            <input class="inv-search-input" id="invIngredientSearch" type="text" placeholder="🔍 Tìm nguyên liệu..." oninput="filterInventoryIngredients(this.value)">
                         </div>
                         <div class="card-body">
                             <div class="inv-section">
@@ -325,6 +331,7 @@
                                 <button class="cost-date-nav-btn" onclick="expenseDateChange(1)">▶</button>
                             </div>
                             <div class="cost-header-total" id="expenseHeaderTotal"></div>
+                            <button class="cost-delete-old-btn" id="deleteOldExpensesBtn" onclick="_showDeleteOldExpensesModal()" style="display:none;font-size:11px;padding:4px 8px;border:1px solid #fca5a5;border-radius:6px;background:#fff;color:#dc2626;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗑️ Xóa chi phí cũ</button>
                         </div>
                         <div class="cost-list-container">
                             <div id="expenseTodayList"></div>
@@ -805,7 +812,8 @@
                         <!-- Dropdown chọn danh mục (mobile) -->
                         <select class="order-category-select" id="orderCategorySelect" onchange="onCategorySelectChange()"></select>
                         <div class="order-menu-header">
-                            <span>📋 Thực đơn</span>
+                            <span class="order-menu-title">📋 Thực đơn</span>
+                            <input class="order-menu-search" id="menuSearchInput" type="text" placeholder="🔍 Tìm món..." oninput="filterMenuBySearch(this.value)">
                             <button class="quick-create-menu-btn" onclick="showQuickCreateMenuItem()" title="Tạo món nhanh">➕</button>
                         </div>
                         <div class="menu-grid" id="menuGrid"></div>
@@ -883,7 +891,6 @@
     <!-- MODAL CHI TIẾT GIAO DỊCH -->
     <div class="modal" id="transactionDetailModal">
         <div class="modal-content">
-            <div class="modal-body" id="transactionDetailBody"></div>
             <div class="modal-header">
                 <div class="header-left">
                     <div class="modal-title">🧾 Chi tiết giao dịch</div>
@@ -891,6 +898,7 @@
                 </div>
                 <span class="modal-close" onclick="closeModal('transactionDetailModal')">&times;</span>
             </div>
+            <div class="modal-body" id="transactionDetailBody"></div>
         </div>
     </div>
 
@@ -1093,7 +1101,7 @@
 
     <!-- MODAL LỊCH SỬ SỬ DỤNG NGUYÊN LIỆU -->
     <div class="modal" id="ingredientUsageModal">
-        <div class="modal-content" style="max-width:500px;">
+        <div class="modal-content" style="max-width:560px;">
             <div class="modal-header">
                 <span class="modal-title" id="ingredientUsageTitle">🧂 Lịch sử sử dụng</span>
                 <span class="modal-close" onclick="closeModal('ingredientUsageModal')">&times;</span>
@@ -1101,11 +1109,20 @@
             <div class="modal-body" id="ingredientUsageContent">
                 <div class="ing-usage-tabs" id="ingUsageTabs">
                     <span class="ing-usage-tab active" data-tab="usage" onclick="switchIngUsageTab('usage')">📊 Sử dụng</span>
+                    <span class="ing-usage-tab" data-tab="menuitems" onclick="switchIngUsageTab('menuitems')">🍽️ Món chứa NL</span>
                     <span class="ing-usage-tab" data-tab="transactions" onclick="switchIngUsageTab('transactions')">📋 Nhập/Xuất</span>
                 </div>
                 <div class="ing-usage-tab-content" id="ingUsageTabUsage">
                     <div class="ing-usage-summary" id="ingUsageSummary"></div>
                     <div class="ing-usage-dates" id="ingUsageDates"></div>
+                </div>
+                <div class="ing-usage-tab-content" id="ingUsageTabMenuItems" style="display:none;">
+                    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+                        <input type="text" id="ingRelatedMenuSearch" class="form-input" placeholder="🔍 Tìm món..." style="flex:1;min-width:120px;padding:6px 8px;font-size:12px;" oninput="filterIngRelatedMenu(this.value)">
+                        <button class="btn-small btn-outline" onclick="_showAssignIngredientToMenu()" style="font-size:11px;white-space:nowrap;">📌 Gán NL</button>
+                        <button class="btn-small btn-outline" onclick="_showCreateMenuItemFromIng()" style="font-size:11px;white-space:nowrap;">➕ Tạo món</button>
+                    </div>
+                    <div id="ingRelatedMenuList" style="max-height:300px;overflow-y:auto;"></div>
                 </div>
                 <div class="ing-usage-tab-content" id="ingUsageTabTransactions" style="display:none;">
                     <div class="ing-tx-filter">
@@ -1123,6 +1140,71 @@
                     </div>
                     <div class="ing-tx-list" id="ingTxList"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL GÁN NGUYÊN LIỆU CHO MÓN -->
+    <div class="modal" id="assignIngredientModal">
+        <div class="modal-content" style="max-width:500px;">
+            <div class="modal-header">
+                <span class="modal-title" id="assignIngredientModalTitle">📌 Gán nguyên liệu cho món</span>
+                <span class="modal-close" onclick="closeModal('assignIngredientModal')">&times;</span>
+            </div>
+            <div class="modal-body" id="assignIngredientModalBody">
+                <input type="text" id="assignIngMenuSearch" class="form-input" placeholder="🔍 Tìm món..." oninput="filterAssignIngMenu(this.value)" style="margin-bottom:6px;">
+                <div id="assignIngMenuList" style="max-height:200px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:4px;"></div>
+                <div id="assignIngSizeSection" style="display:none;margin-top:8px;padding:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">
+                    <div style="font-weight:600;font-size:13px;color:#92400e;margin-bottom:4px;">📏 Size & Nguyên liệu</div>
+                    <div id="assignIngSizeContainer"></div>
+                    <button class="btn-small btn-outline" onclick="_addAssignIngSizeRow()" style="font-size:11px;margin-top:4px;">+ Thêm size</button>
+                    <div style="margin-top:6px;padding:6px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">
+                        <div style="font-weight:600;font-size:12px;color:#16a34a;margin-bottom:4px;">🧂 Nguyên liệu (chung)</div>
+                        <div id="assignIngGlobalIngContainer"></div>
+                        <button class="btn-small btn-outline" onclick="_addAssignIngGlobalIngRow()" style="font-size:10px;padding:2px 6px;">+ Thêm NL</button>
+                    </div>
+                    <div style="display:flex;gap:6px;margin-top:8px;">
+                        <button class="btn-small btn-save" onclick="_handleAssignIngredientSave()" style="flex:1;font-size:12px;">💾 Lưu</button>
+                        <button class="btn-small btn-cancel" onclick="closeModal('assignIngredientModal')" style="flex:1;font-size:12px;">Hủy</button>
+                    </div>
+                    <div id="assignIngError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL TẠO MÓN MỚI TỪ NGUYÊN LIỆU -->
+    <div class="modal" id="createMenuItemFromIngModal">
+        <div class="modal-content" style="max-width:500px;">
+            <div class="modal-header">
+                <span class="modal-title" id="createMenuItemFromIngTitle">➕ Tạo món mới từ nguyên liệu</span>
+                <span class="modal-close" onclick="closeModal('createMenuItemFromIngModal')">&times;</span>
+            </div>
+            <div class="modal-body" id="createMenuItemFromIngBody">
+                <input type="text" id="createIngMenuItemName" class="form-input" placeholder="Tên món">
+                <input type="number" id="createIngMenuItemPrice" class="form-input" placeholder="Giá bán" style="margin-top:6px;" step="1000">
+                <select id="createIngMenuItemCategory" class="form-input" style="margin-top:6px;">
+                    <option value="">-- Chọn danh mục --</option>
+                </select>
+                <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <strong style="font-size:13px;">📏 Size món</strong>
+                        <button class="btn-small btn-outline" onclick="_addCreateIngSizeRow()" style="font-size:11px;">+ Thêm size</button>
+                    </div>
+                    <div id="createIngSizesContainer"></div>
+                </div>
+                <div style="margin-top:8px;padding:8px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <strong style="font-size:13px;color:#16a34a;">🧂 Nguyên liệu (chung)</strong>
+                        <button class="btn-small btn-outline" onclick="_addCreateIngGlobalIngRow()" style="font-size:11px;">+ Thêm NL</button>
+                    </div>
+                    <div id="createIngGlobalIngContainer"></div>
+                </div>
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                    <button class="btn-small btn-save" onclick="_handleCreateMenuItemFromIng()" style="flex:1;">💾 Lưu</button>
+                    <button class="btn-small btn-cancel" onclick="closeModal('createMenuItemFromIngModal')" style="flex:1;">Hủy</button>
+                </div>
+                <div id="createIngMenuItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
             </div>
         </div>
     </div>

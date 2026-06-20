@@ -17,6 +17,99 @@ var _addModalIngredients = [];   // Mảng nguyên liệu chung: [{ingredientId,
 // Biến tracking cho filter danh mục dạng nút bấm
 var _invFilterCategoryId = 'all';
 
+// Biến timeout cho debounce tìm kiếm
+var _invSearchTimeout = null;
+
+// Hàm lọc món trong tab Quản lý thực đơn
+function filterInventoryMenu(keyword) {
+    if (_invSearchTimeout) clearTimeout(_invSearchTimeout);
+    _invSearchTimeout = setTimeout(function() {
+        _invSearchTimeout = null;
+        var container = document.getElementById('invMenuItemList');
+        if (!container) return;
+        
+        keyword = _removeAccents(keyword.trim().toLowerCase());
+        if (!keyword) {
+            renderInventoryMenu();
+            return;
+        }
+        
+        var items = menuItems || [];
+        var filtered = items.filter(function(item) {
+            return _removeAccents(item.name.toLowerCase()).indexOf(keyword) !== -1;
+        });
+        
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="empty-text">🔍 Không tìm thấy món</div>';
+            return;
+        }
+        
+        // Render lại danh sách đã lọc (dùng _doRenderInventoryMenu với cat='all' để hiển thị tất cả kết quả)
+        var cats = menuCategories || [];
+        _doRenderInventoryMenu(filtered, cats, 'all', container);
+    }, 150);
+}
+
+// Hàm lọc nguyên liệu trong tab Quản lý tồn kho
+function filterInventoryIngredients(keyword) {
+    if (_invSearchTimeout) clearTimeout(_invSearchTimeout);
+    _invSearchTimeout = setTimeout(function() {
+        _invSearchTimeout = null;
+        var container = document.getElementById('invIngredientList');
+        if (!container) return;
+        
+        keyword = _removeAccents(keyword.trim().toLowerCase());
+        if (!keyword) {
+            renderInventoryIngredients();
+            return;
+        }
+        
+        var ings = ingredients || [];
+        var filtered = ings.filter(function(ing) {
+            if (ing.deleted) return false;
+            return _removeAccents((ing.name || '').toLowerCase()).indexOf(keyword) !== -1;
+        });
+        
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="empty-text">🔍 Không tìm thấy nguyên liệu</div>';
+            return;
+        }
+        
+        // Render lại danh sách đã lọc (dùng logic render giống renderInventoryIngredients)
+        var html = '';
+        for (var i = 0; i < filtered.length; i++) {
+            var ing = filtered[i];
+            var stock = parseFloat(ing.stock) || 0;
+            var minStock = parseFloat(ing.minStock) || 0;
+            var isLow = minStock > 0 && stock <= minStock;
+            var unit = ing.unit || '';
+            
+            var conversionHtml = '';
+            var convertedStockHtml = '';
+            if (ing.conversionFrom && ing.conversionTo && ing.conversionRate) {
+                conversionHtml = '<span class="inv-ing-conversion">1 ' + escapeHtml(ing.conversionFrom) + ' → ' + ing.conversionRate + ' ' + escapeHtml(ing.conversionTo) + '</span>';
+                var convertedStock = Math.round(stock * ing.conversionRate * 10) / 10;
+                convertedStockHtml = '<span class="inv-ing-converted">' + convertedStock + ' ' + escapeHtml(ing.conversionTo) + '</span>';
+            }
+            
+            var displayStock = Math.round(stock * 10) / 10;
+            
+            html += '<div class="inv-ingredient-item' + (isLow ? ' low-stock' : '') + '" onclick="showIngredientUsage(\'' + ing.id + '\')">' +
+                '<div class="inv-ing-info">' +
+                    '<span class="inv-ing-name">' + escapeHtml(ing.name || '') + '</span>' +
+                    '<span class="inv-ing-stock ' + (isLow ? 'text-danger' : '') + '">' +
+                        displayStock + ' ' + escapeHtml(unit) +
+                        (isLow ? ' ⚠️' : '') +
+                    '</span>' +
+                    (convertedStockHtml ? '<span class="inv-ing-stock-converted">= ' + convertedStockHtml + '</span>' : '') +
+                    conversionHtml +
+                '</div>' +
+            '</div>';
+        }
+        container.innerHTML = html;
+    }, 150);
+}
+
 // Hàm chọn filter danh mục (gọi từ onclick)
 function setInvMenuFilter(catId) {
     _invFilterCategoryId = catId || 'all';
@@ -1170,14 +1263,14 @@ function _addEditMenuItemIngredientRow(ingId, qty, unit) {
         } else {
             convInfo = ' (' + stock + unitLabel + ')';
         }
-        optionsHtml += '<option value="' + ing.id + '"' + selected + '>' + escapeHtml(ing.name || '') + convInfo + '</option>';
+        optionsHtml += '<option value="' + ing.id + '"' + selected + ' data-unit="' + escapeHtml(unitLabel) + '">' + escapeHtml(ing.name || '') + convInfo + '</option>';
     }
     
     var row = document.createElement('div');
     row.className = 'inv-form-row';
     row.style.marginTop = '4px';
     row.innerHTML =
-        '<select class="edit-menu-ing-select" style="flex:1.2;">' + optionsHtml + '</select>' +
+        '<select class="edit-menu-ing-select" style="flex:1.2;" onchange="var u=this.options[this.selectedIndex];var ingUnit=u?u.getAttribute(\'data-unit\')||\'\':\'\';var unitInput=this.parentElement.querySelector(\'.edit-menu-ing-unit\');if(unitInput&&!unitInput.value.trim())unitInput.value=ingUnit;">' + optionsHtml + '</select>' +
         '<input type="number" class="edit-menu-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;" step="0.1">' +
         '<input type="text" class="edit-menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;">' +
         '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:4px 8px;">✕</button>';
@@ -1222,6 +1315,7 @@ function handleEditMenuItemSave() {
     // Collect sizes with per-variant ingredients
     var sizes = [];
     var sizeRows = document.querySelectorAll('#editMenuItemSizesContainer .inv-form-row');
+    console.log('🔍 handleEditMenuItemSave: sizeRows found:', sizeRows.length);
     for (var i = 0; i < sizeRows.length; i++) {
         var row = sizeRows[i];
         var sNameInput = row.querySelector('.edit-menu-size-name');
@@ -1236,10 +1330,12 @@ function handleEditMenuItemSave() {
         var ingRows = row.querySelectorAll('.edit-size-ing-rows .edit-menu-ing-select');
         var ingQtyRows = row.querySelectorAll('.edit-size-ing-rows .edit-menu-ing-qty');
         var ingUnitRows = row.querySelectorAll('.edit-size-ing-rows .edit-menu-ing-unit');
+        console.log('🔍 handleEditMenuItemSave: size=' + sName + ', ingRows=' + ingRows.length + ', ingQtyRows=' + ingQtyRows.length + ', ingUnitRows=' + ingUnitRows.length);
         for (var si = 0; si < ingRows.length; si++) {
             var ingId = ingRows[si].value;
             var ingQty = parseFloat(ingQtyRows[si].value) || 0;
             var ingUnit = ingUnitRows[si].value.trim();
+            console.log('🔍 handleEditMenuItemSave: ing[' + si + '] id=' + ingId + ' qty=' + ingQty + ' unit="' + ingUnit + '"');
             if (ingId && ingQty > 0) {
                 var ingName = '';
                 var ings = ingredients || [];
@@ -1265,6 +1361,7 @@ function handleEditMenuItemSave() {
             ingredients: sizeIngs.length > 0 ? sizeIngs : [],
             recipe: recipe
         });
+        console.log('🔍 handleEditMenuItemSave: size pushed:', JSON.stringify(sizes[sizes.length-1]));
     }
     
     // Collect global ingredients (shared across all sizes)
@@ -1301,6 +1398,8 @@ function handleEditMenuItemSave() {
         sizes: hasVariants ? sizes : [],
         ingredients: ingredients_data.length > 0 ? ingredients_data : []
     };
+    
+    console.log('🔍 handleEditMenuItemSave FINAL DATA:', JSON.stringify(data));
     
     if (!_editingMenuItemId) {
         if (errorEl) errorEl.innerText = 'Lỗi: không tìm thấy món';
@@ -1744,17 +1843,21 @@ function showIngredientUsage(ingId) {
     // Determine display units
     var baseUnit = ing.unit || '';
     var convRate = parseFloat(ing.conversionRate) || 0;
+    var convFrom = ing.conversionFrom || '';
     var convTo = ing.conversionTo || '';
-    var hasConv = convRate > 0 && convTo;
-    // For usage tab (recipe quantities are in converted unit), use convTo if available
-    var displayUnit = hasConv ? convTo : baseUnit;
+    var hasConv = convRate > 0 && convFrom && convTo;
+    // For usage tab display
+    var displayUnit = baseUnit;
 
     // Helper: format quantity with both base and converted units
+    // qty luôn ở đơn vị tồn kho (baseUnit)
     function _fmtQty(qty, showConv) {
         var s = Math.round(qty * 100) / 100 + ' ' + baseUnit;
         if (showConv && hasConv) {
+            // Quy đổi từ đơn vị tồn kho sang đơn vị nhỏ (convTo)
+            // VD: 0.105 hộp * 200 = 21 điếu
             var convQty = Math.round(qty * convRate * 100) / 100;
-            s += ' (' + convQty + ' ' + convTo + ')';
+            s += ' (~' + convQty + ' ' + convTo + ')';
         }
         return s;
     }
@@ -1811,12 +1914,14 @@ function showIngredientUsage(ingId) {
                 if (!isRelated) continue;
                 // Find recipe quantity for this ingredient
                 var recipeQty = 0;
+                var recipeUnit = '';
                 for (var k = 0; k < menuItems.length; k++) {
                     if (menuItems[k].id === orderItem.id || menuItems[k].name === baseName) {
                         if (menuItems[k].ingredients) {
                             for (var l = 0; l < menuItems[k].ingredients.length; l++) {
                                 if (String(menuItems[k].ingredients[l].ingredientId) === String(ingId)) {
                                     recipeQty = menuItems[k].ingredients[l].quantity || 0;
+                                    recipeUnit = menuItems[k].ingredients[l].unit || '';
                                     break;
                                 }
                             }
@@ -1828,6 +1933,7 @@ function showIngredientUsage(ingId) {
                                 for (var l = 0; l < vIngs.length; l++) {
                                     if (String(vIngs[l].ingredientId) === String(ingId)) {
                                         recipeQty = vIngs[l].quantity || 0;
+                                        recipeUnit = vIngs[l].unit || '';
                                         break;
                                     }
                                 }
@@ -1839,13 +1945,14 @@ function showIngredientUsage(ingId) {
                 }
                 if (recipeQty <= 0) continue;
                 var qtyUsed = recipeQty * orderItem.qty;
-                // Convert recipe qty (in display unit) to base unit for consistent display
-                var baseQty = hasConv ? (qtyUsed / convRate) : qtyUsed;
+                // FIX: Dùng _getConvertedQuantity để tính số lượng thực tế cần trừ
+                // Dựa trên recipeUnit (đơn vị gán cho món) và ingredient (có conversionFrom/To)
+                var baseQty = _getConvertedQuantity(ing, qtyUsed, recipeUnit);
                 result.push({
                     type: 'export',
                     quantity: baseQty,
                     unit: baseUnit,
-                    note: 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (' + Math.round(qtyUsed * 100) / 100 + ' ' + displayUnit + ')',
+                    note: 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (' + Math.round(qtyUsed * 100) / 100 + ' ' + (recipeUnit || displayUnit) + ')',
                     dateKey: dateKey,
                     time: tx.time || '',
                     createdAt: tx.createdAt || 0,
@@ -2056,6 +2163,7 @@ function showIngredientUsage(ingId) {
 
                 // Find the recipe quantity for this ingredient
                 var recipeQty = 0;
+                var recipeUnit = '';
                 for (var k = 0; k < menuItems.length; k++) {
                     if (menuItems[k].id === orderItem.id || menuItems[k].name === baseName) {
                         // Check global ingredients
@@ -2063,6 +2171,7 @@ function showIngredientUsage(ingId) {
                             for (var l = 0; l < menuItems[k].ingredients.length; l++) {
                                 if (String(menuItems[k].ingredients[l].ingredientId) === String(ingId)) {
                                     recipeQty = menuItems[k].ingredients[l].quantity || 0;
+                                    recipeUnit = menuItems[k].ingredients[l].unit || '';
                                     break;
                                 }
                             }
@@ -2075,6 +2184,7 @@ function showIngredientUsage(ingId) {
                                 for (var l = 0; l < vIngs.length; l++) {
                                     if (String(vIngs[l].ingredientId) === String(ingId)) {
                                         recipeQty = vIngs[l].quantity || 0;
+                                        recipeUnit = vIngs[l].unit || '';
                                         break;
                                     }
                                 }
@@ -2086,7 +2196,9 @@ function showIngredientUsage(ingId) {
                 }
 
                 var qtyUsed = recipeQty * orderItem.qty;
-                totalUsed += qtyUsed;
+                // FIX: Dùng _getConvertedQuantity để tính số lượng thực tế
+                var baseQty = _getConvertedQuantity(ing, qtyUsed, recipeUnit);
+                totalUsed += baseQty;
                 totalOrders += orderItem.qty;
 
                 if (!usageByDate[dateKey]) {
@@ -2104,17 +2216,17 @@ function showIngredientUsage(ingId) {
                         count: 0
                     };
                 }
-                usageByDate[dateKey].items[itemKey].qty += qtyUsed;
+                usageByDate[dateKey].items[itemKey].qty += baseQty;
                 usageByDate[dateKey].items[itemKey].count += orderItem.qty;
-                usageByDate[dateKey].totalQty += qtyUsed;
+                usageByDate[dateKey].totalQty += baseQty;
                 usageByDate[dateKey].orderCount += orderItem.qty;
             }
         }
 
         var summaryHtml =
-            '<div class="usage-stat">' +
+            '<div class="usage-stat" style="cursor:pointer;" onclick="switchIngUsageTab(\'menuitems\')" title="Xem danh sách món chứa nguyên liệu">' +
                 '<span class="usage-stat-label">📦 Món có chứa nguyên liệu:</span>' +
-                '<span class="usage-stat-value">' + relatedCount + ' món</span>' +
+                '<span class="usage-stat-value" style="color:#f97316;">' + relatedCount + ' món →</span>' +
             '</div>' +
             '<div class="usage-stat">' +
                 '<span class="usage-stat-label">📊 Tổng số lượng đã dùng:</span>' +
@@ -2193,15 +2305,673 @@ function toggleIngUsageDate(headerEl) {
     }
 }
 
+// ========== RELATED MENU ITEMS (TAB "MÓN CHỨA NL") ==========
+var _ingRelatedMenuFilter = '';
+
+function _renderRelatedMenuItems(ingId) {
+    if (!ingId) return;
+    var listEl = document.getElementById('ingRelatedMenuList');
+    if (!listEl) return;
+    
+    var items = window.menuItems || [];
+    var relatedIds = {};
+    var relatedData = {};
+    
+    // Find all menu items that use this ingredient
+    for (var i = 0; i < items.length; i++) {
+        var mi = items[i];
+        var found = false;
+        // Check global ingredients
+        if (mi.ingredients && mi.ingredients.length > 0) {
+            for (var j = 0; j < mi.ingredients.length; j++) {
+                if (String(mi.ingredients[j].ingredientId) === String(ingId)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        // Check per-variant ingredients
+        if (!found) {
+            var variantData = (mi.variants && mi.variants.length > 0) ? mi.variants : (mi.sizes || []);
+            for (var vi = 0; vi < variantData.length; vi++) {
+                var vIngs = variantData[vi].ingredients || [];
+                for (var j = 0; j < vIngs.length; j++) {
+                    if (String(vIngs[j].ingredientId) === String(ingId)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+        }
+        if (found) {
+            relatedIds[mi.id] = true;
+            relatedData[mi.id] = mi;
+        }
+    }
+    
+    var relatedIdsArr = Object.keys(relatedIds);
+    
+    // Apply search filter
+    var keyword = _ingRelatedMenuFilter;
+    if (keyword) {
+        var filtered = [];
+        for (var i = 0; i < relatedIdsArr.length; i++) {
+            var mi = relatedData[relatedIdsArr[i]];
+            if (mi && _removeAccents(mi.name || '').toLowerCase().indexOf(_removeAccents(keyword).toLowerCase()) !== -1) {
+                filtered.push(relatedIdsArr[i]);
+            }
+        }
+        relatedIdsArr = filtered;
+    }
+    
+    if (relatedIdsArr.length === 0) {
+        if (keyword) {
+            listEl.innerHTML = '<div class="ing-usage-empty">🔍 Không tìm thấy món phù hợp</div>';
+        } else {
+            listEl.innerHTML = '<div class="ing-usage-empty">📭 Chưa có món nào chứa nguyên liệu này</div>';
+        }
+        return;
+    }
+    
+    var html = '';
+    for (var i = 0; i < relatedIdsArr.length; i++) {
+        var mi = relatedData[relatedIdsArr[i]];
+        if (!mi) continue;
+        
+        // Count how many ingredients this menu item has
+        var ingCount = (mi.ingredients ? mi.ingredients.length : 0);
+        var variantData = (mi.variants && mi.variants.length > 0) ? mi.variants : (mi.sizes || []);
+        for (var vi = 0; vi < variantData.length; vi++) {
+            ingCount += (variantData[vi].ingredients ? variantData[vi].ingredients.length : 0);
+        }
+        
+        html += '<div class="ing-related-menu-item" onclick="_showEditMenuItemIngredients(\'' + mi.id + '\', \'' + ingId + '\')">' +
+            '<span class="ing-related-menu-name" style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(mi.name || '') + '</span>' +
+            '<span class="ing-related-menu-price">' + formatMoney(mi.price || 0) + '</span>' +
+            '<span class="ing-related-menu-ingcount">' + ingCount + ' NL</span>' +
+            '<button class="btn-small btn-outline" onclick="event.stopPropagation();_showEditMenuItemIngredients(\'' + mi.id + '\', \'' + ingId + '\')" style="font-size:10px;padding:2px 6px;flex-shrink:0;">✏️ Sửa</button>' +
+        '</div>';
+    }
+    listEl.innerHTML = html;
+}
+
+function filterIngRelatedMenu(keyword) {
+    _ingRelatedMenuFilter = keyword;
+    if (window._currentIngId) {
+        _renderRelatedMenuItems(window._currentIngId);
+    }
+}
+
+// ========== SỬA NGUYÊN LIỆU TRỰC TIẾP TRONG MÓN (TỪ MODAL NGUYÊN LIỆU) ==========
+function _showEditMenuItemIngredients(menuItemId, ingId) {
+    if (!menuItemId) return;
+    
+    // Find the menu item
+    var items = window.menuItems || [];
+    var item = null;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id === menuItemId) { item = items[i]; break; }
+    }
+    if (!item) return;
+    
+    // Close ingredient modal and open edit menu item modal
+    closeModal('ingredientUsageModal');
+    
+    // Use the existing editMenuItem function but highlight the ingredient
+    editMenuItem(menuItemId);
+    
+    // Store the ingredient ID to highlight after modal opens
+    window._highlightIngId = ingId;
+    
+    // After a short delay, scroll to and highlight the ingredient row
+    setTimeout(function() {
+        if (ingId) {
+            var selects = document.querySelectorAll('#editMenuItemIngredientsContainer .edit-menu-ing-select, #editMenuItemSizesContainer .edit-menu-ing-select');
+            for (var i = 0; i < selects.length; i++) {
+                if (String(selects[i].value) === String(ingId)) {
+                    var row = selects[i].closest('[style*="display: flex"]') || selects[i].parentElement;
+                    if (row) {
+                        row.style.background = '#fef3c7';
+                        row.style.borderRadius = '4px';
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    break;
+                }
+            }
+        }
+        window._highlightIngId = null;
+    }, 500);
+}
+
+// ========== GÁN NGUYÊN LIỆU CHO MÓN ==========
+var _assignIngTargetId = null;
+var _assignIngFilter = '';
+
+function _showAssignIngredientToMenu() {
+    var ingId = window._currentIngId;
+    if (!ingId) return;
+    
+    _assignIngTargetId = null;
+    _assignIngFilter = '';
+    
+    var titleEl = document.getElementById('assignIngredientModalTitle');
+    var ings = window.ingredients || [];
+    var ingName = '';
+    for (var i = 0; i < ings.length; i++) {
+        if (ings[i].id === ingId) { ingName = ings[i].name; break; }
+    }
+    if (titleEl) titleEl.innerText = '📌 Gán "' + (ingName || 'NL') + '" cho món';
+    
+    // Reset UI
+    var searchInput = document.getElementById('assignIngMenuSearch');
+    if (searchInput) searchInput.value = '';
+    
+    var sizeSection = document.getElementById('assignIngSizeSection');
+    if (sizeSection) sizeSection.style.display = 'none';
+    
+    var sizeContainer = document.getElementById('assignIngSizeContainer');
+    if (sizeContainer) sizeContainer.innerHTML = '';
+    
+    var globalContainer = document.getElementById('assignIngGlobalIngContainer');
+    if (globalContainer) globalContainer.innerHTML = '';
+    
+    var errorEl = document.getElementById('assignIngError');
+    if (errorEl) errorEl.innerText = '';
+    
+    // Render menu list
+    _renderAssignIngMenuList();
+    
+    openBottomSheet('assignIngredientModal');
+}
+
+function _renderAssignIngMenuList() {
+    var listEl = document.getElementById('assignIngMenuList');
+    if (!listEl) return;
+    
+    var items = window.menuItems || [];
+    var keyword = _assignIngFilter;
+    
+    var filtered = [];
+    for (var i = 0; i < items.length; i++) {
+        var mi = items[i];
+        if (keyword) {
+            var name = _removeAccents(mi.name || '').toLowerCase();
+            var kw = _removeAccents(keyword).toLowerCase();
+            if (name.indexOf(kw) === -1) continue;
+        }
+        filtered.push(mi);
+    }
+    
+    if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:12px;color:#94a3b8;font-size:13px;">🔍 Không tìm thấy món</div>';
+        return;
+    }
+    
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var mi = filtered[i];
+        var selected = String(_assignIngTargetId) === String(mi.id) ? ' style="background:#fef3c7;border-color:#f59e0b;"' : '';
+        html += '<div class="assign-ing-menu-item"' + selected + ' onclick="_selectAssignIngMenuItem(\'' + mi.id + '\')">' +
+            '<span>' + escapeHtml(mi.name || '') + '</span>' +
+            '<span style="font-size:11px;color:#64748b;">' + formatMoney(mi.price || 0) + '</span>' +
+        '</div>';
+    }
+    listEl.innerHTML = html;
+}
+
+function filterAssignIngMenu(keyword) {
+    _assignIngFilter = keyword;
+    _renderAssignIngMenuList();
+}
+
+function _selectAssignIngMenuItem(menuItemId) {
+    _assignIngTargetId = menuItemId;
+    _renderAssignIngMenuList();
+    
+    // Show size section
+    var sizeSection = document.getElementById('assignIngSizeSection');
+    if (sizeSection) sizeSection.style.display = 'block';
+    
+    // Find the menu item to pre-populate
+    var items = window.menuItems || [];
+    var item = null;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id === menuItemId) { item = items[i]; break; }
+    }
+    
+    var sizeContainer = document.getElementById('assignIngSizeContainer');
+    var globalContainer = document.getElementById('assignIngGlobalIngContainer');
+    if (sizeContainer) sizeContainer.innerHTML = '';
+    if (globalContainer) globalContainer.innerHTML = '';
+    
+    if (item) {
+        // Pre-populate existing sizes
+        var variantData = (item.variants && item.variants.length > 0) ? item.variants : (item.sizes || []);
+        if (variantData.length > 0) {
+            for (var vi = 0; vi < variantData.length; vi++) {
+                _addAssignIngSizeRow(variantData[vi].name || '', variantData[vi].price || '', variantData[vi].ingredients || []);
+            }
+        } else {
+            _addAssignIngSizeRow('', '', []);
+        }
+        
+        // Pre-populate global ingredients
+        if (item.ingredients && item.ingredients.length > 0) {
+            for (var i = 0; i < item.ingredients.length; i++) {
+                _addAssignIngGlobalIngRow(item.ingredients[i].ingredientId || '', item.ingredients[i].quantity || '', item.ingredients[i].unit || '');
+            }
+        } else {
+            _addAssignIngGlobalIngRow('', '', '');
+        }
+    } else {
+        _addAssignIngSizeRow('', '', []);
+        _addAssignIngGlobalIngRow('', '', '');
+    }
+}
+
+function _addAssignIngSizeRow(sizeName, sizePrice, sizeIngredients) {
+    var container = document.getElementById('assignIngSizeContainer');
+    if (!container) return;
+    var rowId = 'assign_size_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    var row = document.createElement('div');
+    row.className = 'inv-form-row';
+    row.id = rowId;
+    row.style.cssText = 'margin-top:4px;flex-direction:column;border:1px solid #e2e8f0;border-radius:6px;padding:8px;';
+    
+    var headerHtml =
+        '<div style="display:flex;gap:6px;align-items:center;width:100%;">' +
+            '<input type="text" class="assign-ing-size-name" placeholder="Tên size (VD: Nhỏ)" value="' + escapeHtml(sizeName || '') + '" style="flex:1;">' +
+            '<input type="number" class="assign-ing-size-price" placeholder="Giá" value="' + (sizePrice || '') + '" style="flex:0.8;" step="1000">' +
+            '<button class="btn-small btn-danger" onclick="this.closest(\'.inv-form-row\').remove()" style="padding:4px 8px;">✕</button>' +
+        '</div>';
+    
+    var ingsHtml = '<div class="assign-size-ingredients" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;width:100%;">';
+    ingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    ingsHtml += '<span style="font-size:11px;color:#64748b;font-weight:600;">🧂 Nguyên liệu cho size này</span>';
+    ingsHtml += '<button class="btn-small btn-outline" onclick="document.getElementById(\'' + rowId + '\').querySelector(\'.assign-size-ing-rows\').appendChild(_createAssignSizeIngRow(\'\',\'\',\'\'))" style="font-size:10px;padding:2px 6px;">+ Thêm NL</button>';
+    ingsHtml += '</div>';
+    ingsHtml += '<div class="assign-size-ing-rows">';
+    
+    if (sizeIngredients && sizeIngredients.length) {
+        for (var i = 0; i < sizeIngredients.length; i++) {
+            var si = sizeIngredients[i];
+            ingsHtml += _buildAssignSizeIngRowHtml(si.ingredientId || '', si.quantity || '', si.unit || '');
+        }
+    } else {
+        ingsHtml += _buildAssignSizeIngRowHtml('', '', '');
+    }
+    
+    ingsHtml += '</div></div>';
+    
+    row.innerHTML = headerHtml + ingsHtml;
+    container.appendChild(row);
+}
+
+function _buildAssignSizeIngRowHtml(ingId, qty, unit) {
+    var ings = window.ingredients || [];
+    var optionsHtml = '<option value="">-- Chọn NL --</option>';
+    for (var i = 0; i < ings.length; i++) {
+        var ing = ings[i];
+        var selected = String(ing.id) === String(ingId) ? ' selected' : '';
+        var stock = parseFloat(ing.stock) || 0;
+        var unitLabel = ing.unit || '';
+        optionsHtml += '<option value="' + ing.id + '"' + selected + '>' + escapeHtml(ing.name || '') + ' (' + Math.round(stock * 10) / 10 + unitLabel + ')</option>';
+    }
+    return '<div style="display:flex;gap:4px;margin-top:4px;align-items:center;">' +
+        '<select class="assign-ing-ing-select" style="flex:1.2;font-size:11px;padding:4px 6px;">' + optionsHtml + '</select>' +
+        '<input type="number" class="assign-ing-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" step="0.1">' +
+        '<input type="text" class="assign-ing-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;">' +
+        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;">✕</button>' +
+    '</div>';
+}
+
+function _createAssignSizeIngRow(ingId, qty, unit) {
+    var div = document.createElement('div');
+    div.innerHTML = _buildAssignSizeIngRowHtml(ingId, qty, unit);
+    return div.firstElementChild;
+}
+
+function _addAssignIngGlobalIngRow(ingId, qty, unit) {
+    var container = document.getElementById('assignIngGlobalIngContainer');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.innerHTML = _buildAssignSizeIngRowHtml(ingId, qty, unit);
+    container.appendChild(row.firstElementChild);
+}
+
+function _handleAssignIngredientSave() {
+    var ingId = window._currentIngId;
+    var menuItemId = _assignIngTargetId;
+    var errorEl = document.getElementById('assignIngError');
+    
+    if (!ingId) { if (errorEl) errorEl.innerText = 'Lỗi: không tìm thấy nguyên liệu'; return; }
+    if (!menuItemId) { if (errorEl) errorEl.innerText = 'Vui lòng chọn món'; return; }
+    if (errorEl) errorEl.innerText = '';
+    
+    // Find the menu item
+    var items = window.menuItems || [];
+    var item = null;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].id === menuItemId) { item = items[i]; break; }
+    }
+    if (!item) { if (errorEl) errorEl.innerText = 'Lỗi: không tìm thấy món'; return; }
+    
+    // Get ingredient info
+    var ings = window.ingredients || [];
+    var ingName = '';
+    for (var i = 0; i < ings.length; i++) {
+        if (ings[i].id === ingId) { ingName = ings[i].name; break; }
+    }
+    
+    // Collect sizes
+    var sizes = [];
+    var sizeRows = document.querySelectorAll('#assignIngSizeContainer .inv-form-row');
+    for (var i = 0; i < sizeRows.length; i++) {
+        var row = sizeRows[i];
+        var sNameInput = row.querySelector('.assign-ing-size-name');
+        var sPriceInput = row.querySelector('.assign-ing-size-price');
+        if (!sNameInput) continue;
+        var sName = sNameInput.value.trim();
+        var sPrice = parseInt(sPriceInput ? sPriceInput.value : 0) || 0;
+        if (!sName) continue;
+        
+        var sizeIngs = [];
+        var ingSelects = row.querySelectorAll('.assign-size-ing-rows .assign-ing-ing-select');
+        var ingQtys = row.querySelectorAll('.assign-size-ing-rows .assign-ing-ing-qty');
+        var ingUnits = row.querySelectorAll('.assign-size-ing-rows .assign-ing-ing-unit');
+        for (var si = 0; si < ingSelects.length; si++) {
+            var sid = ingSelects[si].value;
+            var sqty = parseFloat(ingQtys[si].value) || 0;
+            var sunit = ingUnits[si].value.trim();
+            if (sid && sqty > 0) {
+                var sIngName = '';
+                for (var j = 0; j < ings.length; j++) {
+                    if (String(ings[j].id) === String(sid)) { sIngName = ings[j].name; break; }
+                }
+                sizeIngs.push({ ingredientId: sid, ingredientName: sIngName, quantity: sqty, unit: sunit });
+            }
+        }
+        
+        sizes.push({ name: sName, price: sPrice, ingredients: sizeIngs.length > 0 ? sizeIngs : [], recipe: '' });
+    }
+    
+    // Collect global ingredients
+    var globalIngs = [];
+    var gSelects = document.querySelectorAll('#assignIngGlobalIngContainer .assign-ing-ing-select');
+    var gQtys = document.querySelectorAll('#assignIngGlobalIngContainer .assign-ing-ing-qty');
+    var gUnits = document.querySelectorAll('#assignIngGlobalIngContainer .assign-ing-ing-unit');
+    for (var i = 0; i < gSelects.length; i++) {
+        var gid = gSelects[i].value;
+        var gqty = parseFloat(gQtys[i].value) || 0;
+        var gunit = gUnits[i].value.trim();
+        if (gid && gqty > 0) {
+            var gIngName = '';
+            for (var j = 0; j < ings.length; j++) {
+                if (String(ings[j].id) === String(gid)) { gIngName = ings[j].name; break; }
+            }
+            globalIngs.push({ ingredientId: gid, ingredientName: gIngName, quantity: gqty, unit: gunit });
+        }
+    }
+    
+    var hasVariants = sizes.length > 0;
+    var data = {
+        name: item.name,
+        price: item.price,
+        categoryId: item.categoryId,
+        hasVariants: hasVariants,
+        variants: hasVariants ? sizes : [],
+        sizes: hasVariants ? sizes : [],
+        ingredients: globalIngs.length > 0 ? globalIngs : []
+    };
+    
+    // Save
+    DB.update('menu', menuItemId, data).then(function() {
+        showToast('Đã gán nguyên liệu cho món "' + (item.name || '') + '"', 'success');
+        closeModal('assignIngredientModal');
+        return DB.getAll('menu');
+    }).then(function(items) {
+        window.menuItems = items;
+        renderInventoryMenu();
+        _invalidateLookups();
+        // Re-render related menu items if modal is open
+        if (window._currentIngId) {
+            _renderRelatedMenuItems(window._currentIngId);
+        }
+    }).catch(function(err) {
+        if (errorEl) errorEl.innerText = err.message || 'Lỗi lưu';
+    });
+}
+
+// ========== TẠO MÓN MỚI TỪ NGUYÊN LIỆU ==========
+function _showCreateMenuItemFromIng() {
+    var ingId = window._currentIngId;
+    if (!ingId) return;
+    
+    var titleEl = document.getElementById('createMenuItemFromIngTitle');
+    var ings = window.ingredients || [];
+    var ingName = '';
+    for (var i = 0; i < ings.length; i++) {
+        if (ings[i].id === ingId) { ingName = ings[i].name; break; }
+    }
+    if (titleEl) titleEl.innerText = '➕ Tạo món mới từ "' + (ingName || 'NL') + '"';
+    
+    // Reset form
+    var nameInput = document.getElementById('createIngMenuItemName');
+    var priceInput = document.getElementById('createIngMenuItemPrice');
+    var catSelect = document.getElementById('createIngMenuItemCategory');
+    var errorEl = document.getElementById('createIngMenuItemError');
+    if (nameInput) nameInput.value = '';
+    if (priceInput) priceInput.value = '';
+    if (errorEl) errorEl.innerText = '';
+    
+    // Populate category select
+    var cats = window.menuCategories || [];
+    cats.sort(function(a, b) { return (a.order || 999) - (b.order || 999); });
+    var catOptionsHtml = '<option value="">-- Chọn danh mục --</option>';
+    for (var i = 0; i < cats.length; i++) {
+        catOptionsHtml += '<option value="' + cats[i].id + '">' + escapeHtml(cats[i].name || '') + '</option>';
+    }
+    if (catSelect) catSelect.innerHTML = catOptionsHtml;
+    
+    // Reset sizes and ingredients
+    var sizesContainer = document.getElementById('createIngSizesContainer');
+    if (sizesContainer) sizesContainer.innerHTML = '';
+    _addCreateIngSizeRow('', '', []);
+    
+    var globalContainer = document.getElementById('createIngGlobalIngContainer');
+    if (globalContainer) globalContainer.innerHTML = '';
+    // Pre-add the current ingredient
+    _addCreateIngGlobalIngRow(ingId, '', '');
+    
+    closeModal('ingredientUsageModal');
+    openBottomSheet('createMenuItemFromIngModal');
+}
+
+function _addCreateIngSizeRow(sizeName, sizePrice, sizeIngredients) {
+    var container = document.getElementById('createIngSizesContainer');
+    if (!container) return;
+    var rowId = 'create_size_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    var row = document.createElement('div');
+    row.className = 'inv-form-row';
+    row.id = rowId;
+    row.style.cssText = 'margin-top:4px;flex-direction:column;border:1px solid #e2e8f0;border-radius:6px;padding:8px;';
+    
+    var headerHtml =
+        '<div style="display:flex;gap:6px;align-items:center;width:100%;">' +
+            '<input type="text" class="create-ing-size-name" placeholder="Tên size (VD: Nhỏ)" value="' + escapeHtml(sizeName || '') + '" style="flex:1;">' +
+            '<input type="number" class="create-ing-size-price" placeholder="Giá" value="' + (sizePrice || '') + '" style="flex:0.8;" step="1000">' +
+            '<button class="btn-small btn-danger" onclick="this.closest(\'.inv-form-row\').remove()" style="padding:4px 8px;">✕</button>' +
+        '</div>';
+    
+    var ingsHtml = '<div class="create-size-ingredients" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;width:100%;">';
+    ingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    ingsHtml += '<span style="font-size:11px;color:#64748b;font-weight:600;">🧂 Nguyên liệu cho size này</span>';
+    ingsHtml += '<button class="btn-small btn-outline" onclick="document.getElementById(\'' + rowId + '\').querySelector(\'.create-size-ing-rows\').appendChild(_createCreateSizeIngRow(\'\',\'\',\'\'))" style="font-size:10px;padding:2px 6px;">+ Thêm NL</button>';
+    ingsHtml += '</div>';
+    ingsHtml += '<div class="create-size-ing-rows">';
+    
+    if (sizeIngredients && sizeIngredients.length) {
+        for (var i = 0; i < sizeIngredients.length; i++) {
+            var si = sizeIngredients[i];
+            ingsHtml += _buildCreateSizeIngRowHtml(si.ingredientId || '', si.quantity || '', si.unit || '');
+        }
+    } else {
+        ingsHtml += _buildCreateSizeIngRowHtml('', '', '');
+    }
+    
+    ingsHtml += '</div></div>';
+    
+    row.innerHTML = headerHtml + ingsHtml;
+    container.appendChild(row);
+}
+
+function _buildCreateSizeIngRowHtml(ingId, qty, unit) {
+    var ings = window.ingredients || [];
+    var optionsHtml = '<option value="">-- Chọn NL --</option>';
+    for (var i = 0; i < ings.length; i++) {
+        var ing = ings[i];
+        var selected = String(ing.id) === String(ingId) ? ' selected' : '';
+        var stock = parseFloat(ing.stock) || 0;
+        var unitLabel = ing.unit || '';
+        optionsHtml += '<option value="' + ing.id + '"' + selected + '>' + escapeHtml(ing.name || '') + ' (' + Math.round(stock * 10) / 10 + unitLabel + ')</option>';
+    }
+    return '<div style="display:flex;gap:4px;margin-top:4px;align-items:center;">' +
+        '<select class="create-ing-ing-select" style="flex:1.2;font-size:11px;padding:4px 6px;">' + optionsHtml + '</select>' +
+        '<input type="number" class="create-ing-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" step="0.1">' +
+        '<input type="text" class="create-ing-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;">' +
+        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;">✕</button>' +
+    '</div>';
+}
+
+function _createCreateSizeIngRow(ingId, qty, unit) {
+    var div = document.createElement('div');
+    div.innerHTML = _buildCreateSizeIngRowHtml(ingId, qty, unit);
+    return div.firstElementChild;
+}
+
+function _addCreateIngGlobalIngRow(ingId, qty, unit) {
+    var container = document.getElementById('createIngGlobalIngContainer');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.innerHTML = _buildCreateSizeIngRowHtml(ingId, qty, unit);
+    container.appendChild(row.firstElementChild);
+}
+
+function _handleCreateMenuItemFromIng() {
+    var nameInput = document.getElementById('createIngMenuItemName');
+    var priceInput = document.getElementById('createIngMenuItemPrice');
+    var catSelect = document.getElementById('createIngMenuItemCategory');
+    var errorEl = document.getElementById('createIngMenuItemError');
+    
+    var name = nameInput ? nameInput.value.trim() : '';
+    var price = parseInt(priceInput ? priceInput.value : 0) || 0;
+    var categoryId = catSelect ? catSelect.value : '';
+    
+    if (!name) { if (errorEl) errorEl.innerText = 'Vui lòng nhập tên món'; return; }
+    if (price <= 0) { if (errorEl) errorEl.innerText = 'Vui lòng nhập giá bán'; return; }
+    if (errorEl) errorEl.innerText = '';
+    
+    // Check duplicate name
+    var items = window.menuItems || [];
+    for (var mi = 0; mi < items.length; mi++) {
+        if (items[mi].name === name) {
+            if (errorEl) errorEl.innerText = 'Tên món "' + name + '" đã tồn tại!';
+            return;
+        }
+    }
+    
+    // Collect sizes
+    var sizes = [];
+    var sizeRows = document.querySelectorAll('#createIngSizesContainer .inv-form-row');
+    for (var i = 0; i < sizeRows.length; i++) {
+        var row = sizeRows[i];
+        var sNameInput = row.querySelector('.create-ing-size-name');
+        var sPriceInput = row.querySelector('.create-ing-size-price');
+        if (!sNameInput) continue;
+        var sName = sNameInput.value.trim();
+        var sPrice = parseInt(sPriceInput ? sPriceInput.value : 0) || 0;
+        if (!sName) continue;
+        
+        var sizeIngs = [];
+        var ingSelects = row.querySelectorAll('.create-size-ing-rows .create-ing-ing-select');
+        var ingQtys = row.querySelectorAll('.create-size-ing-rows .create-ing-ing-qty');
+        var ingUnits = row.querySelectorAll('.create-size-ing-rows .create-ing-ing-unit');
+        var ings = window.ingredients || [];
+        for (var si = 0; si < ingSelects.length; si++) {
+            var sid = ingSelects[si].value;
+            var sqty = parseFloat(ingQtys[si].value) || 0;
+            var sunit = ingUnits[si].value.trim();
+            if (sid && sqty > 0) {
+                var sIngName = '';
+                for (var j = 0; j < ings.length; j++) {
+                    if (String(ings[j].id) === String(sid)) { sIngName = ings[j].name; break; }
+                }
+                sizeIngs.push({ ingredientId: sid, ingredientName: sIngName, quantity: sqty, unit: sunit });
+            }
+        }
+        sizes.push({ name: sName, price: sPrice, ingredients: sizeIngs.length > 0 ? sizeIngs : [], recipe: '' });
+    }
+    
+    // Collect global ingredients
+    var globalIngs = [];
+    var gSelects = document.querySelectorAll('#createIngGlobalIngContainer .create-ing-ing-select');
+    var gQtys = document.querySelectorAll('#createIngGlobalIngContainer .create-ing-ing-qty');
+    var gUnits = document.querySelectorAll('#createIngGlobalIngContainer .create-ing-ing-unit');
+    var ings = window.ingredients || [];
+    for (var i = 0; i < gSelects.length; i++) {
+        var gid = gSelects[i].value;
+        var gqty = parseFloat(gQtys[i].value) || 0;
+        var gunit = gUnits[i].value.trim();
+        if (gid && gqty > 0) {
+            var gIngName = '';
+            for (var j = 0; j < ings.length; j++) {
+                if (String(ings[j].id) === String(gid)) { gIngName = ings[j].name; break; }
+            }
+            globalIngs.push({ ingredientId: gid, ingredientName: gIngName, quantity: gqty, unit: gunit });
+        }
+    }
+    
+    var hasVariants = sizes.length > 0;
+    var data = {
+        name: name,
+        price: price,
+        categoryId: categoryId,
+        hasVariants: hasVariants,
+        variants: hasVariants ? sizes : [],
+        sizes: hasVariants ? sizes : [],
+        ingredients: globalIngs.length > 0 ? globalIngs : []
+    };
+    
+    DB.add('menu', data).then(function(newId) {
+        showToast('Đã tạo món "' + name + '"', 'success');
+        closeModal('createMenuItemFromIngModal');
+        return DB.getAll('menu');
+    }).then(function(items) {
+        window.menuItems = items;
+        renderInventoryMenu();
+        _invalidateLookups();
+    }).catch(function(err) {
+        if (errorEl) errorEl.innerText = err.message || 'Lỗi tạo món';
+    });
+}
+
 function switchIngUsageTab(tabName) {
     var tabs = document.querySelectorAll('.ing-usage-tab');
     for (var i = 0; i < tabs.length; i++) {
         tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
     }
     var usageContent = document.getElementById('ingUsageTabUsage');
+    var menuItemsContent = document.getElementById('ingUsageTabMenuItems');
     var txContent = document.getElementById('ingUsageTabTransactions');
     if (usageContent) usageContent.style.display = tabName === 'usage' ? '' : 'none';
+    if (menuItemsContent) menuItemsContent.style.display = tabName === 'menuitems' ? '' : 'none';
     if (txContent) txContent.style.display = tabName === 'transactions' ? '' : 'none';
+    
+    // Render related menu items when switching to menuitems tab
+    if (tabName === 'menuitems' && window._currentIngId) {
+        _renderRelatedMenuItems(window._currentIngId);
+    }
 }
 
 // Export global functions
@@ -2243,3 +3013,20 @@ window.switchIngUsageTab = switchIngUsageTab;
 window.handleIngredientQuickImport = handleIngredientQuickImport;
 window.showInvCategoryContextMenu = showInvCategoryContextMenu;
 window.closeInvCategoryContextMenu = closeInvCategoryContextMenu;
+// Export new ingredient-related menu functions
+window._renderRelatedMenuItems = _renderRelatedMenuItems;
+window.filterIngRelatedMenu = filterIngRelatedMenu;
+window._showEditMenuItemIngredients = _showEditMenuItemIngredients;
+window._showAssignIngredientToMenu = _showAssignIngredientToMenu;
+window._renderAssignIngMenuList = _renderAssignIngMenuList;
+window.filterAssignIngMenu = filterAssignIngMenu;
+window._selectAssignIngMenuItem = _selectAssignIngMenuItem;
+window._addAssignIngSizeRow = _addAssignIngSizeRow;
+window._addAssignIngGlobalIngRow = _addAssignIngGlobalIngRow;
+window._createAssignSizeIngRow = _createAssignSizeIngRow;
+window._handleAssignIngredientSave = _handleAssignIngredientSave;
+window._showCreateMenuItemFromIng = _showCreateMenuItemFromIng;
+window._addCreateIngSizeRow = _addCreateIngSizeRow;
+window._addCreateIngGlobalIngRow = _addCreateIngGlobalIngRow;
+window._createCreateSizeIngRow = _createCreateSizeIngRow;
+window._handleCreateMenuItemFromIng = _handleCreateMenuItemFromIng;
