@@ -769,6 +769,29 @@ body {
     min-width: 50px;               /* thêm min-width để số tiền thẳng hàng */
     text-align: right;
 }
+
+/* ----- Staff indicators (ai thanh toán, ai tạo bàn) ----- */
+.toast-staff {
+    font-size: 10px;
+    color: #94a3b8;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 2px;
+}
+.table-creator {
+    font-size: 10px;
+    color: #94a3b8;
+    display: block;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+.history-staff {
+    font-size: 11px;
+    color: #94a3b8;
+    white-space: nowrap;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
 /* ========== FORM ELEMENTS ========== */
 .form-input {
     width: 100%;
@@ -1579,15 +1602,15 @@ body.modal-open {
     padding: 6px 12px 12px;
 }
 
-/* Transaction detail modal - header ở đáy */
+/* Transaction detail modal - bố cục gọn gàng */
 #transactionDetailModal .modal-content {
     padding: 0;
-    flex-direction: column-reverse;
+    flex-direction: column;
+    max-width: 480px;
 }
 #transactionDetailModal .modal-header {
     padding: 14px 20px;
-    border-bottom: none;
-    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
 #transactionDetailModal .modal-header .header-left {
@@ -1601,7 +1624,7 @@ body.modal-open {
     font-weight: 400;
 }
 #transactionDetailModal .modal-body {
-    padding: 20px;
+    padding: 16px 20px;
     flex: 1;
     overflow-y: auto;
 }
@@ -4112,7 +4135,7 @@ body.modal-open {
         -webkit-flex-wrap: wrap;
         -ms-flex-wrap: wrap;
         flex-wrap: wrap;
-        gap: 16px;
+        gap: 12px;
         -webkit-box-align: start;
         -webkit-align-items: flex-start;
         -ms-flex-align: start;
@@ -4121,9 +4144,9 @@ body.modal-open {
 
     #transactionDetailModal .modal-body .detail-section {
         -webkit-box-flex: 1;
-        -webkit-flex: 1 1 calc(50% - 8px);
-        -ms-flex: 1 1 calc(50% - 8px);
-        flex: 1 1 calc(50% - 8px);
+        -webkit-flex: 1 1 calc(50% - 6px);
+        -ms-flex: 1 1 calc(50% - 6px);
+        flex: 1 1 calc(50% - 6px);
         min-width: 200px;
     }
 
@@ -4133,7 +4156,7 @@ body.modal-open {
         -webkit-flex: 1 1 100%;
         -ms-flex: 1 1 100%;
         flex: 1 1 100%;
-        margin-top: 8px;
+        margin-top: 4px;
     }
 }
 
@@ -5214,18 +5237,46 @@ html, body, .app, .main-content {
     background: #ea580c;
 }
 
-/* ========== ORDER MENU HEADER (nút tạo món nhanh) ========== */
+/* ========== ORDER MENU HEADER (tìm kiếm + nút tạo món nhanh) ========== */
 .order-menu-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
+    gap: 8px;
+    padding: 6px 10px;
     font-size: 14px;
     font-weight: 700;
     color: #334155;
     border-bottom: 1px solid #e2e8f0;
     background: #f8fafc;
     flex-shrink: 0;
+}
+
+.order-menu-title {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.order-menu-search {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    background: #fff;
+    color: #333;
+    transition: border-color 0.15s;
+}
+
+.order-menu-search:focus {
+    border-color: #f97316;
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
+}
+
+.order-menu-search::placeholder {
+    color: #9ca3af;
 }
 
 .quick-create-menu-btn {
@@ -6191,6 +6242,30 @@ html, body, .app, .main-content {
     background: #dcfce7;
 }
 
+/* ========== INVENTORY SEARCH INPUT ========== */
+.inv-search-input {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    background: #fff;
+    color: #333;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+}
+
+.inv-search-input:focus {
+    border-color: #f97316;
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
+}
+
+.inv-search-input::placeholder {
+    color: #9ca3af;
+}
+
 .emp-day-picker-cancel {
     background: #f1f5f9;
     color: #64748b;
@@ -6198,4 +6273,140 @@ html, body, .app, .main-content {
 
 .emp-day-picker-cancel:hover {
     background: #e2e8f0;
+}
+
+/* ----- DETAIL ITEM ROW (lịch sử giao dịch) ----- */
+.detail-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 13px;
+    gap: 12px;
+}
+.detail-item-row span:first-child {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #555;
+}
+.detail-item-row span:last-child {
+    white-space: nowrap;
+    font-weight: 500;
+    color: #333;
+    text-align: right;
+}
+
+/* Detail section card */
+.detail-section {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+.detail-section .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 13px;
+    gap: 8px;
+}
+.detail-section .detail-row span:first-child {
+    color: #64748b;
+    white-space: nowrap;
+}
+.detail-section .detail-row span:last-child {
+    font-weight: 600;
+    color: #1e293b;
+    text-align: right;
+}
+.detail-section .detail-amount {
+    font-size: 16px;
+    color: #059669;
+}
+.detail-items-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: #1e293b;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.refund-info {
+    background: #fef2f2;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #dc2626;
+    line-height: 1.5;
+}
+
+/* ========== INGREDIENT RELATED MENU ITEMS ========== */
+.ing-related-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: #fff;
+}
+.ing-related-menu-item:hover {
+    background: #fef3c7;
+    border-color: #f59e0b;
+}
+.ing-related-menu-item:active {
+    transform: scale(0.99);
+}
+.ing-related-menu-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ing-related-menu-price {
+    font-size: 12px;
+    color: #059669;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 0 6px;
+    min-width: 60px;
+    text-align: right;
+}
+.ing-related-menu-ingcount {
+    font-size: 11px;
+    color: #64748b;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 0 6px;
+    min-width: 40px;
+    text-align: center;
+}
+
+/* ========== ASSIGN INGREDIENT MENU LIST ========== */
+.assign-ing-menu-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.1s;
+    background: #fff;
+}
+.assign-ing-menu-item:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
 }

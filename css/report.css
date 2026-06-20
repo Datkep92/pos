@@ -16,30 +16,32 @@
 
 .report-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
 }
 
 /* Layout: reportStats */
 .report-layout {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
 .stat-card {
     background: var(--surface);
     border-radius: var(--radius);
-    padding: 16px;
+    padding: 12px 14px;
     border: 1px solid var(--border);
-    break-inside: avoid;
 }
 
 .stat-row {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
+    align-items: center;
+    padding: 6px 0;
     border-bottom: 1px solid var(--border);
+    gap: 8px;
+    font-size: 13px;
 }
 
 .stat-row:last-child { border-bottom: none; }
@@ -139,13 +141,13 @@
 /* Tablet dọc (601px - 900px) - 2 cột */
 @media (min-width: 601px) and (max-width: 900px) and (orientation: portrait) {
     .report-stats {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr 1fr;
     }
-    .stat-card { padding: 14px; }
-    .stat-row { font-size: 14px; }
+    .stat-card { padding: 12px; }
+    .stat-row { font-size: 13px; }
 }
 
-/* Tablet ngang (768px - 1024px) - 3 cột, không cuộn */
+/* Tablet ngang (768px - 1024px) - 2 cột */
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
     #reportView.tab-content.active {
         height: calc(100vh - 70px);
@@ -160,33 +162,32 @@
     .report-layout {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 8px;
         flex: 1;
         overflow: hidden;
     }
     .report-stats {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: 1fr 1fr;
         gap: 8px;
         overflow-y: auto;
         align-content: start;
     }
     .stat-card { padding: 10px; }
-    .stat-row { font-size: 13px; padding: 5px 0; }
+    .stat-row { font-size: 12px; padding: 5px 0; }
 }
 
-/* Desktop (>= 1025px) - 3-4 cột */
+/* Desktop (>= 1025px) - 2 cột */
 @media (min-width: 1025px) {
     .report-layout {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
     }
     .report-stats {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 12px;
-        align-items: start;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
     }
     .daily-balance-form { max-width: 600px; }
 }
