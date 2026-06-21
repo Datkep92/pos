@@ -116,7 +116,10 @@
 
 /* Search row */
 .cost-search-row {
+    display: flex;
+    gap: 8px;
     margin-bottom: 12px;
+    align-items: center;
 }
 
 .cost-search-input {
@@ -235,14 +238,6 @@
     color: #1e293b;
 }
 
-/* Qty + Price row */
-.cost-qty-price-row {
-    display: flex;
-    gap: 12px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-}
-
 .cost-field {
     flex: 1;
     min-width: 120px;
@@ -272,24 +267,25 @@
     box-shadow: 0 0 0 3px rgba(249,115,22,0.1);
 }
 
-/* Save button */
-.cost-save-btn {
-    width: 100%;
-    padding: 14px;
+/* Add button (+ Thêm) */
+.cost-add-btn {
+    flex-shrink: 0;
+    padding: 10px 16px;
     background: #f97316;
     border: none;
     border-radius: 40px;
     color: white;
     font-weight: 700;
-    font-size: 15px;
-    margin-top: 16px;
+    font-size: 13px;
     cursor: pointer;
     transition: all 0.15s;
     -webkit-appearance: none;
+    white-space: nowrap;
+    line-height: 1;
 }
 
-.cost-save-btn:active {
-    transform: scale(0.98);
+.cost-add-btn:active {
+    transform: scale(0.96);
     background: #ea580c;
 }
 
@@ -536,10 +532,6 @@
         text-align: center;
     }
     
-    .cost-qty-price-row {
-        flex-direction: column;
-    }
-    
     .cost-field {
         width: 100%;
     }
@@ -578,10 +570,6 @@
 @media (min-width: 481px) and (max-width: 768px) {
     .cost-tab-container {
         padding: 12px;
-    }
-    
-    .cost-qty-price-row {
-        flex-direction: row;
     }
     
     .cost-field {
