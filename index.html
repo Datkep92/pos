@@ -292,34 +292,25 @@
                         <div id="expenseIngredientArea" class="cost-type-area">
                             <div class="cost-section-title">🧂 Chọn nguyên liệu</div>
                             <div class="cost-search-row">
-                                <input type="text" id="expenseIngredientSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu...">
+                                <input type="text" id="expenseIngredientSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu hoặc hao phí...">
+                                <button class="cost-add-btn" id="addNewIngredientBtn">+ Thêm</button>
                             </div>
                             <div class="cost-ingredient-grid" id="expenseIngredientGrid"></div>
-
-                            <div class="cost-qty-price-row">
-                                <div class="cost-field">
-                                    <label>Số lượng</label>
-                                    <input type="number" id="expenseQty" class="cost-input" placeholder="0" value="0" min="0" step="1">
-                                </div>
-                                <div class="cost-field">
-                                    <label>Thành tiền</label>
-                                    <input type="number" id="expenseAmount" class="cost-input" placeholder="0đ" step="1000">
-                                </div>
-                            </div>
+                            <!-- Kết quả tìm kiếm chung (hiển thị khi có từ khóa) -->
+                            <div class="cost-search-results" id="expenseIngredientSearchResults" style="display:none;"></div>
                         </div>
 
                         <!-- KHU VỰC HAO PHÍ -->
                         <div id="expenseWasteArea" class="cost-type-area" style="display:none;">
                             <div class="cost-section-title">📦 Chọn loại hao phí</div>
                             <div class="cost-search-row">
-                                <input type="text" id="expenseWasteSearch" class="cost-search-input" placeholder="🔍 Tìm kiếm hoặc thêm hao phí mới...">
+                                <input type="text" id="expenseWasteSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu hoặc hao phí...">
+                                <button class="cost-add-btn" id="addNewWasteBtn">+ Thêm</button>
                             </div>
                             <div class="cost-waste-grid" id="expenseWasteGrid"></div>
-
-                            <input type="number" id="expenseWasteAmount" class="cost-input" placeholder="Số tiền" step="1000">
+                            <!-- Kết quả tìm kiếm chung (hiển thị khi có từ khóa) -->
+                            <div class="cost-search-results" id="expenseWasteSearchResults" style="display:none;"></div>
                         </div>
-
-                        <button class="cost-save-btn" id="saveExpenseBtn">💾 Lưu chi phí</button>
                     </div>
 
                     <!-- LỊCH SỬ CHI PHÍ NGÀY -->
@@ -925,42 +916,14 @@
         </div>
     </div>
 
-    <!-- MODAL THÊM MÓN ĂN (POPUP) -->
+    <!-- MODAL THÊM MÓN ĂN (POPUP) - Nội dung được render động bởi showAddMenuItemForm() -->
     <div class="modal" id="addMenuItemModal">
         <div class="modal-content" style="max-width:500px;">
             <div class="modal-header">
                 <span class="modal-title" id="addMenuItemModalTitle">➕ Thêm món mới</span>
                 <span class="modal-close" onclick="closeModal('addMenuItemModal')">&times;</span>
             </div>
-            <div class="modal-body" id="addMenuItemModalBody">
-                <input type="text" id="addModalItemName" class="form-input" placeholder="Tên món">
-                <input type="number" id="addModalItemPrice" class="form-input" placeholder="Giá bán" style="margin-top:6px;" step="1000">
-                <select id="invMenuItemCategoryModal" class="form-input" style="margin-top:6px;">
-                    <option value="">-- Chọn danh mục --</option>
-                </select>
-                
-                <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                        <strong style="font-size:13px;">📏 Size món</strong>
-                        <button class="btn-small btn-outline" onclick="_addMenuItemSizeRow('','')" style="font-size:11px;">+ Thêm size</button>
-                    </div>
-                    <div id="addModalSizesContainer"></div>
-                </div>
-                
-                <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                        <strong style="font-size:13px;">🧂 Nguyên liệu (chung)</strong>
-                        <button class="btn-small btn-outline" onclick="_addMenuItemIngredientRow('','','')" style="font-size:11px;">+ Thêm NL</button>
-                    </div>
-                    <div id="addModalIngredientsContainer"></div>
-                </div>
-                
-                <div style="display:flex;gap:6px;margin-top:8px;">
-                    <button class="btn-small btn-save" onclick="handleSaveMenuItem()" style="flex:1;">💾 Lưu</button>
-                    <button class="btn-small btn-cancel" onclick="closeModal('addMenuItemModal')" style="flex:1;">Hủy</button>
-                </div>
-                <div id="addModalItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
-            </div>
+            <div class="modal-body" id="addMenuItemModalBody"></div>
         </div>
     </div>
 

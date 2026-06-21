@@ -10,9 +10,8 @@ var _savingCategory = false;
 var _savingMenuItem = false;
 var _savingIngredient = false;
 
-// ========== BIẾN TẠM CHO MODAL THÊM MÓN (dùng data-driven rendering) ==========
-var _addModalSizes = [];         // Mảng các size: { name, price, ingredients: [{ingredientId, quantity, unit}] }
-var _addModalIngredients = [];   // Mảng nguyên liệu chung: [{ingredientId, quantity, unit}]
+// ========== BIẾN TẠM CHO MODAL THÊM MÓN ==========
+// Đã chuyển sang DOM-based collection, không cần data-driven arrays nữa
 
 // Biến tracking cho filter danh mục dạng nút bấm
 var _invFilterCategoryId = 'all';
@@ -735,7 +734,7 @@ function showAddMenuItemForm() {
     modalBody.innerHTML = html;
     
     renderInventoryCategoryFilter();
-    // Reset sizes & ingredients
+    // Reset sizes & ingredients (DOM-based)
     _resetMenuItemSizes();
     _resetMenuItemIngredients();
     // Mở popup
@@ -815,68 +814,60 @@ function editMenuItem(itemId) {
     openBottomSheet('editMenuItemModal');
 }
 
-// ========== MENU ITEM SIZES (DATA-DRIVEN) ==========
+// ========== MENU ITEM SIZES (DOM-BASED) ==========
 function _resetMenuItemSizes() {
-    _addModalSizes = [];
+    var container = document.getElementById('addModalSizesContainer');
+    if (!container) return;
+    container.innerHTML = '';
     // Thêm 1 row mặc định
-    _addModalSizes.push({ name: '', price: '', ingredients: [], recipe: '' });
-    _renderAddModalSizes();
+    _addMenuItemSizeRow('', '', [], '');
 }
 
 function _addMenuItemSizeRow(sizeName, sizePrice, sizeIngredients, sizeRecipe) {
-    _addModalSizes.push({
-        name: sizeName || '',
-        price: sizePrice || '',
-        ingredients: sizeIngredients || [],
-        recipe: sizeRecipe || ''
-    });
-    _renderAddModalSizes();
-}
-
-function _renderAddModalSizes() {
     var container = document.getElementById('addModalSizesContainer');
     if (!container) return;
     
-    // Đảm bảo luôn có ít nhất 1 size
-    if (_addModalSizes.length === 0) {
-        _addModalSizes.push({ name: '', price: '', ingredients: [], recipe: '' });
+    var rowId = 'add_size_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    var row = document.createElement('div');
+    row.className = 'inv-form-row add-menu-size-row';
+    row.id = rowId;
+    row.style.cssText = 'margin-top:4px;flex-direction:column;border:1px solid #e2e8f0;border-radius:6px;padding:8px;width:100%;box-sizing:border-box;';
+    
+    var headerHtml =
+        '<div style="display:flex;gap:6px;align-items:center;width:100%;">' +
+            '<input type="text" class="add-menu-size-name" placeholder="Tên size (VD: Nhỏ)" value="' + escapeHtml(sizeName || '') + '" style="flex:1;">' +
+            '<input type="number" class="add-menu-size-price" placeholder="Giá" value="' + (sizePrice || '') + '" style="flex:0.8;" step="1000">' +
+            '<button class="btn-small btn-danger" onclick="this.closest(\'.inv-form-row\').remove()" style="padding:4px 8px;">✕</button>' +
+        '</div>';
+    
+    // Ô nhập công thức pha chế
+    var recipeHtml = '<div style="margin-top:6px;width:100%;">';
+    recipeHtml += '<label style="font-size:11px;color:#64748b;font-weight:600;display:block;margin-bottom:2px;">📋 Hướng dẫn pha chế</label>';
+    recipeHtml += '<textarea class="add-menu-size-recipe" placeholder="VD: Nước sôi 85 độ, ủ 15 phút..." style="width:100%;min-height:50px;font-size:12px;padding:6px;border:1px solid #e2e8f0;border-radius:6px;resize:vertical;box-sizing:border-box;">' + escapeHtml(sizeRecipe || '') + '</textarea>';
+    recipeHtml += '</div>';
+    
+    // Build ingredients section for this size
+    var ingsHtml = '<div class="add-size-ingredients" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;width:100%;">';
+    ingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    ingsHtml += '<span style="font-size:11px;color:#64748b;font-weight:600;">🧂 Nguyên liệu cho size này</span>';
+    ingsHtml += '<button class="btn-small btn-outline" onclick="document.getElementById(\'' + rowId + '\').querySelector(\'.add-size-ing-rows\').appendChild(_createAddSizeIngRow(\'\',\'\',\'\'))" style="font-size:10px;padding:2px 6px;">+ Thêm NL</button>';
+    ingsHtml += '</div>';
+    ingsHtml += '<div class="add-size-ing-rows">';
+    
+    // Add ingredient rows
+    if (sizeIngredients && sizeIngredients.length) {
+        for (var i = 0; i < sizeIngredients.length; i++) {
+            var si = sizeIngredients[i];
+            ingsHtml += _buildAddSizeIngRowHtml(si.ingredientId || '', si.quantity || '', si.unit || '');
+        }
+    } else {
+        ingsHtml += _buildAddSizeIngRowHtml('', '', '');
     }
     
-    var html = '';
-    for (var si = 0; si < _addModalSizes.length; si++) {
-        var s = _addModalSizes[si];
-        var idx = si;
-        html += '<div class="inv-form-row" style="margin-top:4px;flex-direction:column;border:1px solid #e2e8f0;border-radius:6px;padding:8px;width:100%;box-sizing:border-box;">';
-        html += '<div style="display:flex;gap:6px;align-items:center;width:100%;">';
-        html += '<input type="text" class="menu-size-name" placeholder="Tên size (VD: Nhỏ)" value="' + escapeHtml(s.name || '') + '" style="flex:1;" onchange="_addModalSizes[' + idx + '].name=this.value">';
-        html += '<input type="number" class="menu-size-price" placeholder="Giá" value="' + (s.price || '') + '" style="flex:0.8;" step="1000" onchange="_addModalSizes[' + idx + '].price=this.value">';
-        html += '<button class="btn-small btn-danger" onclick="_addModalSizes.splice(' + idx + ',1);_renderAddModalSizes()" style="padding:4px 8px;">✕</button>';
-        html += '</div>';
-        
-        // Ô nhập công thức pha chế (hướng dẫn text)
-        html += '<div style="margin-top:6px;width:100%;">';
-        html += '<label style="font-size:11px;color:#64748b;font-weight:600;display:block;margin-bottom:2px;">📋 Hướng dẫn pha chế</label>';
-        html += '<textarea class="menu-size-recipe" placeholder="VD: Nước sôi 85 độ, ủ 15 phút..." style="width:100%;min-height:50px;font-size:12px;padding:6px;border:1px solid #e2e8f0;border-radius:6px;resize:vertical;box-sizing:border-box;" onchange="_addModalSizes[' + idx + '].recipe=this.value">' + escapeHtml(s.recipe || '') + '</textarea>';
-        html += '</div>';
-        
-        // Nguyên liệu cho size này
-        html += '<div class="size-ingredients" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;width:100%;">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
-        html += '<span style="font-size:11px;color:#64748b;font-weight:600;">🧂 Nguyên liệu cho size này</span>';
-        html += '<button class="btn-small btn-outline" onclick="_addModalSizeIngredient(' + idx + ')" style="font-size:10px;padding:2px 6px;">+ Thêm NL</button>';
-        html += '</div>';
-        
-        var sIngs = s.ingredients || [];
-        for (var ii = 0; ii < sIngs.length; ii++) {
-            html += _buildSizeIngRowHtml(idx, ii, sIngs[ii].ingredientId || '', sIngs[ii].quantity || '', sIngs[ii].unit || '');
-        }
-        if (sIngs.length === 0) {
-            html += _buildSizeIngRowHtml(idx, -1, '', '', '');
-        }
-        html += '</div></div>';
-    }
+    ingsHtml += '</div></div>';
     
-    container.innerHTML = html;
+    row.innerHTML = headerHtml + recipeHtml + ingsHtml;
+    container.appendChild(row);
     
     // Scroll xuống cuối
     setTimeout(function() {
@@ -887,16 +878,7 @@ function _renderAddModalSizes() {
     }, 50);
 }
 
-function _addModalSizeIngredient(sizeIdx) {
-    if (!_addModalSizes[sizeIdx]) return;
-    if (!_addModalSizes[sizeIdx].ingredients) {
-        _addModalSizes[sizeIdx].ingredients = [];
-    }
-    _addModalSizes[sizeIdx].ingredients.push({ ingredientId: '', quantity: '', unit: '' });
-    _renderAddModalSizes();
-}
-
-function _buildSizeIngRowHtml(sizeIdx, ingIdx, ingId, qty, unit) {
+function _buildAddSizeIngRowHtml(ingId, qty, unit) {
     var ings = ingredients || [];
     var optionsHtml = '<option value="">-- Chọn NL --</option>';
     for (var i = 0; i < ings.length; i++) {
@@ -912,100 +894,67 @@ function _buildSizeIngRowHtml(sizeIdx, ingIdx, ingId, qty, unit) {
         }
         optionsHtml += '<option value="' + ing.id + '"' + selected + '>' + escapeHtml(ing.name || '') + convInfo + '</option>';
     }
-    
-    var onChange = 'onchange="_addModalSizes[' + sizeIdx + '].ingredients[' + ingIdx + '].ingredientId=this.value"';
-    var onQtyChange = 'onchange="_addModalSizes[' + sizeIdx + '].ingredients[' + ingIdx + '].quantity=this.value"';
-    var onUnitChange = 'onchange="_addModalSizes[' + sizeIdx + '].ingredients[' + ingIdx + '].unit=this.value"';
-    var onRemove = 'onclick="_addModalSizes[' + sizeIdx + '].ingredients.splice(' + ingIdx + ',1);_renderAddModalSizes()"';
-    
-    // Nếu ingIdx là -1 (hàng mặc định khi chưa có NL nào), dùng cách khác
-    if (ingIdx === -1) {
-        onChange = 'onchange="if(this.value){_addModalSizes[' + sizeIdx + '].ingredients.push({ingredientId:this.value,quantity:\'\',unit:\'\'});_renderAddModalSizes()}"';
-        onQtyChange = 'disabled';
-        onUnitChange = 'disabled';
-        onRemove = 'style="display:none"';
-    }
-    
     return '<div style="display:flex;gap:4px;margin-top:4px;align-items:center;">' +
-        '<select class="menu-ing-select" style="flex:1.2;font-size:11px;padding:4px 6px;" ' + onChange + '>' + optionsHtml + '</select>' +
-        '<input type="number" class="menu-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" step="0.1" ' + onQtyChange + '>' +
-        '<input type="text" class="menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" ' + onUnitChange + '>' +
-        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;" ' + onRemove + '>✕</button>' +
+        '<select class="add-menu-ing-select" style="flex:1.2;font-size:11px;padding:4px 6px;">' + optionsHtml + '</select>' +
+        '<input type="number" class="add-menu-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" step="0.1">' +
+        '<input type="text" class="add-menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;">' +
+        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;">✕</button>' +
     '</div>';
 }
 
-function _createSizeIngRow(ingId, qty, unit) {
-    // Không còn dùng - giữ để tương thích
+function _createAddSizeIngRow(ingId, qty, unit) {
     var div = document.createElement('div');
-    div.innerHTML = '<div style="display:flex;gap:4px;margin-top:4px;align-items:center;">' +
-        '<select class="menu-ing-select" style="flex:1.2;font-size:11px;padding:4px 6px;"><option value="">-- Chọn NL --</option></select>' +
-        '<input type="number" class="menu-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;" step="0.1">' +
-        '<input type="text" class="menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;font-size:11px;padding:4px 6px;">' +
-        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:2px 6px;font-size:10px;">✕</button>' +
-    '</div>';
+    div.innerHTML = _buildAddSizeIngRowHtml(ingId, qty, unit);
     return div.firstElementChild;
 }
 
+function _createSizeIngRow(ingId, qty, unit) {
+    // Giữ để tương thích - chuyển sang DOM-based
+    return _createAddSizeIngRow(ingId, qty, unit);
+}
+
+// ========== MENU ITEM GLOBAL INGREDIENTS (DOM-BASED) ==========
 function _addModalIngredient() {
-    _addModalIngredients.push({ ingredientId: '', quantity: '', unit: '' });
-    _renderAddModalIngredients();
+    _addMenuItemIngredientRow('', '', '');
 }
 
 function _resetMenuItemIngredients() {
-    _addModalIngredients = [];
+    var container = document.getElementById('addModalIngredientsContainer');
+    if (!container) return;
+    container.innerHTML = '';
     // Thêm 1 row mặc định
-    _addModalIngredients.push({ ingredientId: '', quantity: '', unit: '' });
-    _renderAddModalIngredients();
+    _addMenuItemIngredientRow('', '', '');
 }
 
 function _addMenuItemIngredientRow(ingId, qty, unit) {
-    _addModalIngredients.push({
-        ingredientId: ingId || '',
-        quantity: qty || '',
-        unit: unit || ''
-    });
-    _renderAddModalIngredients();
-}
-
-function _renderAddModalIngredients() {
     var container = document.getElementById('addModalIngredientsContainer');
     if (!container) return;
     
-    // Đảm bảo luôn có ít nhất 1 hàng
-    if (_addModalIngredients.length === 0) {
-        _addModalIngredients.push({ ingredientId: '', quantity: '', unit: '' });
-    }
-    
     var ings = ingredients || [];
-    var html = '';
-    for (var i = 0; i < _addModalIngredients.length; i++) {
-        var ing = _addModalIngredients[i];
-        var idx = i;
-        
-        var optionsHtml = '<option value="">-- Chọn NL --</option>';
-        for (var j = 0; j < ings.length; j++) {
-            var ingData = ings[j];
-            var selected = String(ingData.id) === String(ing.ingredientId) ? ' selected' : '';
-            var stock = parseFloat(ingData.stock) || 0;
-            var unitLabel = ingData.unit || '';
-            var convInfo = '';
-            if (ingData.conversionFrom && ingData.conversionTo && ingData.conversionRate) {
-                convInfo = ' (' + stock + unitLabel + ' → ~' + Math.round(stock * ingData.conversionRate) + ingData.conversionTo + ')';
-            } else {
-                convInfo = ' (' + stock + unitLabel + ')';
-            }
-            optionsHtml += '<option value="' + ingData.id + '"' + selected + '>' + escapeHtml(ingData.name || '') + convInfo + '</option>';
+    var optionsHtml = '<option value="">-- Chọn NL --</option>';
+    for (var i = 0; i < ings.length; i++) {
+        var ingData = ings[i];
+        var selected = String(ingData.id) === String(ingId) ? ' selected' : '';
+        var stock = parseFloat(ingData.stock) || 0;
+        var unitLabel = ingData.unit || '';
+        var convInfo = '';
+        if (ingData.conversionFrom && ingData.conversionTo && ingData.conversionRate) {
+            convInfo = ' (' + stock + unitLabel + ' → ~' + Math.round(stock * ingData.conversionRate) + ingData.conversionTo + ')';
+        } else {
+            convInfo = ' (' + stock + unitLabel + ')';
         }
-        
-        html += '<div class="inv-form-row" style="margin-top:4px;">' +
-            '<select class="menu-ing-select" style="flex:1.2;" onchange="_addModalIngredients[' + idx + '].ingredientId=this.value">' + optionsHtml + '</select>' +
-            '<input type="number" class="menu-ing-qty" placeholder="SL" value="' + (ing.quantity || '') + '" style="flex:0.5;" step="0.1" onchange="_addModalIngredients[' + idx + '].quantity=this.value">' +
-            '<input type="text" class="menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(ing.unit || '') + '" style="flex:0.5;" onchange="_addModalIngredients[' + idx + '].unit=this.value">' +
-            '<button class="btn-small btn-danger" onclick="_addModalIngredients.splice(' + idx + ',1);_renderAddModalIngredients()" style="padding:4px 8px;">✕</button>' +
-        '</div>';
+        optionsHtml += '<option value="' + ingData.id + '"' + selected + ' data-unit="' + escapeHtml(unitLabel) + '">' + escapeHtml(ingData.name || '') + convInfo + '</option>';
     }
     
-    container.innerHTML = html;
+    var row = document.createElement('div');
+    row.className = 'inv-form-row add-menu-global-ing-row';
+    row.style.marginTop = '4px';
+    row.innerHTML =
+        '<select class="add-menu-ing-select" style="flex:1.2;" onchange="var u=this.options[this.selectedIndex];var ingUnit=u?u.getAttribute(\'data-unit\')||\'\':\'\';var unitInput=this.parentElement.querySelector(\'.add-menu-ing-unit\');if(unitInput&&!unitInput.value.trim())unitInput.value=ingUnit;">' + optionsHtml + '</select>' +
+        '<input type="number" class="add-menu-ing-qty" placeholder="SL" value="' + (qty || '') + '" style="flex:0.5;" step="0.1">' +
+        '<input type="text" class="add-menu-ing-unit" placeholder="ĐV" value="' + escapeHtml(unit || '') + '" style="flex:0.5;">' +
+        '<button class="btn-small btn-danger" onclick="this.parentElement.remove()" style="padding:4px 8px;">✕</button>';
+    container.appendChild(row);
     
     // Scroll xuống cuối
     setTimeout(function() {
@@ -1063,20 +1012,27 @@ function handleSaveMenuItem() {
         return '';
     }
     
-    // Collect sizes from _addModalSizes (data-driven)
+    // Collect sizes from DOM (DOM-based, giống handleEditMenuItemSave)
     var sizes = [];
-    for (var i = 0; i < _addModalSizes.length; i++) {
-        var s = _addModalSizes[i];
-        var sName = (s.name || '').trim();
-        var sPrice = parseInt(s.price) || 0;
+    var sizeRows = document.querySelectorAll('#addModalSizesContainer .add-menu-size-row');
+    for (var i = 0; i < sizeRows.length; i++) {
+        var row = sizeRows[i];
+        var sNameInput = row.querySelector('.add-menu-size-name');
+        var sPriceInput = row.querySelector('.add-menu-size-price');
+        if (!sNameInput) continue;
+        var sName = sNameInput.value.trim();
+        var sPrice = parseInt(sPriceInput ? sPriceInput.value : 0) || 0;
         if (!sName) continue;
         
+        // Collect per-variant ingredients from this size row
         var sizeIngs = [];
-        var sIngs = s.ingredients || [];
-        for (var si = 0; si < sIngs.length; si++) {
-            var ingId = sIngs[si].ingredientId || '';
-            var ingQty = parseFloat(sIngs[si].quantity) || 0;
-            var ingUnit = (sIngs[si].unit || '').trim();
+        var ingSelects = row.querySelectorAll('.add-size-ing-rows .add-menu-ing-select');
+        var ingQtys = row.querySelectorAll('.add-size-ing-rows .add-menu-ing-qty');
+        var ingUnits = row.querySelectorAll('.add-size-ing-rows .add-menu-ing-unit');
+        for (var si = 0; si < ingSelects.length; si++) {
+            var ingId = ingSelects[si].value;
+            var ingQty = parseFloat(ingQtys[si].value) || 0;
+            var ingUnit = ingUnits[si].value.trim();
             if (ingId && ingQty > 0) {
                 sizeIngs.push({
                     ingredientId: ingId,
@@ -1087,21 +1043,27 @@ function handleSaveMenuItem() {
             }
         }
         
+        // Read recipe text from textarea
+        var recipeInput = row.querySelector('.add-menu-size-recipe');
+        var recipe = recipeInput ? recipeInput.value.trim() : '';
+        
         sizes.push({
             name: sName,
             price: sPrice,
-            ingredients: sizeIngs,
-            recipe: s.recipe || ''
+            ingredients: sizeIngs.length > 0 ? sizeIngs : [],
+            recipe: recipe
         });
     }
     
-    // Collect global ingredients from _addModalIngredients (data-driven)
+    // Collect global ingredients from DOM (DOM-based)
     var ingredients_data = [];
-    for (var i = 0; i < _addModalIngredients.length; i++) {
-        var ing = _addModalIngredients[i];
-        var ingId = ing.ingredientId || '';
-        var ingQty = parseFloat(ing.quantity) || 0;
-        var ingUnit = (ing.unit || '').trim();
+    var ingSelects = document.querySelectorAll('#addModalIngredientsContainer .add-menu-ing-select');
+    var ingQtys = document.querySelectorAll('#addModalIngredientsContainer .add-menu-ing-qty');
+    var ingUnits = document.querySelectorAll('#addModalIngredientsContainer .add-menu-ing-unit');
+    for (var i = 0; i < ingSelects.length; i++) {
+        var ingId = ingSelects[i].value;
+        var ingQty = parseFloat(ingQtys[i].value) || 0;
+        var ingUnit = ingUnits[i].value.trim();
         if (ingId && ingQty > 0) {
             ingredients_data.push({
                 ingredientId: ingId,
@@ -2943,7 +2905,7 @@ function _handleCreateMenuItemFromIng() {
         ingredients: globalIngs.length > 0 ? globalIngs : []
     };
     
-    DB.add('menu', data).then(function(newId) {
+    DB.create('menu', data).then(function(newItem) {
         showToast('Đã tạo món "' + name + '"', 'success');
         closeModal('createMenuItemFromIngModal');
         return DB.getAll('menu');
@@ -3004,6 +2966,8 @@ window._createEditSizeIngRow = _createEditSizeIngRow;
 window._addMenuItemSizeRow = _addMenuItemSizeRow;
 window._addMenuItemIngredientRow = _addMenuItemIngredientRow;
 window._createSizeIngRow = _createSizeIngRow;
+window._createAddSizeIngRow = _createAddSizeIngRow;
+window._buildAddSizeIngRowHtml = _buildAddSizeIngRowHtml;
 window._resetMenuItemSizes = _resetMenuItemSizes;
 window._resetMenuItemIngredients = _resetMenuItemIngredients;
 window._addModalIngredient = _addModalIngredient;

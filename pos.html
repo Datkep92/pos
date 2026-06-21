@@ -184,34 +184,25 @@
                         <div id="expenseIngredientArea" class="cost-type-area">
                             <div class="cost-section-title">🧂 Chọn nguyên liệu</div>
                             <div class="cost-search-row">
-                                <input type="text" id="expenseIngredientSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu...">
+                                <input type="text" id="expenseIngredientSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu hoặc hao phí...">
+                                <button class="cost-add-btn" id="addNewIngredientBtn">+ Thêm</button>
                             </div>
                             <div class="cost-ingredient-grid" id="expenseIngredientGrid"></div>
-
-                            <div class="cost-qty-price-row">
-                                <div class="cost-field">
-                                    <label>Số lượng</label>
-                                    <input type="number" id="expenseQty" class="cost-input" placeholder="0" value="0" min="0" step="1">
-                                </div>
-                                <div class="cost-field">
-                                    <label>Thành tiền</label>
-                                    <input type="number" id="expenseAmount" class="cost-input" placeholder="0đ" step="1000">
-                                </div>
-                            </div>
+                            <!-- Kết quả tìm kiếm chung (hiển thị khi có từ khóa) -->
+                            <div class="cost-search-results" id="expenseIngredientSearchResults" style="display:none;"></div>
                         </div>
 
                         <!-- KHU VỰC HAO PHÍ -->
                         <div id="expenseWasteArea" class="cost-type-area" style="display:none;">
                             <div class="cost-section-title">📦 Chọn loại hao phí</div>
                             <div class="cost-search-row">
-                                <input type="text" id="expenseWasteSearch" class="cost-search-input" placeholder="🔍 Tìm kiếm hoặc thêm hao phí mới...">
+                                <input type="text" id="expenseWasteSearch" class="cost-search-input" placeholder="🔍 Tìm nguyên liệu hoặc hao phí...">
+                                <button class="cost-add-btn" id="addNewWasteBtn">+ Thêm</button>
                             </div>
                             <div class="cost-waste-grid" id="expenseWasteGrid"></div>
-
-                            <input type="number" id="expenseWasteAmount" class="cost-input" placeholder="Số tiền" step="1000">
+                            <!-- Kết quả tìm kiếm chung (hiển thị khi có từ khóa) -->
+                            <div class="cost-search-results" id="expenseWasteSearchResults" style="display:none;"></div>
                         </div>
-
-                        <button class="cost-save-btn" id="saveExpenseBtn">💾 Lưu chi phí</button>
                     </div>
 
                     <!-- LỊCH SỬ CHI PHÍ NGÀY -->

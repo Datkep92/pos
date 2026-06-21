@@ -1732,6 +1732,23 @@ function renderIngredientStats(startStr, endStr) {
             }
         }
 
+        // ---- Bước 3: Thêm tất cả nguyên liệu chưa được dùng (totalQty = 0) ----
+        // Đảm bảo hiển thị ĐẦY ĐỦ tất cả nguyên liệu, kể cả nguyên liệu không được dùng trong kỳ
+        if (ingList && ingList.length) {
+            for (var ingIdx = 0; ingIdx < ingList.length; ingIdx++) {
+                var ingItem = ingList[ingIdx];
+                if (ingItem.deleted) continue;
+                if (!ingMap[ingItem.id]) {
+                    ingMap[ingItem.id] = {
+                        id: ingItem.id,
+                        name: ingItem.name || 'Không tên',
+                        totalQty: 0,
+                        count: 0
+                    };
+                }
+            }
+        }
+
         // Chuyển sang mảng và sắp xếp theo số lượng giảm dần
         var sorted = [];
         for (var key in ingMap) {
@@ -1742,7 +1759,7 @@ function renderIngredientStats(startStr, endStr) {
         sorted.sort(function(a, b) { return b.totalQty - a.totalQty; });
 
         if (sorted.length === 0) {
-            container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu đã dùng trong kỳ</div>';
+            container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu nào</div>';
             return;
         }
 
@@ -1789,12 +1806,23 @@ function renderIngredientStats(startStr, endStr) {
             grandQty += sorted[k].totalQty;
         }
 
+        // Đếm số nguyên liệu có sử dụng (totalQty > 0) và không sử dụng
+        var usedCount = 0;
+        var unusedCount = 0;
+        for (var si = 0; si < sorted.length; si++) {
+            if (sorted[si].totalQty > 0) usedCount++;
+            else unusedCount++;
+        }
+
         var html = '<div class="ingredient-stats-wrap" style="font-size:13px;">';
 
         // Tổng quan
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
-            '<span style="background:#f0fdf4;padding:4px 10px;border-radius:40px;font-size:12px;">🧂 Nguyên liệu đã dùng: ' + sorted.length + '</span>' +
-            '<span style="background:#f0f9ff;padding:4px 10px;border-radius:40px;font-size:12px;">📦 Tổng SL: ' + Math.round(grandQty * 100) / 100 + '</span>';
+            '<span style="background:#f0fdf4;padding:4px 10px;border-radius:40px;font-size:12px;">🧂 Tổng nguyên liệu: ' + sorted.length + '</span>' +
+            '<span style="background:#f0f9ff;padding:4px 10px;border-radius:40px;font-size:12px;">📦 Đã dùng: ' + Math.round(grandQty * 100) / 100 + '</span>';
+        if (unusedCount > 0) {
+            html += '<span style="background:#fefce8;padding:4px 10px;border-radius:40px;font-size:12px;">⏸️ Chưa dùng: ' + unusedCount + ' nguyên liệu</span>';
+        }
         if (hasCost) {
             html += '<span style="background:#fef2f2;padding:4px 10px;border-radius:40px;font-size:12px;font-weight:600;">💰 Tổng tiền NL: ' + formatMoney(grandCost) + '</span>';
         }
@@ -1890,22 +1918,23 @@ function renderLowStockAlert() {
     var container = document.getElementById('managerLowStockAlert');
     if (!container) return;
 
-    var list = window.ingredients;
-    if (!list || list.length === 0) {
-        // Thử query từ DB nếu cache chưa có
-        if (typeof DB !== 'undefined' && DB.getAll) {
-            DB.getAll('ingredients').then(function(dbList) {
-                window.ingredients = dbList;
-                _doRenderLowStock(dbList, container);
-            }).catch(function() {
-                container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu</div>';
-            });
+    // Luôn load ingredients từ DB để đảm bảo tồn kho mới nhất
+    if (typeof DB !== 'undefined' && DB.getAll) {
+        DB.getAll('ingredients').then(function(dbList) {
+            window.ingredients = dbList;
+            _doRenderLowStock(dbList, container);
+        }).catch(function() {
+            container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu</div>';
+        });
+    } else {
+        // Fallback: dùng cache nếu DB không available
+        var list = window.ingredients;
+        if (list && list.length > 0) {
+            _doRenderLowStock(list, container);
         } else {
             container.innerHTML = '<div class="empty-state">📭 Không có nguyên liệu</div>';
         }
-        return;
     }
-    _doRenderLowStock(list, container);
 }
 
 // Biến tracking để tránh gửi Telegram trùng lặp

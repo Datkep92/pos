@@ -113,6 +113,9 @@ function initRealtime() {
     
     DB.subscribe('ingredients', function(data) {
         ingredients = data || [];
+        // Đồng bộ window.ingredients để renderLowStockAlert và các hàm khác
+        // dùng đúng dữ liệu mới nhất (không bị lệch mảng cũ)
+        window.ingredients = ingredients;
         if (typeof _invalidateLookups === 'function') _invalidateLookups();
         if (currentTab === 'manager' && typeof renderLowStockAlert === 'function') {
             _debounceRealtime('ingredients', function() {

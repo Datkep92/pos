@@ -104,6 +104,7 @@ function loadData() {
         DB.getAll('menu_categories'),
         DB.getAll('customers'),
         DB.getAll('info'),
+        DB.getAll('ingredients'),
         // Đọc trực tiếp từ Firebase để đảm bảo shopConfig luôn đúng
         DB.getShopConfig()
     ]).then(function(results) {
@@ -129,8 +130,10 @@ function loadData() {
         if (shopNameEl && shopInfo && shopInfo.name) {
             shopNameEl.textContent = shopInfo.name;
         }
-        // Shop config: ưu tiên dữ liệu từ Firebase (results[4]), fallback về IndexedDB (shopInfo), rồi hardcode
-        var fbConfig = results[4] || {};
+        // Load ingredients
+        ingredients = results[4] || [];
+        // Shop config: ưu tiên dữ liệu từ Firebase (results[5]), fallback về IndexedDB (shopInfo), rồi hardcode
+        var fbConfig = results[5] || {};
         window.shopConfig = {
             telegramBotToken: fbConfig.telegramBotToken || (shopInfo && shopInfo.telegramBotToken) || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
             telegramChatId: fbConfig.telegramChatId || (shopInfo && shopInfo.telegramChatId) || '6372876364',

@@ -24,6 +24,25 @@ var _expenseSelectedIngredientName = '';
 var _expenseViewDate = new Date();
 var _expenseViewDateKey = '';
 
+// Hàm loại bỏ dấu tiếng Việt (dùng chung cho _filterBothGrids)
+function _removeVietnameseTones(str) {
+    return str
+        .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
+        .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
+        .replace(/[ìíịỉĩ]/g, 'i')
+        .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
+        .replace(/[ùúụủũưừứựửữ]/g, 'u')
+        .replace(/[ỳýỵỷỹ]/g, 'y')
+        .replace(/[đ]/g, 'd')
+        .replace(/[ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ]/g, 'A')
+        .replace(/[ÈÉẸẺẼÊỀẾỆỂỄ]/g, 'E')
+        .replace(/[ÌÍỊỈĨ]/g, 'I')
+        .replace(/[ÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ]/g, 'O')
+        .replace(/[ÙÚỤỦŨƯỪỨỰỬỮ]/g, 'U')
+        .replace(/[ỲÝỴỶỸ]/g, 'Y')
+        .replace(/[Đ]/g, 'D');
+}
+
 // ========== KHỞI TẠO ==========
 function loadExpenseData() {
     return Promise.all([
@@ -78,13 +97,6 @@ function openExpenseModal() {
         _expenseSelectedFundSource = isAdminUser ? 'management' : 'pos_cash';
         switchFundSource(_expenseSelectedFundSource);
 
-        var nameInput = document.getElementById('expenseNameInput');
-        var amountInput = document.getElementById('expenseAmount');
-        var qtyInput = document.getElementById('expenseQty');
-
-        if (nameInput) nameInput.value = '';
-        if (amountInput) amountInput.value = '';
-        if (qtyInput) qtyInput.value = '1';
 
         // Gắn sự kiện nếu chưa được gắn
         if (!expenseInitialized) {
@@ -167,21 +179,16 @@ function switchFundSource(source) {
 }
 
 // ========== RENDER DANH SÁCH NGUYÊN LIỆU ==========
-// FIX 4: Dùng window.ingredients cache, fallback query DB nếu cache chưa có
+// FIX 4: Luôn load ingredients từ DB để đảm bảo tồn kho mới nhất
+// (đã trừ các giao dịch bán hàng, cộng nhập kho)
 function renderIngredientList() {
     var container = document.getElementById('expenseIngredientGrid');
     if (!container) return;
 
-    var list = window.ingredients;
-    if (list && list.length > 0) {
-        _renderIngredientGrid(container, list);
-        return;
-    }
-
-    // Fallback: query DB nếu cache chưa được load
     if (typeof DB !== 'undefined' && DB.getAll) {
         DB.getAll('ingredients').then(function(dbList) {
             if (dbList && dbList.length > 0) {
+                // Cập nhật cache window.ingredients để đồng bộ
                 window.ingredients = dbList;
                 _renderIngredientGrid(container, dbList);
             } else {
@@ -191,7 +198,13 @@ function renderIngredientList() {
             container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
         });
     } else {
-        container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        // Fallback: dùng window.ingredients cache nếu DB không available
+        var list = window.ingredients;
+        if (list && list.length > 0) {
+            _renderIngredientGrid(container, list);
+        } else {
+            container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        }
     }
 }
 
@@ -220,12 +233,24 @@ function _renderIngredientGrid(container, list) {
                 'onmouseup="return _adminIngMouseUp(event, \'' + ing.id + '\')" ' +
                 'onmouseleave="return _adminIngMouseLeave(event)"';
         }
+        // Tính tồn kho: ưu tiên ing.stock, fallback về 0
+        var stockVal = (typeof ing.stock === 'number' && !isNaN(ing.stock)) ? ing.stock : (parseFloat(ing.stock) || 0);
+        var stockDisplay = Math.round(stockVal * 100) / 100;
+        var stockStr = stockDisplay + (ing.unit ? ' ' + ing.unit : '');
+        // Tính số lượng đã quy đổi (nếu có conversion)
+        var convertedStr = '';
+        var rate = parseFloat(ing.conversionRate) || 0;
+        var convTo = ing.conversionTo ? ing.conversionTo.trim() : '';
+        if (rate > 0 && convTo) {
+            var convertedVal = Math.round(stockVal * rate * 100) / 100;
+            convertedStr = ' <span class="ingredient-item-converted">~ ' + convertedVal + ' ' + convTo + '</span>';
+        }
         html += '<div class="ingredient-grid-item' + (isSelected ? ' selected' : '') + '" ' +
             'data-id="' + ing.id + '" ' +
             'onclick="onIngredientSelected(\'' + ing.id + '\', \'' + escapeHtml(ing.name) + '\')"' +
             extraAttrs + '>' +
             '<div class="ingredient-item-name">' + escapeHtml(ing.name) + '</div>' +
-            '<div class="ingredient-item-stock">Tồn: ' + (typeof ing.stock === 'number' ? Math.round(ing.stock * 100) / 100 : (ing.stock || 0)) + (ing.unit ? ' ' + ing.unit : '') + '</div>' +
+            '<div class="ingredient-item-stock-row"><span class="ingredient-item-stock-inline">Tồn: ' + stockStr + '</span>' + convertedStr + '</div>' +
         '</div>';
     }
     // Nếu tất cả đều bị xóa, hiển thị thông báo
@@ -252,9 +277,12 @@ function onIngredientSelected(ingredientId, ingredientName) {
 
     updateIngredientSelectedInfo();
 
-    // Focus vào ô số lượng
-    var qtyInput = document.getElementById('expenseQty');
-    if (qtyInput) qtyInput.focus();
+    // Xóa text trên ô tìm kiếm
+    var searchInput = document.getElementById('expenseIngredientSearch');
+    if (searchInput) searchInput.value = '';
+
+    // Hiển thị modal nhập số lượng + thành tiền
+    _showExpenseInputModal('ingredient', ingredientId, ingredientName);
 }
 
 function updateIngredientSelectedInfo() {
@@ -317,13 +345,12 @@ function onWasteTypeSelected(wasteId, wasteName) {
     var selectedEl = document.querySelector('#expenseWasteGrid .waste-grid-item[data-id="' + wasteId + '"]');
     if (selectedEl) selectedEl.classList.add('selected');
 
-    // Điền tên vào ô tìm kiếm
+    // Xóa text trên ô tìm kiếm
     var searchInput = document.getElementById('expenseWasteSearch');
-    if (searchInput) searchInput.value = wasteName;
+    if (searchInput) searchInput.value = '';
 
-    // Focus vào ô số tiền
-    var amountInput = document.getElementById('expenseWasteAmount');
-    if (amountInput) amountInput.focus();
+    // Hiển thị modal nhập số tiền
+    _showExpenseInputModal('waste', wasteId, wasteName);
 }
 
 // ========== MODAL XÁC NHẬN TÙY CHỈNH (thay thế confirm()) ==========
@@ -386,84 +413,322 @@ function doSaveExpense() {
     var fundSource = _expenseSelectedFundSource;
 
     if (costType === 'ingredient') {
-        var qty = parseInt(document.getElementById('expenseQty').value) || 0;
-        var amount = parseInt(document.getElementById('expenseAmount').value) || 0;
+        // Lấy tên từ ô tìm kiếm
+        var ingredientName = document.getElementById('expenseIngredientSearch').value.trim();
+        if (!ingredientName) {
+            showToast('Vui lòng nhập tên nguyên liệu hoặc hao phí!', 'warning');
+            return;
+        }
 
-        // Cho phép tạo tên nguyên liệu ngay cả khi số lượng=0 và thành tiền=0
-        // Nếu qty=0 và amount=0 thì chỉ tạo tên nguyên liệu, không ghi nhận chi phí
+        // Kiểm tra tên đã tồn tại trong ingredient chưa
+        var existsInIngredient = false;
+        var ingList = window.ingredients || [];
+        for (var ei = 0; ei < ingList.length; ei++) {
+            if (ingList[ei] && !ingList[ei].deleted && ingList[ei].name === ingredientName) {
+                existsInIngredient = true;
+                break;
+            }
+        }
 
-        // Nếu chưa chọn nguyên liệu, lấy từ ô tìm kiếm để tạo mới hoặc tìm lại nguyên liệu đã xóa
-        var ingredientId = _expenseSelectedIngredientId;
-        var ingredientName = _expenseSelectedIngredientName;
-        if (!ingredientId) {
-            var searchVal = document.getElementById('expenseIngredientSearch').value.trim();
-            ingredientName = searchVal || 'Nguyên liệu mới';
+        // Kiểm tra tên đã tồn tại trong waste chưa
+        var existsInWaste = false;
+        for (var wi = 0; wi < expenseData.categories.length; wi++) {
+            var wc = expenseData.categories[wi];
+            if (wc && !wc.deleted && wc.name === ingredientName) {
+                existsInWaste = true;
+                break;
+            }
+        }
 
-            // Tìm trong danh sách nguyên liệu đã bị xóa (deleted) để tái sử dụng tên
-            var existingDeletedIng = null;
-            var ingList = window.ingredients || [];
-            for (var di = 0; di < ingList.length; di++) {
-                if (ingList[di].name === ingredientName && ingList[di].deleted) {
-                    existingDeletedIng = ingList[di];
+        if (existsInIngredient && existsInWaste) {
+            // Tên đã có ở cả 2 → hỏi người dùng muốn lưu vào đâu
+            _showTypeSelectionModal(ingredientName, function(selectedType) {
+                if (selectedType === 'ingredient') {
+                    var foundIng = null;
+                    for (var fi = 0; fi < ingList.length; fi++) {
+                        if (ingList[fi] && !ingList[fi].deleted && ingList[fi].name === ingredientName) {
+                            foundIng = ingList[fi];
+                            break;
+                        }
+                    }
+                    if (foundIng) {
+                        _showExpenseInputModal('ingredient', foundIng.id, foundIng.name);
+                    }
+                } else {
+                    saveWasteExpense(ingredientName, 0, fundSource);
+                }
+            });
+            return;
+        }
+
+        if (existsInIngredient) {
+            // Tên đã có trong ingredient → mở modal nhập số lượng/tiền
+            var foundIng = null;
+            for (var fi = 0; fi < ingList.length; fi++) {
+                if (ingList[fi] && !ingList[fi].deleted && ingList[fi].name === ingredientName) {
+                    foundIng = ingList[fi];
                     break;
                 }
             }
+            if (foundIng) {
+                _showExpenseInputModal('ingredient', foundIng.id, foundIng.name);
+            }
+            return;
+        }
 
-            if (existingDeletedIng) {
-                // Tái sử dụng nguyên liệu đã xóa: bỏ đánh dấu deleted
-                ingredientId = existingDeletedIng.id;
-                DB.update('ingredients', ingredientId, { deleted: false }).then(function() {
-                    existingDeletedIng.deleted = false;
-                    // Nếu có số lượng và tiền thì lưu chi phí
-                    if (qty > 0 && amount > 0) {
-                        saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
-                    } else {
-                        showToast('✅ Đã khôi phục nguyên liệu: ' + ingredientName, 'success');
-                        renderIngredientList();
-                    }
-                }).catch(function(err) {
-                    console.error('Restore ingredient error:', err);
-                    showToast('Lỗi khi khôi phục nguyên liệu!', 'error');
-                });
-            } else {
-                // Tạo nguyên liệu mới
-                ingredientId = Date.now().toString();
-                var newIng = { id: ingredientId, name: ingredientName, stock: 0, createdAt: Date.now() };
-                if (window.ingredients) window.ingredients.push(newIng);
-                DB.create('ingredients', newIng).then(function() {
-                    if (qty > 0 && amount > 0) {
-                        saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
-                    } else {
-                        showToast('✅ Đã tạo nguyên liệu: ' + ingredientName, 'success');
-                        renderIngredientList();
-                    }
-                }).catch(function(err) {
-                    console.error('Create ingredient error:', err);
-                    showToast('Lỗi khi tạo nguyên liệu mới!', 'error');
-                });
+        if (existsInWaste) {
+            // Tên đã có trong waste → hỏi người dùng muốn lưu vào đâu
+            _showTypeSelectionModal(ingredientName, function(selectedType) {
+                if (selectedType === 'ingredient') {
+                    _doSaveNewIngredient(ingredientName, 0, 0, fundSource);
+                } else {
+                    saveWasteExpense(ingredientName, 0, fundSource);
+                }
+            });
+            return;
+        }
+
+        // Tìm trong danh sách nguyên liệu đã bị xóa (deleted) để tái sử dụng tên
+        var existingDeletedIng = null;
+        for (var di = 0; di < ingList.length; di++) {
+            if (ingList[di].name === ingredientName && ingList[di].deleted) {
+                existingDeletedIng = ingList[di];
+                break;
             }
+        }
+
+        if (existingDeletedIng) {
+            // Tái sử dụng nguyên liệu đã xóa: bỏ đánh dấu deleted
+            var ingId = existingDeletedIng.id;
+            DB.update('ingredients', ingId, { deleted: false }).then(function() {
+                existingDeletedIng.deleted = false;
+                showToast('✅ Đã khôi phục nguyên liệu: ' + ingredientName, 'success');
+                renderIngredientList();
+            }).catch(function(err) {
+                console.error('Restore ingredient error:', err);
+                showToast('Lỗi khi khôi phục nguyên liệu!', 'error');
+            });
         } else {
-            if (qty > 0 && amount > 0) {
-                // Lưu chi phí nguyên liệu (kèm tăng tồn kho + ghi inventory)
-                saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
-            } else {
-                showToast('✅ Đã chọn nguyên liệu: ' + ingredientName, 'success');
-            }
+            // Tên chưa tồn tại → hỏi người dùng muốn tạo nguyên liệu hay hao phí
+            _showTypeSelectionModal(ingredientName, function(selectedType) {
+                if (selectedType === 'ingredient') {
+                    _doSaveNewIngredient(ingredientName, 0, 0, fundSource);
+                } else {
+                    saveWasteExpense(ingredientName, 0, fundSource);
+                }
+            });
         }
 
     } else {
         // Waste - hao phí
         var categoryName = document.getElementById('expenseWasteSearch').value.trim();
-        var amount = parseInt(document.getElementById('expenseWasteAmount').value) || 0;
 
         if (!categoryName) {
             showToast('Vui lòng nhập tên chi phí!', 'warning');
             return;
         }
 
-        // Cho phép tạo tên hao phí ngay cả khi số tiền=0
-        saveWasteExpense(categoryName, amount, fundSource);
+        // Kiểm tra tên đã tồn tại trong waste chưa
+        var existsInWaste = false;
+        for (var wi = 0; wi < expenseData.categories.length; wi++) {
+            var wc = expenseData.categories[wi];
+            if (wc && !wc.deleted && wc.name === categoryName) {
+                existsInWaste = true;
+                break;
+            }
+        }
+
+        // Kiểm tra tên đã tồn tại trong ingredient chưa
+        var existsInIngredient = false;
+        var ingList = window.ingredients || [];
+        for (var ii = 0; ii < ingList.length; ii++) {
+            if (ingList[ii] && !ingList[ii].deleted && ingList[ii].name === categoryName) {
+                existsInIngredient = true;
+                break;
+            }
+        }
+
+        if (existsInWaste && existsInIngredient) {
+            // Tên đã có ở cả 2 → hỏi người dùng muốn lưu vào đâu
+            _showTypeSelectionModal(categoryName, function(selectedType) {
+                if (selectedType === 'waste') {
+                    saveWasteExpense(categoryName, 0, fundSource);
+                } else {
+                    var foundIng = null;
+                    for (var fi = 0; fi < ingList.length; fi++) {
+                        if (ingList[fi] && !ingList[fi].deleted && ingList[fi].name === categoryName) {
+                            foundIng = ingList[fi];
+                            break;
+                        }
+                    }
+                    if (foundIng) {
+                        _showExpenseInputModal('ingredient', foundIng.id, foundIng.name);
+                    }
+                }
+            });
+            return;
+        }
+
+        if (existsInWaste) {
+            // Tên đã có trong waste → mở modal nhập số tiền
+            saveWasteExpense(categoryName, 0, fundSource);
+            return;
+        }
+
+        if (existsInIngredient) {
+            // Tên đã có trong ingredient → hỏi người dùng muốn lưu vào đâu
+            _showTypeSelectionModal(categoryName, function(selectedType) {
+                if (selectedType === 'waste') {
+                    saveWasteExpense(categoryName, 0, fundSource);
+                } else {
+                    var foundIng = null;
+                    for (var fi = 0; fi < ingList.length; fi++) {
+                        if (ingList[fi] && !ingList[fi].deleted && ingList[fi].name === categoryName) {
+                            foundIng = ingList[fi];
+                            break;
+                        }
+                    }
+                    if (foundIng) {
+                        _showExpenseInputModal('ingredient', foundIng.id, foundIng.name);
+                    }
+                }
+            });
+            return;
+        }
+
+        // Tên chưa tồn tại → hỏi người dùng muốn tạo nguyên liệu hay hao phí
+        _showTypeSelectionModal(categoryName, function(selectedType) {
+            if (selectedType === 'waste') {
+                saveWasteExpense(categoryName, 0, fundSource);
+            } else {
+                _doSaveNewIngredient(categoryName, 0, 0, fundSource);
+            }
+        });
     }
+}
+
+// Hàm phụ: tạo nguyên liệu mới
+function _doSaveNewIngredient(ingredientName, qty, amount, fundSource) {
+    var ingredientId = Date.now().toString();
+    var newIng = { id: ingredientId, name: ingredientName, stock: 0, createdAt: Date.now() };
+    if (window.ingredients) window.ingredients.push(newIng);
+    DB.create('ingredients', newIng).then(function() {
+        if (qty > 0 && amount > 0) {
+            saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource);
+        } else {
+            showToast('✅ Đã tạo nguyên liệu: ' + ingredientName, 'success');
+            renderIngredientList();
+        }
+    }).catch(function(err) {
+        console.error('Create ingredient error:', err);
+        showToast('Lỗi khi tạo nguyên liệu mới!', 'error');
+    });
+}
+
+// Hàm phụ: hiển thị modal chọn loại (nguyên liệu hay hao phí)
+function _showTypeSelectionModal(itemName, callback) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) { cleanup(); } };
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);text-align:center;';
+
+    box.innerHTML =
+        '<div style="font-size:15px;line-height:1.5;margin-bottom:16px;color:#1e293b;">' +
+            'Tên "<strong>' + itemName + '</strong>" đã tồn tại ở cả nguyên liệu và hao phí.<br><br>' +
+            'Bạn muốn lưu vào loại nào?' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;justify-content:center;">' +
+            '<button id="typeSelectIngBtn" style="flex:1;padding:12px 16px;border:none;border-radius:10px;background:#fef3c7;color:#92400e;font-size:14px;font-weight:600;cursor:pointer;">🧂 Nguyên liệu</button>' +
+            '<button id="typeSelectWasteBtn" style="flex:1;padding:12px 16px;border:none;border-radius:10px;background:#e0f2fe;color:#075985;font-size:14px;font-weight:600;cursor:pointer;">📦 Hao phí</button>' +
+        '</div>';
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    function cleanup() {
+        if (document.body.contains(overlay)) document.body.removeChild(overlay);
+    }
+
+    document.getElementById('typeSelectIngBtn').onclick = function() { cleanup(); callback('ingredient'); };
+    document.getElementById('typeSelectWasteBtn').onclick = function() { cleanup(); callback('waste'); };
+}
+
+// ========== MODAL NHẬP NHANH (SAU KHI CHỌN ITEM) ==========
+function _showExpenseInputModal(type, id, name) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) { cleanup(); } };
+
+    var isIngredient = (type === 'ingredient');
+    var icon = isIngredient ? '🧂' : '📦';
+    var typeLabel = isIngredient ? 'Nguyên liệu' : 'Hao phí';
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:16px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);';
+
+    var qtyHtml = isIngredient ?
+        '<div style="margin-bottom:10px;">' +
+            '<label style="display:block;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;">Số lượng</label>' +
+            '<input type="number" id="modalExpenseQty" class="cost-input" placeholder="0" value="1" min="0" step="1" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;box-sizing:border-box;">' +
+        '</div>' : '';
+
+    box.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">' +
+            '<span style="font-size:20px;">' + icon + '</span>' +
+            '<div style="flex:1;min-width:0;">' +
+                '<div style="font-size:15px;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(name) + '</div>' +
+                '<div style="font-size:11px;color:#94a3b8;">' + typeLabel + '</div>' +
+            '</div>' +
+        '</div>' +
+        qtyHtml +
+        '<div style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;">Thành tiền</label>' +
+            '<input type="number" id="modalExpenseAmount" class="cost-input" placeholder="0đ" step="1000" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;box-sizing:border-box;">' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+            '<button id="modalExpenseCancelBtn" style="flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#64748b;font-size:13px;font-weight:500;cursor:pointer;">Hủy</button>' +
+            '<button id="modalExpenseSaveBtn" style="flex:2;padding:10px;border:none;border-radius:10px;background:#f97316;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">💾 Lưu chi phí</button>' +
+        '</div>';
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    // Focus vào ô nhập đầu tiên
+    setTimeout(function() {
+        if (isIngredient) {
+            var qtyInput = document.getElementById('modalExpenseQty');
+            if (qtyInput) qtyInput.focus();
+        } else {
+            var amountInput = document.getElementById('modalExpenseAmount');
+            if (amountInput) amountInput.focus();
+        }
+    }, 100);
+
+    function cleanup() {
+        if (document.body.contains(overlay)) document.body.removeChild(overlay);
+    }
+
+    document.getElementById('modalExpenseCancelBtn').onclick = function() { cleanup(); };
+
+    document.getElementById('modalExpenseSaveBtn').onclick = function() {
+        var amount = parseInt(document.getElementById('modalExpenseAmount').value) || 0;
+        if (amount <= 0) {
+            showToast('Vui lòng nhập số tiền!', 'warning');
+            return;
+        }
+
+        if (isIngredient) {
+            var qty = parseInt(document.getElementById('modalExpenseQty').value) || 1;
+            if (qty <= 0) qty = 1;
+            cleanup();
+            saveIngredientExpense(id, name, qty, amount, _expenseSelectedFundSource);
+        } else {
+            cleanup();
+            saveWasteExpense(name, amount, _expenseSelectedFundSource);
+        }
+    };
 }
 
 // ========== LƯU CHI PHÍ NGUYÊN LIỆU ==========
@@ -530,8 +795,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSo
     }).then(function() {
         showToast('✅ Đã thêm chi phí nguyên liệu ' + formatMoney(amount), 'success');
         // Reset form
-        document.getElementById('expenseQty').value = '0';
-        document.getElementById('expenseAmount').value = '';
+        document.getElementById('expenseIngredientSearch').value = '';
         _expenseSelectedIngredientId = null;
         _expenseSelectedIngredientName = '';
         updateIngredientSelectedInfo();
@@ -579,7 +843,6 @@ function saveWasteExpense(categoryName, amount, fundSource) {
         if (amount <= 0) {
             showToast('✅ Đã tạo hao phí: ' + categoryName, 'success');
             document.getElementById('expenseWasteSearch').value = '';
-            document.getElementById('expenseWasteAmount').value = '';
             renderWasteTypeList();
             return;
         }
@@ -635,7 +898,6 @@ function saveWasteExpense(categoryName, amount, fundSource) {
         }).then(function() {
             showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
             document.getElementById('expenseWasteSearch').value = '';
-            document.getElementById('expenseWasteAmount').value = '';
 
             renderTodayExpenses();
             renderMonthExpenseTotal();
@@ -2524,76 +2786,225 @@ function attachExpenseEvents() {
     if (_expenseEventsAttached) return;
     _expenseEventsAttached = true;
 
-    // Nút lưu chi phí
-    var saveBtn = document.getElementById('saveExpenseBtn');
-    if (saveBtn) saveBtn.onclick = saveExpense;
-
     // Đóng modal
     var closeBtns = document.querySelectorAll('[data-close="expenseModal"]');
     for (var i = 0; i < closeBtns.length; i++) {
         closeBtns[i].onclick = function() { closeModal('expenseModal'); };
     }
 
-    // Chỉ cho phép số khi nhập
-    var qtyInput = document.getElementById('expenseQty');
-    var amountInput = document.getElementById('expenseAmount');
+    // Biến tham chiếu ô tìm kiếm (dùng chung cho _filterBothGrids và _renderSearchResults)
+    var _ingSearchRef = document.getElementById('expenseIngredientSearch');
+    var _wasteSearchRef = document.getElementById('expenseWasteSearch');
 
-    function onIngredientInput() {
-        if (qtyInput) qtyInput.value = qtyInput.value.replace(/[^0-9]/g, '');
-        if (amountInput) amountInput.value = amountInput.value.replace(/[^0-9]/g, '');
+    // Nút "+ Thêm" - gọi doSaveExpense với giá trị từ ô tìm kiếm
+    var addIngBtn = document.getElementById('addNewIngredientBtn');
+    if (addIngBtn) {
+        addIngBtn.onclick = function() {
+            var searchVal = document.getElementById('expenseIngredientSearch').value.trim();
+            if (!searchVal) {
+                showToast('Vui lòng nhập tên nguyên liệu hoặc hao phí!', 'warning');
+                return;
+            }
+            _expenseSelectedType = 'ingredient';
+            doSaveExpense();
+        };
     }
 
-    if (qtyInput) {
-        qtyInput.addEventListener('input', onIngredientInput);
-    }
-    if (amountInput) {
-        amountInput.addEventListener('input', onIngredientInput);
+    var addWasteBtn = document.getElementById('addNewWasteBtn');
+    if (addWasteBtn) {
+        addWasteBtn.onclick = function() {
+            var searchVal = document.getElementById('expenseWasteSearch').value.trim();
+            if (!searchVal) {
+                showToast('Vui lòng nhập tên nguyên liệu hoặc hao phí!', 'warning');
+                return;
+            }
+            _expenseSelectedType = 'waste';
+            doSaveExpense();
+        };
     }
 
-    // Filter chung cho cả ingredient và waste grid
-    // FIX: Loại bỏ dấu tiếng việt và khoảng trắng khi tìm kiếm
-    function _removeVietnameseTones(str) {
-        return str
-            .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
-            .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
-            .replace(/[ìíịỉĩ]/g, 'i')
-            .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
-            .replace(/[ùúụủũưừứựửữ]/g, 'u')
-            .replace(/[ỳýỵỷỹ]/g, 'y')
-            .replace(/[đ]/g, 'd')
-            .replace(/[ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ]/g, 'A')
-            .replace(/[ÈÉẸẺẼÊỀẾỆỂỄ]/g, 'E')
-            .replace(/[ÌÍỊỈĨ]/g, 'I')
-            .replace(/[ÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ]/g, 'O')
-            .replace(/[ÙÚỤỦŨƯỪỨỰỬỮ]/g, 'U')
-            .replace(/[ỲÝỴỶỸ]/g, 'Y')
-            .replace(/[Đ]/g, 'D');
+    // Tìm kiếm chung: gõ ở ô tìm kiếm nào cũng hiển thị kết quả chung (nguyên liệu + hao phí)
+    function _filterBothGrids() {
+        var rawKeyword = this.value.trim();
+        var keyword = rawKeyword.toLowerCase();
+        var searchKey = _removeVietnameseTones(keyword).replace(/\s+/g, '');
+
+        var ingGrid = document.getElementById('expenseIngredientGrid');
+        var wasteGrid = document.getElementById('expenseWasteGrid');
+        var ingResults = document.getElementById('expenseIngredientSearchResults');
+        var wasteResults = document.getElementById('expenseWasteSearchResults');
+
+        // Đồng bộ giá trị sang ô tìm kiếm kia
+        if (this !== _ingSearchRef && _ingSearchRef) _ingSearchRef.value = this.value;
+        if (this !== _wasteSearchRef && _wasteSearchRef) _wasteSearchRef.value = this.value;
+
+        if (searchKey === '') {
+            // Không có từ khóa: ẩn kết quả tìm kiếm, hiện grid gốc
+            if (ingResults) ingResults.style.display = 'none';
+            if (wasteResults) wasteResults.style.display = 'none';
+            if (ingGrid) ingGrid.style.display = '';
+            if (wasteGrid) wasteGrid.style.display = '';
+            return;
+        }
+
+        // Có từ khóa: thu thập kết quả từ cả nguyên liệu và hao phí
+        var exactResults = [];   // Khớp chính xác (cả dấu)
+        var fuzzyResults = [];   // Khớp gần đúng (sau khi bỏ dấu)
+
+        // Tìm trong nguyên liệu (window.ingredients)
+        var ingList = window.ingredients || [];
+        for (var i = 0; i < ingList.length; i++) {
+            var ing = ingList[i];
+            if (ing.deleted) continue;
+            var ingNameLower = ing.name.toLowerCase();
+            var ingNameNoTone = _removeVietnameseTones(ingNameLower).replace(/\s+/g, '');
+
+            if (ingNameLower.indexOf(keyword) !== -1) {
+                // Khớp chính xác (có dấu)
+                var stockVal = (typeof ing.stock === 'number' && !isNaN(ing.stock)) ? ing.stock : (parseFloat(ing.stock) || 0);
+                exactResults.push({
+                    type: 'ingredient',
+                    id: ing.id,
+                    name: ing.name,
+                    stock: Math.round(stockVal * 100) / 100 + (ing.unit ? ' ' + ing.unit : '')
+                });
+            } else if (ingNameNoTone.indexOf(searchKey) !== -1) {
+                // Khớp gần đúng (bỏ dấu)
+                var stockVal = (typeof ing.stock === 'number' && !isNaN(ing.stock)) ? ing.stock : (parseFloat(ing.stock) || 0);
+                fuzzyResults.push({
+                    type: 'ingredient',
+                    id: ing.id,
+                    name: ing.name,
+                    stock: Math.round(stockVal * 100) / 100 + (ing.unit ? ' ' + ing.unit : '')
+                });
+            }
+        }
+
+        // Tìm trong hao phí (expenseData.categories)
+        var wasteList = expenseData.categories || [];
+        for (var i = 0; i < wasteList.length; i++) {
+            var cat = wasteList[i];
+            if (cat && !cat.deleted) {
+                var catNameLower = cat.name.toLowerCase();
+                var catNameNoTone = _removeVietnameseTones(catNameLower).replace(/\s+/g, '');
+
+                if (catNameLower.indexOf(keyword) !== -1) {
+                    // Khớp chính xác (có dấu)
+                    exactResults.push({
+                        type: 'waste',
+                        id: cat.id,
+                        name: cat.name
+                    });
+                } else if (catNameNoTone.indexOf(searchKey) !== -1) {
+                    // Khớp gần đúng (bỏ dấu)
+                    fuzzyResults.push({
+                        type: 'waste',
+                        id: cat.id,
+                        name: cat.name
+                    });
+                }
+            }
+        }
+
+        // Ẩn grid gốc, hiện kết quả tìm kiếm
+        if (ingGrid) ingGrid.style.display = 'none';
+        if (wasteGrid) wasteGrid.style.display = 'none';
+
+        // Render kết quả vào container tương ứng
+        _renderSearchResults(ingResults, exactResults, fuzzyResults);
+        _renderSearchResults(wasteResults, exactResults, fuzzyResults);
+
+        if (ingResults) ingResults.style.display = '';
+        if (wasteResults) wasteResults.style.display = '';
     }
-    function _filterGrid(gridSelector, itemSelector, nameSelector) {
-        var keyword = this.value.trim().toLowerCase();
-        keyword = _removeVietnameseTones(keyword).replace(/\s+/g, '');
-        var items = document.querySelectorAll(gridSelector + ' ' + itemSelector);
+
+    // Helper: render danh sách kết quả tìm kiếm chung vào container
+    function _renderSearchResults(container, exactResults, fuzzyResults) {
+        if (!container) return;
+
+        if (exactResults.length === 0 && fuzzyResults.length === 0) {
+            container.innerHTML = '<div class="search-empty">Không tìm thấy kết quả phù hợp</div>';
+            return;
+        }
+
+        var html = '';
+
+        // Render kết quả chính xác trước
+        for (var i = 0; i < exactResults.length; i++) {
+            var item = exactResults[i];
+            var icon = (item.type === 'ingredient') ? '🧂' : '📦';
+            var typeLabel = (item.type === 'ingredient') ? 'Nguyên liệu' : 'Hao phí';
+            var stockHtml = (item.type === 'ingredient' && item.stock) ? '<span class="search-result-stock">Tồn: ' + item.stock + '</span>' : '';
+
+            html += '<div class="search-result-item" data-type="' + item.type + '" data-id="' + escapeHtml(item.id) + '" data-name="' + escapeHtml(item.name) + '">' +
+                '<span class="search-result-icon">' + icon + '</span>' +
+                '<div class="search-result-info">' +
+                    '<div class="search-result-name">' + escapeHtml(item.name) + '</div>' +
+                    '<div class="search-result-type">' + typeLabel + '</div>' +
+                '</div>' +
+                stockHtml +
+            '</div>';
+        }
+
+        // Render kết quả đề xuất (nếu có)
+        if (fuzzyResults.length > 0) {
+            html += '<div class="search-result-divider">🔍 Gợi ý</div>';
+            for (var i = 0; i < fuzzyResults.length; i++) {
+                var item = fuzzyResults[i];
+                var icon = (item.type === 'ingredient') ? '🧂' : '📦';
+                var typeLabel = (item.type === 'ingredient') ? 'Nguyên liệu' : 'Hao phí';
+                var stockHtml = (item.type === 'ingredient' && item.stock) ? '<span class="search-result-stock">Tồn: ' + item.stock + '</span>' : '';
+
+                html += '<div class="search-result-item search-result-fuzzy" data-type="' + item.type + '" data-id="' + escapeHtml(item.id) + '" data-name="' + escapeHtml(item.name) + '">' +
+                    '<span class="search-result-icon">' + icon + '</span>' +
+                    '<div class="search-result-info">' +
+                        '<div class="search-result-name">' + escapeHtml(item.name) + '</div>' +
+                        '<div class="search-result-type">' + typeLabel + '</div>' +
+                    '</div>' +
+                    stockHtml +
+                '</div>';
+            }
+        }
+
+        container.innerHTML = html;
+
+        // Gắn sự kiện click cho từng item
+        var items = container.querySelectorAll('.search-result-item');
         for (var i = 0; i < items.length; i++) {
-            var nameEl = nameSelector ? items[i].querySelector(nameSelector) : items[i];
-            if (!nameEl) continue;
-            var name = nameEl.innerText.toLowerCase();
-            name = _removeVietnameseTones(name).replace(/\s+/g, '');
-            items[i].style.display = (keyword === '' || name.indexOf(keyword) !== -1) ? '' : 'none';
+            items[i].onclick = function() {
+                var type = this.getAttribute('data-type');
+                var id = this.getAttribute('data-id');
+                var name = this.getAttribute('data-name');
+
+                if (type === 'ingredient') {
+                    onIngredientSelected(id, name);
+                } else {
+                    onWasteTypeSelected(id, name);
+                }
+
+                // Đồng bộ clear ô tìm kiếm còn lại
+                if (_ingSearchRef) _ingSearchRef.value = '';
+                if (_wasteSearchRef) _wasteSearchRef.value = '';
+
+                // Ẩn kết quả tìm kiếm, hiện lại grid
+                var ingResults = document.getElementById('expenseIngredientSearchResults');
+                var wasteResults = document.getElementById('expenseWasteSearchResults');
+                var ingGrid = document.getElementById('expenseIngredientGrid');
+                var wasteGrid = document.getElementById('expenseWasteGrid');
+                if (ingResults) ingResults.style.display = 'none';
+                if (wasteResults) wasteResults.style.display = 'none';
+                if (ingGrid) ingGrid.style.display = '';
+                if (wasteGrid) wasteGrid.style.display = '';
+            };
         }
     }
 
-    var filterInput = document.getElementById('expenseIngredientSearch');
-    if (filterInput) {
-        filterInput.addEventListener('input', function() {
-            _filterGrid.call(this, '#expenseIngredientGrid', '.ingredient-grid-item', '.ingredient-item-name');
-        });
+    if (_ingSearchRef) {
+        _ingSearchRef.addEventListener('input', _filterBothGrids);
     }
 
-    var wasteFilter = document.getElementById('expenseWasteSearch');
-    if (wasteFilter) {
-        wasteFilter.addEventListener('input', function() {
-            _filterGrid.call(this, '#expenseWasteGrid', '.waste-grid-item', '.waste-item-name');
-        });
+    if (_wasteSearchRef) {
+        _wasteSearchRef.addEventListener('input', _filterBothGrids);
     }
 }
 

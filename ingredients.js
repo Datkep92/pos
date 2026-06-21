@@ -6,15 +6,17 @@ var _menuLookup = null;
 var _ingredientLookup = null;
 
 function _buildLookups() {
-    if (_menuLookup && _ingredientLookup) return;
     _menuLookup = {};
     _ingredientLookup = {};
-    for (var i = 0; i < menuItems.length; i++) {
-        _menuLookup[menuItems[i].id] = menuItems[i];
-        _menuLookup[menuItems[i].name] = menuItems[i];
+    // Luôn rebuild từ global ingredients/menuItems để đảm bảo dữ liệu mới nhất
+    var menuSource = window.menuItems || menuItems || [];
+    var ingSource = window.ingredients || ingredients || [];
+    for (var i = 0; i < menuSource.length; i++) {
+        _menuLookup[menuSource[i].id] = menuSource[i];
+        _menuLookup[menuSource[i].name] = menuSource[i];
     }
-    for (var j = 0; j < ingredients.length; j++) {
-        _ingredientLookup[ingredients[j].id] = ingredients[j];
+    for (var j = 0; j < ingSource.length; j++) {
+        _ingredientLookup[ingSource[j].id] = ingSource[j];
     }
 }
 
