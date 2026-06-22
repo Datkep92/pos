@@ -734,7 +734,7 @@ function _showExpenseInputModal(type, id, name) {
 // ========== LƯU CHI PHÍ NGUYÊN LIỆU ==========
 function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSource) {
     var now = new Date();
-    var dateKey = now.toISOString().slice(0, 10);
+    var dateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10);
     var txId = Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
     var invTxId = 'inv_' + txId;
 
@@ -812,7 +812,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSo
 // ========== LƯU CHI PHÍ HAO PHÍ ==========
 function saveWasteExpense(categoryName, amount, fundSource) {
     var now = new Date();
-    var dateKey = now.toISOString().slice(0, 10);
+    var dateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10);
 
     // Tìm category (kể cả đã bị xóa) để tái sử dụng tên
     var cat = null;
@@ -913,7 +913,7 @@ function saveWasteExpense(categoryName, amount, fundSource) {
 function expenseUpdateDateDisplay() {
     var displayEl = document.getElementById('expenseDateDisplay');
     if (!displayEl) return;
-    var today = new Date().toISOString().slice(0, 10);
+    var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
     if (_expenseViewDateKey === today) {
         displayEl.textContent = '📅 Hôm nay';
     } else {
@@ -927,7 +927,8 @@ function expenseDateChange(delta) {
     var newDate = new Date(_expenseViewDate.getTime());
     newDate.setDate(newDate.getDate() + delta);
     _expenseViewDate = newDate;
-    _expenseViewDateKey = _expenseViewDate.toISOString().slice(0, 10);
+    // expenseDateChange: dùng Date.UTC để convert đúng VN timezone
+    _expenseViewDateKey = new Date(Date.UTC(_expenseViewDate.getFullYear(), _expenseViewDate.getMonth(), _expenseViewDate.getDate())).toISOString().slice(0, 10);
     expenseUpdateDateDisplay();
     renderExpensesByDate(_expenseViewDateKey);
 }
@@ -973,7 +974,7 @@ function renderExpensesByDate(dateKey) {
     var allTx = expenseData.transactions || [];
     var currentUser = DB.getCurrentUser();
     var isAdminUser = currentUser && currentUser.role === 'admin';
-    var today = new Date().toISOString().slice(0, 10);
+    var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
 
     var filtered = [];
     for (var i = 0; i < allTx.length; i++) {
@@ -2389,7 +2390,7 @@ function _adminCancelMergeWaste() {
 // Giữ alias cho tương thích
 function renderTodayExpenses() {
     _expenseViewDate = new Date();
-    _expenseViewDateKey = _expenseViewDate.toISOString().slice(0, 10);
+    _expenseViewDateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : _expenseViewDate.toISOString().slice(0, 10);
     expenseUpdateDateDisplay();
     renderExpensesByDate(_expenseViewDateKey);
 }
@@ -2404,8 +2405,9 @@ function renderMonthExpenseTotal() {
     var currentUser = DB.getCurrentUser();
     var isAdminUser = currentUser && currentUser.role === 'admin';
     var now = new Date();
-    var start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    var end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    // Dùng Date.UTC để tính start/end tháng đúng VN timezone
+    var start = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)).toISOString().slice(0, 10);
+    var end = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0)).toISOString().slice(0, 10);
 
     // Lọc giao dịch trong tháng
     var monthTxs = [];
@@ -2549,7 +2551,7 @@ function editExpense(id) {
     var currentUser = DB.getCurrentUser();
     var isAdminUser = currentUser && currentUser.role === 'admin';
     if (!isAdminUser) {
-        var today = new Date().toISOString().slice(0, 10);
+        var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
         if (tx.dateKey !== today) {
             showToast('Bạn chỉ được sửa chi phí trong ngày hôm nay!', 'warning');
             return;
@@ -2671,7 +2673,7 @@ function deleteExpense(id) {
     var currentUser = DB.getCurrentUser();
     var isAdminUser = currentUser && currentUser.role === 'admin';
     if (!isAdminUser) {
-        var today = new Date().toISOString().slice(0, 10);
+        var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
         if (tx.dateKey !== today) {
             showToast('Bạn chỉ được xóa chi phí trong ngày hôm nay!', 'warning');
             return;
@@ -2708,17 +2710,20 @@ function _countPeriodCosts(tx) {
     var month = parseInt(parts[1], 10);
     var day = parseInt(parts[2], 10);
 
-    var now = new Date(year, month - 1, day);
-    var startDate, endDate;
-    if (day >= 20) {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 20);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 19, 23, 59, 59);
-    } else {
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 20);
-        endDate = new Date(now.getFullYear(), now.getMonth(), 19, 23, 59, 59);
+    // Dùng Date.UTC để tạo date string đúng với timezone VN (+7)
+    function toDateKeyUTC(y, m, d) {
+        var dt = new Date(Date.UTC(y, m - 1, d));
+        return dt.toISOString().slice(0, 10);
     }
-    var startStr = startDate.toISOString().slice(0, 10);
-    var endStr = endDate.toISOString().slice(0, 10);
+
+    var startStr, endStr;
+    if (day >= 20) {
+        startStr = toDateKeyUTC(year, month, 20);
+        endStr = toDateKeyUTC(year, month + 1, 19);
+    } else {
+        startStr = toDateKeyUTC(year, month - 1, 20);
+        endStr = toDateKeyUTC(year, month, 19);
+    }
 
     var count = 0;
     var allTx = expenseData.transactions || [];
@@ -3019,7 +3024,14 @@ function _showDeleteOldExpensesModal() {
     var yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    function fmt(d) { return d.toISOString().slice(0, 10); }
+    function fmt(d) {
+        // Dùng getTodayDateKey nếu là hôm nay, nếu không thì dùng toISOString
+        var now = new Date();
+        if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+            return typeof getTodayDateKey === 'function' ? getTodayDateKey() : d.toISOString().slice(0, 10);
+        }
+        return d.toISOString().slice(0, 10);
+    }
 
     var box = document.createElement('div');
     box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:380px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.2);';

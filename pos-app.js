@@ -155,7 +155,7 @@ function loadData() {
 }
 
 function renderRecentTransactions() {
-    var todayStr = new Date().toISOString().slice(0, 10);
+    var todayStr = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
     DB.getTransactionsByDate(todayStr).then(function(transactions) {
         var validTx = transactions.filter(function(tx) { return !tx.refunded; });
         validTx.sort(function(a, b) {

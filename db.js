@@ -78,6 +78,18 @@
     function toDateKey(value) {
         if (!value) return '';
         if (typeof value === 'string') {
+            // FIX TIMEZONE: Náº¿u lÃ  ISO string (cÃ³ 'T', 'Z', hoáº·c timezone +/-), pháº£i parse Ä‘á»ƒ láº¥y local date
+            if (value.indexOf('T') >= 0 || value.indexOf('Z') >= 0 || value.indexOf('+') >= 0) {
+                var parsed = Date.parse(value);
+                if (!isNaN(parsed)) {
+                    var d = new Date(parsed);
+                    var y = d.getFullYear();
+                    var m = ('0' + (d.getMonth() + 1)).slice(-2);
+                    var day = ('0' + d.getDate()).slice(-2);
+                    return y + '-' + m + '-' + day;
+                }
+            }
+            // Náº¿u Ä‘Ã£ lÃ  Ä‘á»‹nh dáº¡ng YYYY-MM-DD (10 kÃ½ tá»±), dÃ¹ng trá»±c tiáº¿p
             if (value.length >= 10 && value[4] === '-' && value[7] === '-') return value.slice(0, 10);
             var parsed = Date.parse(value);
             if (!isNaN(parsed)) {

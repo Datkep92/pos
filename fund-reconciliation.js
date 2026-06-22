@@ -58,7 +58,7 @@ function saveManagerPickup() {
     }
 
     var now = new Date();
-    var dateKey = now.toISOString().slice(0, 10);
+    var dateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10);
 
     var data = {
         id: 'pickup_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
@@ -89,7 +89,7 @@ function renderManagerPickupHistory() {
     var container = document.getElementById('managerPickupHistory');
     if (!container) return;
 
-    var today = new Date().toISOString().slice(0, 10);
+    var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
     var todayPickups = managerCashPickups.filter(function(p) {
         return p.dateKey === today;
     });
@@ -140,7 +140,7 @@ function deleteManagerPickup(id) {
         managerCashPickups = managerCashPickups.filter(function(p) { return p.id !== id; });
         renderManagerPickupHistory();
         // Cập nhật lại khu vực đối soát
-        var today = new Date().toISOString().slice(0, 10);
+        var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
         if (typeof renderReconciliation === 'function') {
             renderReconciliation(today);
         }
@@ -160,8 +160,9 @@ function getOpeningBalance(dateStr) {
 
 // ========== TÍNH SỐ DƯ CUỐI KỲ DỰ KIẾN ==========
 function calculateExpectedClosing(dateStr) {
-    // Lấy ngày hôm trước
-    var prevDate = new Date(dateStr);
+    // Lấy ngày hôm trước - dùng Date.UTC để đúng VN timezone
+    var prevParts = dateStr.split('-');
+    var prevDate = new Date(Date.UTC(parseInt(prevParts[0], 10), parseInt(prevParts[1], 10) - 1, parseInt(prevParts[2], 10)));
     prevDate.setDate(prevDate.getDate() - 1);
     var prevDateStr = prevDate.toISOString().slice(0, 10);
 
@@ -748,7 +749,8 @@ function autoCloseDay() {
         // Lấy ngày hôm qua (N-1)
         var yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
-        var dateStr = yesterday.toISOString().slice(0, 10);
+        var dateStr = typeof getTodayDateKey === 'function' ? getTodayDateKey() : yesterday.toISOString().slice(0, 10);
+        // Lưu ý: auto-close lúc 6h sáng, yesterday là ngày VN hôm qua
         
         DB.get('daily_balances', dateStr).then(function(balance) {
             if (!balance) return; // Chưa có dữ liệu

@@ -144,15 +144,11 @@
                         <option value="grab">🚕 Grab</option>
                         <option value="cash">💰 Tiền mặt</option>
                         <option value="transfer">💳 Chuyển khoản</option>
-                        <option value="debt_payment">💢 Thanh toán nợ</option>
+                        <option value="debt">💢 Ghi nợ</option>
+                        <option value="debt_payment">💵 Trả nợ</option>
                         <option value="credit">💰 Tiền dư</option>
                         <option value="cancelled">❌ Đã hủy</option>
                     </select>
-                </div>
-                <div class="history-view-toggle" id="historyViewToggle">
-                    <span class="hvt-btn active" data-view="1" onclick="setHistoryView(1)">📋 1 hàng</span>
-                    <span class="hvt-btn" data-view="2" onclick="setHistoryView(2)">🍽️📦 2 hàng</span>
-                    <span class="hvt-btn" data-view="3" onclick="setHistoryView(3)">💰💳 2 hàng</span>
                 </div>
                 <div class="history-list" id="historyList"></div>
             </div>
@@ -604,40 +600,72 @@
 
                     <!-- PHẦN TELEGRAM -->
                     <div class="settings-section" id="settingsTelegramSection">
-                        <h3 class="settings-title">🤖 Cấu hình Telegram</h3>
-                        <div class="settings-field">
-                            <label class="settings-label">Bot Token</label>
-                            <div class="settings-input-group">
-                                <input type="password" id="telegramBotToken" class="form-input"
-                                    placeholder="VD: 123456789:ABCdefGHIjklmNOpqrsTUVwxyz">
-                                <button class="settings-toggle-btn" id="settingsToggleTelegramToken"
-                                    onclick="toggleTelegramTokenVisibility()">👁️</button>
+                        <h3 class="settings-title">🤖 Cấu hình Telegram cho từng token</h3>
+
+                        <!-- === THÔNG BÁO CHUNG === -->
+                        <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
+                            <div style="font-weight:600;font-size:14px;color:#f97316;margin-bottom:8px;">📢 Thông báo chung (đơn hàng, chi phí, ...)</div>
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Bot Token</label>
+                                <div class="settings-input-group">
+                                    <input type="password" id="telegramBotToken" class="form-input"
+                                        placeholder="VD: 123456789:ABCdefGHIjklmNOpqrsTUVwxyz">
+                                    <button class="settings-toggle-btn" id="settingsToggleTelegramToken"
+                                        onclick="toggleTelegramTokenVisibility()">👁️</button>
+                                </div>
+                                <div class="settings-hint">
+                                    Token từ <a href="https://t.me/BotFather" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">@BotFather</a>
+                                    trên Telegram
+                                </div>
                             </div>
-                            <div class="settings-hint">
-                                Token từ <a href="https://t.me/BotFather" target="_blank"
-                                   style="color:#f97316;text-decoration:underline;">@BotFather</a>
-                                trên Telegram
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Chat ID</label>
+                                <input type="text" id="telegramChatId" class="form-input"
+                                    placeholder="VD: -1001234567890 hoặc 123456789">
+                                <div class="settings-hint">
+                                    Chat ID nhóm/channel để gửi thông báo.
+                                    <a href="https://t.me/username_to_id_bot" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">Lấy Chat ID tại đây</a>
+                                </div>
+                            </div>
+                            <div class="settings-field">
+                                <label class="settings-label">Tên bot hiển thị</label>
+                                <input type="text" id="telegramBotName" class="form-input"
+                                    placeholder="VD: MILANO Coffee Bot">
+                                <div class="settings-hint">Tên hiển thị khi gửi thông báo</div>
                             </div>
                         </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Chat ID</label>
-                            <input type="text" id="telegramChatId" class="form-input"
-                                placeholder="VD: -1001234567890 hoặc 123456789">
-                            <div class="settings-hint">
-                                Chat ID nhóm/channel để gửi thông báo.
-                                <a href="https://t.me/username_to_id_bot" target="_blank"
-                                   style="color:#f97316;text-decoration:underline;">Lấy Chat ID tại đây</a>
+
+                        <!-- === THÔNG BÁO CHỐT CA === -->
+                        <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
+                            <div style="font-weight:600;font-size:14px;color:#22c55e;margin-bottom:8px;">🔒 Thông báo chốt ca</div>
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Bot Token chốt ca</label>
+                                <div class="settings-input-group">
+                                    <input type="password" id="telegramShiftCloseToken" class="form-input"
+                                        placeholder="VD: 123456789:ABCdefGHIjklmNOpqrsTUVwxyz">
+                                    <button class="settings-toggle-btn" id="settingsToggleShiftCloseToken"
+                                        onclick="toggleShiftCloseTokenVisibility()">👁️</button>
+                                </div>
+                                <div class="settings-hint">
+                                    Token riêng cho bot gửi báo cáo chốt ca.
+                                    <a href="https://t.me/BotFather" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
+                                </div>
+                            </div>
+                            <div class="settings-field">
+                                <label class="settings-label">Chat ID</label>
+                                <input type="text" id="telegramShiftCloseChatId" class="form-input"
+                                    placeholder="VD: 6372876364" value="6372876364">
+                                <div class="settings-hint">Chat ID nhận báo cáo chốt ca (mặc định: ID hệ thống)</div>
                             </div>
                         </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Tên bot hiển thị</label>
-                            <input type="text" id="telegramBotName" class="form-input"
-                                placeholder="VD: MILANO Coffee Bot">
-                            <div class="settings-hint">Tên hiển thị khi gửi thông báo</div>
-                        </div>
+
                         <div class="settings-actions" style="margin-top:8px;">
                             <button class="settings-btn settings-btn-primary" onclick="saveTelegramConfig()">💾 Lưu cấu hình</button>
-                            <button class="settings-btn settings-btn-primary" onclick="testTelegramConfig()" style="background:#22c55e;">📨 Gửi thử</button>
+                            <button class="settings-btn settings-btn-primary" onclick="testTelegramConfig()" style="background:#22c55e;">📨 Gửi thử chung</button>
+                            <button class="settings-btn settings-btn-primary" onclick="testShiftCloseTelegram()" style="background:#22c55e;">📨 Gửi thử chốt ca</button>
                             <button class="settings-btn settings-btn-secondary" onclick="clearTelegramConfig()">🗑️ Xóa</button>
                         </div>
                         <div id="telegramConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>

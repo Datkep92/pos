@@ -344,7 +344,7 @@ function confirmDraftOrder(draftId, options) {
                 tableName: null,
                 note: 'Đơn Grab (từ nháp)',
                 createdAt: now.toISOString(),
-                dateKey: now.toISOString().slice(0, 10)
+                dateKey: typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10)
             }).then(function() {
                 return deleteDraft(draftId);
             }).then(function() {
@@ -369,7 +369,7 @@ function confirmDraftOrder(draftId, options) {
                 tableName: null,
                 note: 'Mang đi (từ nháp) - ' + (paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'),
                 createdAt: now.toISOString(),
-                dateKey: now.toISOString().slice(0, 10)
+                dateKey: typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10)
             }).then(function() {
                 return deleteDraft(draftId);
             }).then(function() {
