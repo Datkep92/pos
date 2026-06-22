@@ -792,6 +792,32 @@ body {
     margin-left: 4px;
     flex-shrink: 0;
 }
+.history-stt {
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 700;
+    min-width: 32px;
+    flex-shrink: 0;
+    text-align: center;
+    margin-right: 6px;
+    background: rgba(37, 99, 235, 0.08);
+    border-radius: 4px;
+    padding: 0 4px;
+    line-height: 20px;
+}
+.history-summary {
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text);
+    text-align: center;
+    border: 1px solid var(--border);
+}
+.history-summary strong {
+    color: var(--primary);
+}
 /* ========== FORM ELEMENTS ========== */
 .form-input {
     width: 100%;
@@ -2974,84 +3000,6 @@ body.modal-open {
 @media (min-width: 1025px) { .customer-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; } .customer-card { padding: 16px; } }
 
 /* ========== HISTORY ========== */
-.history-view-toggle {
-    display: flex;
-    gap: 4px;
-    padding: 6px 12px;
-    background: #f1f5f9;
-    border-bottom: 1px solid var(--border);
-}
-.hvt-btn {
-    flex: 1;
-    text-align: center;
-    padding: 5px 8px;
-    border-radius: 6px;
-    font-size: 10px;
-    font-weight: 600;
-    color: #64748b;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s;
-    user-select: none;
-    -webkit-user-select: none;
-    white-space: nowrap;
-}
-.hvt-btn.active {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-}
-.hvt-btn:active { background: #e2e8f0; }
-
-/* Chế độ xem 1: mặc định 1 hàng dọc */
-.history-list.view-1 {
-    display: flex;
-    flex-direction: column;
-}
-/* Chế độ xem 2: 2 cột - dinein / takeaway+grab */
-.history-list.view-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    padding: 12px;
-}
-.history-list.view-2 .history-column {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.history-list.view-2 .history-column-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-secondary);
-    padding: 6px 10px;
-    background: #f8fafc;
-    border-radius: 6px;
-    text-align: center;
-    border: 1px solid var(--border);
-}
-/* Chế độ xem 3: 2 cột - cash / transfer+grab */
-.history-list.view-3 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    padding: 12px;
-}
-.history-list.view-3 .history-column {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.history-list.view-3 .history-column-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-secondary);
-    padding: 6px 10px;
-    background: #f8fafc;
-    border-radius: 6px;
-    text-align: center;
-    border: 1px solid var(--border);
-}
-
 .history-controls {
     display: flex;
     align-items: center;
@@ -3165,6 +3113,18 @@ body.modal-open {
     -webkit-appearance: none;
     white-space: nowrap;
 }
+.swipe-delete-btn {
+    background: #64748b;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-appearance: none;
+    white-space: nowrap;
+}
 .history-amount { font-size: 17px; font-weight: 700; color: var(--success); }
 .history-amount-inline {
     margin-left: auto;
@@ -3186,10 +3146,26 @@ body.modal-open {
     max-width: 100%;
 }
 
+/* Danh sách món trong history item */
+.history-items-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed #e2e8f0;
+}
+.history-item-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: #f1f5f9;
+    padding: 1px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
 @media (max-width: 480px) { .history-controls { padding: 6px 10px; gap: 6px; } .history-item { padding: 12px; } .history-amount { font-size: 15px; } .history-line1 { font-size: 12px; gap: 6px; } }
 @media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) { .history-item { padding: 16px; } }
-@media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) { .history-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; } .history-item { margin-bottom: 0; } }
-@media (min-width: 1025px) { .history-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; } .history-item { margin-bottom: 0; } }
 
 /* History date group */
 .history-date-list { display: flex; flex-direction: column; gap: 8px; }
@@ -3607,69 +3583,6 @@ body.modal-open {
     opacity: 0.8;
 }
 
-/* ========== HISTORY VIEW TOGGLE ========== */
-.history-view-toggle {
-    display: flex;
-    gap: 4px;
-    padding: 8px 12px;
-    background: #f1f5f9;
-    border-radius: 10px;
-    margin: 0 12px 8px;
-}
-.hvt-btn {
-    flex: 1;
-    text-align: center;
-    padding: 6px 8px;
-    border-radius: 8px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #64748b;
-    cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-}
-.hvt-btn.active {
-    background: #fff;
-    color: #1e293b;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-}
-.hvt-btn:active {
-    background: #e2e8f0;
-}
-
-/* ========== HISTORY VIEW MODES ========== */
-.history-list.view-1 {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 0 12px 12px;
-}
-.history-list.view-2,
-.history-list.view-3 {
-    display: flex;
-    flex-direction: row;
-    gap: 8px;
-    padding: 0 12px 12px;
-}
-.history-column {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.history-column-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: #475569;
-    padding: 6px 8px;
-    background: #e2e8f0;
-    border-radius: 8px;
-    text-align: center;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-}
 /* ========== CUSTOMER DETAIL MODAL - TỐI ƯU TABLET NGANG ========== */
 .cus-detail-modal {
     max-width: 600px;
