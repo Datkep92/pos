@@ -818,6 +818,14 @@ body {
 .history-summary strong {
     color: var(--primary);
 }
+.history-summary-debt {
+    margin-top: 4px;
+    background: #fffbeb;
+    border-color: #fde68a;
+}
+.history-summary-debt strong {
+    color: #d97706;
+}
 /* ========== FORM ELEMENTS ========== */
 .form-input {
     width: 100%;
@@ -3043,6 +3051,8 @@ body.modal-open {
 
 .history-item:active { background: #f8fafc; }
 .history-item.refunded { border-left-color: #ef4444; opacity: 0.9; }
+.history-item.debt-record { border-left-color: #d97706; background: #fffbeb; }
+.history-item.debt-payment { border-left-color: #2563eb; background: #eff6ff; }
 
 .history-line1 {
     display: flex;
@@ -3073,6 +3083,18 @@ body.modal-open {
     background: #f1f5f9;
     color: var(--text-secondary);
     white-space: nowrap;
+}
+
+/* Method badge cho ghi nợ - màu cam */
+.history-method.debt-record-method {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+/* Method badge cho thanh toán nợ - màu xanh dương */
+.history-method.debt-payment-method {
+    background: #dbeafe;
+    color: #2563eb;
 }
 
 .history-line2 {
@@ -3135,6 +3157,9 @@ body.modal-open {
     flex-shrink: 0;
 }
 .refunded-amount { color: var(--danger); text-decoration: line-through; }
+.credit-amount { color: var(--info); }
+.debt-record-amount { color: #d97706; } /* Màu cam cho ghi nợ */
+.debt-payment-amount { color: #2563eb; } /* Màu xanh dương cho thanh toán nợ */
 
 .history-note {
     font-size: 11px;
@@ -4719,22 +4744,6 @@ body.modal-open {
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 12px;
-}
-@media (orientation: landscape) and (min-width: 600px) {
-    .pos-cash-info {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px 16px;
-    }
-    .pos-cash-info .pos-cash-section-title {
-        grid-column: 1 / -1;
-    }
-    .pos-cash-info .pos-cash-total-row {
-        grid-column: 1 / -1;
-    }
-    .pos-cash-info .cash-counter-actions {
-        grid-column: 1 / -1;
-    }
 }
 .pos-cash-row {
     display: flex;
