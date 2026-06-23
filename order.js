@@ -1264,13 +1264,9 @@ function _checkAndDeductIngredients(items) {
                 var ing = _ingredientLookup[req.ingredientId];
                 if (ing) {
                     var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
-                    // Check stock
-                    if (ing.stock < needed) {
-                        showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
-                        return Promise.reject(new Error('Hết nguyên liệu'));
-                    }
+                    // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
                     // Deduct
-                    ing.stock = Math.max(0, (ing.stock || 0) - needed);
+                    ing.stock = (ing.stock || 0) - needed;
                     updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
                     
                     var unit = ing.unit || '';

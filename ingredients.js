@@ -4,11 +4,17 @@
 // OPTIMIZE: Build lookup maps để tránh nested loops (4 cấp -> 2 cấp)
 var _menuLookup = null;
 var _ingredientLookup = null;
+// Cache version tracking - tránh rebuild không cần thiết
+var _lookupCacheVersion = 0;
+var _lastBuiltVersion = -1;
 
 function _buildLookups() {
+    // Chỉ rebuild khi có thay đổi (invalidate được gọi)
+    if (_lastBuiltVersion === _lookupCacheVersion && _menuLookup !== null) {
+        return;
+    }
     _menuLookup = {};
     _ingredientLookup = {};
-    // Luôn rebuild từ global ingredients/menuItems để đảm bảo dữ liệu mới nhất
     var menuSource = window.menuItems || menuItems || [];
     var ingSource = window.ingredients || ingredients || [];
     for (var i = 0; i < menuSource.length; i++) {
@@ -18,11 +24,13 @@ function _buildLookups() {
     for (var j = 0; j < ingSource.length; j++) {
         _ingredientLookup[ingSource[j].id] = ingSource[j];
     }
+    _lastBuiltVersion = _lookupCacheVersion;
 }
 
 function _invalidateLookups() {
     _menuLookup = null;
     _ingredientLookup = null;
+    _lookupCacheVersion++;
 }
 
 // Helper: tính số lượng thực tế cần trừ/hoàn dựa trên quy đổi
@@ -103,11 +111,7 @@ function checkStock(items) {
                     var ing = _ingredientLookup[req.ingredientId];
                     if (ing) {
                         var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
-                        if (ing.stock < needed) {
-                            showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
-                            resolve(false);
-                            return;
-                        }
+                        // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
                     }
                 }
             }
@@ -204,15 +208,15 @@ function deductIngredients(items, idempotencyKey) {
                     console.log('🔍 deductIngredients deduct:', { rawQty: rawQty, deductQty: deductQty, oldStock: ing.stock, newStock: ing.stock - deductQty });
                     var oldStock = ing.stock || 0;
                     ing.stock -= deductQty;
-                    if (ing.stock < 0) ing.stock = 0;
+                    // Cho phép âm kho - không clamp về 0
                     updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
                     
-                    // Log export transaction
+                    // Log export transaction (thêm vào updates array thay vì fire-and-forget)
                     var unit = ing.unit || '';
                     var note = 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (-' + Math.round(deductQty * 1000) / 1000 + ' ' + unit + ')';
-                    _logIngredientTransaction(ing.id, 'export', Math.round(deductQty * 1000) / 1000, unit, note).catch(function(err) {
-                        console.error('Log export error:', err);
-                    });
+                    updates.push(
+                        _logIngredientTransaction(ing.id, 'export', Math.round(deductQty * 1000) / 1000, unit, note)
+                    );
                 }
             }
         }
@@ -240,12 +244,12 @@ function restoreIngredients(items) {
                     ing.stock += restoreQty;
                     updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
                     
-                    // Log import transaction (hoàn lại)
+                    // Log import transaction (hoàn lại) - thêm vào updates array
                     var unit = ing.unit || '';
                     var note = 'Hoàn: ' + orderItem.name + ' x' + orderItem.qty + ' (+' + Math.round(restoreQty * 1000) / 1000 + ' ' + unit + ')';
-                    _logIngredientTransaction(ing.id, 'import', Math.round(restoreQty * 1000) / 1000, unit, note).catch(function(err) {
-                        console.error('Log restore error:', err);
-                    });
+                    updates.push(
+                        _logIngredientTransaction(ing.id, 'import', Math.round(restoreQty * 1000) / 1000, unit, note)
+                    );
                 }
             }
         }
@@ -327,23 +331,28 @@ function addIngredientStock(ingredientId, quantity) {
 
     var oldStock = ing.stock || 0;
     ing.stock = oldStock + quantity;
-    if (ing.stock < 0) ing.stock = 0;
+    // Cho phép âm kho - không clamp về 0
 
     // Invalidate lookups để lần sau rebuild
     _invalidateLookups();
 
-    // Log transaction
+    // Log transaction - chờ cả log và update stock hoàn tất
     var unit = ing.unit || '';
     var note = '';
+    var logPromise = null;
     if (quantity > 0) {
         note = 'Nhập kho: +' + quantity + ' ' + unit + ' (tồn: ' + Math.round(oldStock * 10) / 10 + ' -> ' + Math.round(ing.stock * 10) / 10 + ')';
-        _logIngredientTransaction(ingredientId, 'import', quantity, unit, note);
+        logPromise = _logIngredientTransaction(ingredientId, 'import', quantity, unit, note);
     } else if (quantity < 0) {
         note = 'Xuất kho: ' + quantity + ' ' + unit + ' (tồn: ' + Math.round(oldStock * 10) / 10 + ' -> ' + Math.round(ing.stock * 10) / 10 + ')';
-        _logIngredientTransaction(ingredientId, 'export', Math.abs(quantity), unit, note);
+        logPromise = _logIngredientTransaction(ingredientId, 'export', Math.abs(quantity), unit, note);
     }
 
-    return DB.update('ingredients', ing.id, { stock: ing.stock });
+    var stockUpdate = DB.update('ingredients', ing.id, { stock: ing.stock });
+    if (logPromise) {
+        return Promise.all([stockUpdate, logPromise]);
+    }
+    return stockUpdate;
 }
 
 // Export global

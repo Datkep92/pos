@@ -493,38 +493,43 @@ function showPaymentForTable(tableId) {
 
 function paymentAtTable(tableId, method) {
     // Luôn yêu cầu xác nhận trước khi thanh toán
-    var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
-    var label = methodLabels[method] || method;
-    if (!confirm('Xác nhận thanh toán bằng ' + label + '?')) {
-        return;
-    }
-    if (method === 'cash') {
-        // Tiền mặt: ẩn toast tiền dư (nếu có) rồi thanh toán luôn
-        _hideChangeToast();
-        _processPaymentDirect(tableId, 'cash');
-    } else {
-        // Chuyển khoản / Ghi nợ -> thanh toán ngay
-        _processPaymentDirect(tableId, method);
-    }
+    _getTableFromCache(tableId).then(function(table) {
+        if (!table) return;
+        var total = table.total || 0;
+        var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
+        var label = methodLabels[method] || method;
+        if (!confirm('💳 Xác nhận thanh toán bằng ' + label + '?\n💰 Tổng tiền: ' + formatMoney(total))) {
+            return;
+        }
+        if (method === 'cash') {
+            // Tiền mặt: ẩn toast tiền dư (nếu có) rồi thanh toán luôn
+            _hideChangeToast();
+            _processPaymentDirect(tableId, 'cash');
+        } else {
+            // Chuyển khoản / Ghi nợ -> thanh toán ngay
+            _processPaymentDirect(tableId, method);
+        }
+    });
 }
 
 // OPTIMIZE: paymentAtTableWithCredit - đóng modal ngay, xử lý credit nhanh hơn
 function paymentAtTableWithCredit(tableId, method) {
-    // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận
-    var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-    if (isPortrait) {
-        var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
-        var label = methodLabels[method] || method;
-        if (!confirm('Xác nhận thanh toán bằng ' + label + '?')) {
-            return;
-        }
-    }
-    
     // OPTIMIZE: Đóng modal ngay lập tức
     if (currentTableDetailId === tableId) closeModal('tableDetailModal');
     
     _getTableFromCache(tableId).then(function(table) {
         if (!table || !table.items || !table.items.length) return;
+        
+        // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận với số tiền
+        var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+        if (isPortrait) {
+            var total = table.total || 0;
+            var methodLabels = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', debt: 'Ghi nợ' };
+            var label = methodLabels[method] || method;
+            if (!confirm('💳 Xác nhận thanh toán bằng ' + label + '?\n💰 Tổng tiền: ' + formatMoney(total))) {
+                return;
+            }
+        }
         
         // FIX: Nếu đã qua _changeToastPay (tiền dư đã được lưu), bỏ qua kiểm tra credit
         // để tránh trừ credit 2 lần
@@ -610,11 +615,12 @@ function _processPaymentDirect(tableId, method) {
         _skipCreditCheck = false;
         
         // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt
+        // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
         var stockAndDeductPromise = _checkAndDeductIngredients(items).then(function() {
             return true;
         }).catch(function(err) {
-            showToast('⚠️ ' + (err.message || 'Hết nguyên liệu'), 'error');
-            return false;
+            console.warn('⚠️ Nguyên liệu không đủ (cho phép âm kho):', err.message);
+            return true; // Vẫn cho phép giao dịch tiếp tục
         });
         
         stockAndDeductPromise.then(function(stockOk) {
@@ -895,6 +901,7 @@ function debtAtTable(tableId) {
             }
             
             // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt
+            // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
             var stockAndDeductPromise = new Promise(function(resolve, reject) {
                 _buildLookups();
                 var updates = [];
@@ -909,14 +916,9 @@ function debtAtTable(tableId) {
                             var ing = _ingredientLookup[req.ingredientId];
                             if (ing) {
                                 var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
-                                // Check stock
-                                if (ing.stock < needed) {
-                                    showToast('⚠️ Nguyên liệu "' + ing.name + '" không đủ cho món ' + baseName, 'error');
-                                    resolve(false);
-                                    return;
-                                }
+                                // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
                                 // Deduct
-                                ing.stock = Math.max(0, (ing.stock || 0) - needed);
+                                ing.stock = (ing.stock || 0) - needed;
                                 updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
                                 
                                 var unit = ing.unit || '';
@@ -1074,35 +1076,33 @@ function confirmSplitPaymentWithMethod(method, customer) {
         var finalItems = remainingItems.filter(function(i) { return i.qty > 0; });
         var newTotal = finalItems.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
         
-        // Trừ nguyên liệu (kiểm tra stock trước)
-        checkStock(splitItems).then(function(ok) {
-            if (!ok) return;
-            deductIngredients(splitItems).then(function() {
-                // Nếu là ghi nợ, cần có customer
-                if (method === 'debt' && !customer) {
-                    showToast('Cần chọn khách hàng để ghi nợ!', 'warning');
-                    return;
-                }
-                
-                // Cập nhật bàn: giảm số lượng món đã thanh toán
-                DB.update('tables', String(tableId), { items: finalItems, total: newTotal }).then(function() {
-                    // Tính thời gian khách ngồi
-                    var tableTime = '';
-                    if (table.startTime) {
-                        var startTime = new Date(table.startTime);
-                        var endTime = new Date();
-                        var elapsed = endTime.getTime() - startTime.getTime();
-                        var hours = Math.floor(elapsed / 3600000);
-                        var mins = Math.floor((elapsed % 3600000) / 60000);
-                        if (hours > 0) {
-                            tableTime = hours + 'h' + (mins > 0 ? mins + 'p' : '');
-                        } else {
-                            tableTime = mins + 'p';
-                        }
+        // Trừ nguyên liệu (cho phép âm kho - không chặn giao dịch khi hết nguyên liệu)
+        deductIngredients(splitItems).then(function() {
+            // Nếu là ghi nợ, cần có customer
+            if (method === 'debt' && !customer) {
+                showToast('Cần chọn khách hàng để ghi nợ!', 'warning');
+                return;
+            }
+            
+            // Cập nhật bàn: giảm số lượng món đã thanh toán
+            DB.update('tables', String(tableId), { items: finalItems, total: newTotal }).then(function() {
+                // Tính thời gian khách ngồi
+                var tableTime = '';
+                if (table.startTime) {
+                    var startTime = new Date(table.startTime);
+                    var endTime = new Date();
+                    var elapsed = endTime.getTime() - startTime.getTime();
+                    var hours = Math.floor(elapsed / 3600000);
+                    var mins = Math.floor((elapsed % 3600000) / 60000);
+                    if (hours > 0) {
+                        tableTime = hours + 'h' + (mins > 0 ? mins + 'p' : '');
+                    } else {
+                        tableTime = mins + 'p';
                     }
-                    // Lưu lịch sử giao dịch
-                    var historyPromise;
-                    if (method === 'debt') {
+                }
+                // Lưu lịch sử giao dịch
+                var historyPromise;
+                if (method === 'debt') {
                         // Ghi nợ: cộng nợ cho khách
                         addCustomerDebt(customer.id, splitTotal, 'Chia hóa đơn tại bàn ' + table.name, splitItems).then(function() {
                             historyPromise = addHistory({
@@ -1157,7 +1157,6 @@ function confirmSplitPaymentWithMethod(method, customer) {
                         if (currentTableDetailId === tableId) showTableDetail(tableId);
                         closeModal('splitBillModal');
                         showToast('✅ Đã thanh toán phần chia ' + formatMoney(splitTotal) + (method === 'debt' ? ' (ghi nợ)' : ''), 'success');
-                    });
                 });
             });
         });

@@ -113,7 +113,7 @@ function _groupTransactionsByDay(transactions, filter, getMethodFromTx) {
         for (var mk = 0; mk < methodKeys.length; mk++) {
             var mn = methodKeys[mk];
             var icon = _getPaymentMethodIcon(mn);
-            var label = mn === 'cash' ? 'Ti\u1EC1n m\u1EB7t' : mn === 'transfer' ? 'Chuy\u1EC3n kho\u1EA3n' : mn === 'grab' ? 'Grab' : 'Thanh to\u00E1n n\u1EE3';
+            var label = mn === 'cash' ? 'Ti\u1EC1n m\u1EB7t' : mn === 'transfer' ? 'Chuy\u1EC3n kho\u1EA3n' : mn === 'grab' ? 'Grab' : 'N\u1EE3 trong ng\u00E0y';
             methodList.push({ icon: icon, label: label, amount: methodMap[mn] });
         }
         days.push({
@@ -352,7 +352,9 @@ function showManagerRevenueDetail() {
         '\uD83D\uDCB0 Doanh thu - ' + range.label,
         function(filter) {
             return DB.getTransactionsByDateRange(range.startStr, range.endStr).then(function(transactions) {
-                var days = _groupTransactionsByDay(transactions, filter, function(tx) {
+                // Lọc bỏ ghi nợ - chỉ tính doanh thu thực tế
+                var filteredTx = transactions.filter(function(tx) { return !tx.refunded && tx.paymentMethod !== 'debt'; });
+                var days = _groupTransactionsByDay(filteredTx, filter, function(tx) {
                     return tx.paymentMethod || 'cash';
                 });
                 var grandTotal = 0;
@@ -371,7 +373,9 @@ function showManagerRevenueDetail() {
             if (!el) return;
             var fn = function(f) {
                 return DB.getTransactionsByDateRange(range.startStr, range.endStr).then(function(transactions) {
-                    var days = _groupTransactionsByDay(transactions, f, function(tx) {
+                    // Lọc bỏ ghi nợ - chỉ tính doanh thu thực tế
+                    var filteredTx = transactions.filter(function(tx) { return !tx.refunded && tx.paymentMethod !== 'debt'; });
+                    var days = _groupTransactionsByDay(filteredTx, f, function(tx) {
                         return tx.paymentMethod || 'cash';
                     });
                     var total = 0;
@@ -1057,13 +1061,14 @@ function updateManagerBigValues(startStr, endStr) {
         // Lọc transactions không bị refund
         var validTx = transactions.filter(function(t) { return !t.refunded; });
 
-        // Tính tổng doanh thu
+        // Tính tổng doanh thu (không bao gồm ghi nợ - chỉ tính khi khách thanh toán thực tế)
         var totalRevenue = 0;
         var totalGrab = 0;
         var totalBank = 0;
 
         for (var i = 0; i < validTx.length; i++) {
             var tx = validTx[i];
+            if (tx.paymentMethod === 'debt') continue;
             totalRevenue += tx.amount || 0;
             if (tx.paymentMethod === 'grab') totalGrab += tx.amount || 0;
             else if (tx.paymentMethod === 'transfer') totalBank += tx.amount || 0;
@@ -1781,6 +1786,10 @@ function renderIngredientStats(startStr, endStr) {
         }
 
         // Gán đơn giá và tính thành tiền
+        // LƯU Ý: ingredientUnitPrice trong cost_transactions là đơn giá theo đơn vị nhập kho
+        // (VD: nhập 1 Thùng = 12.000ml giá 120.000đ → unitPrice = 120.000đ/Thùng)
+        // totalQty là số lượng đã dùng theo baseUnit (VD: 5840 ml)
+        // Cần quy đổi totalQty về đơn vị nhập kho trước khi nhân
         var grandCost = 0;
         var hasCost = false;
         for (var si = 0; si < sorted.length; si++) {
@@ -1788,7 +1797,16 @@ function renderIngredientStats(startStr, endStr) {
             var priceInfo = costIngMap[ing.id];
             if (priceInfo && priceInfo.unitPrice) {
                 ing.unitPrice = priceInfo.unitPrice;
-                ing.estimatedCost = Math.round(ing.totalQty * priceInfo.unitPrice);
+                // Lấy thông tin ingredient để biết conversion rate
+                var ingInfo = getIngredient(ing.id);
+                var convRate = parseFloat(ingInfo && ingInfo.conversionRate) || 0;
+                var convTo = (ingInfo && ingInfo.conversionTo) || '';
+                var hasConv = convRate > 0 && convTo;
+                
+                // Nếu có conversion, unitPrice là giá theo đơn vị convTo (VD: Thùng)
+                // totalQty là theo baseUnit (VD: ml), cần chia cho convRate
+                var qtyForCost = hasConv ? (ing.totalQty / convRate) : ing.totalQty;
+                ing.estimatedCost = Math.round(qtyForCost * priceInfo.unitPrice);
                 grandCost += ing.estimatedCost;
                 hasCost = true;
             } else {

@@ -98,7 +98,6 @@
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
             <div class="tab-btn" data-tab="customers">👥 Khách</div>
             <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
-            <div class="tab-btn" data-tab="report">📈 Báo cáo</div>
             <div class="tab-btn" data-tab="inventory" style="display:none;">📋 Menu - Tồn kho</div>
             <div class="tab-btn" data-tab="cost">💰 Chi phí</div>
             <div class="tab-btn" data-tab="manager" style="display:none;">⚙️ Quản lý</div>
@@ -151,18 +150,6 @@
                     </select>
                 </div>
                 <div class="history-list" id="historyList"></div>
-            </div>
-
-            <!-- TAB BÁO CÁO -->
-            <div id="reportView" class="tab-content">
-                <div class="report-controls">
-                    <button class="nav-btn" id="reportPrevDayBtn">◀</button>
-                    <div class="date-display">📅 <span id="reportDate">--/--/----</span></div>
-                    <button class="nav-btn" id="reportNextDayBtn">▶</button>
-                </div>
-                <div class="report-layout">
-                    <div class="report-stats" id="reportStats"></div>
-                </div>
             </div>
 
             <!-- TAB MENU - TỒN KHO (ADMIN) -->
@@ -484,60 +471,6 @@
                         <div id="quickCashContainer"></div>
                     </div>
 
-                    <div class="settings-section" id="settingsAppSection">
-                        <h3 class="settings-title">⚙️ Cài đặt ứng dụng</h3>
-                        
-                        <div class="settings-info">
-                            <div class="settings-info-row">
-                                <span>Phiên bản hiện tại:</span>
-                                <span class="settings-version" id="settingsCurrentVersion">--</span>
-                            </div>
-                            <div class="settings-info-row">
-                                <span>Trạng thái:</span>
-                                <span id="settingsUpdateStatus">Đang kiểm tra...</span>
-                            </div>
-                        </div>
-
-                        <div class="settings-field">
-                            <label class="settings-label">🔑 GitHub Token</label>
-                            <div class="settings-input-group">
-                                <input type="password" id="settingsGithubToken" class="form-input"
-                                    placeholder="Nhập GitHub personal access token">
-                                <button class="settings-toggle-btn" id="settingsToggleToken"
-                                    onclick="toggleTokenVisibility()">👁️</button>
-                            </div>
-                            <div class="settings-hint">
-                                Token dùng để gọi GitHub API kiểm tra phiên bản mới.
-                                <a href="https://github.com/settings/tokens" target="_blank"
-                                   style="color:#f97316;text-decoration:underline;">Tạo token tại đây</a>
-                                (chỉ cần quyền <code>public_repo</code>)
-                            </div>
-                        </div>
-
-                        <div class="settings-actions">
-                            <button class="settings-btn settings-btn-primary" onclick="saveGitHubToken()">
-                                💾 Lưu token
-                            </button>
-                            <button class="settings-btn settings-btn-secondary" onclick="clearGitHubToken()">
-                                🗑️ Xóa token
-                            </button>
-                            <button class="settings-btn settings-btn-primary" onclick="checkUpdateNow()">
-                                🔄 Kiểm tra cập nhật
-                            </button>
-                        </div>
-
-                        <div class="settings-field" style="margin-top:16px;">
-                            <label class="settings-label">📋 Phiên bản đang bỏ qua</label>
-                            <div class="settings-info-row">
-                                <span id="settingsSkippedVersion">Không có</span>
-                            </div>
-                            <button class="settings-btn settings-btn-secondary" onclick="clearSkipVersion()"
-                                    style="margin-top:8px;font-size:13px;">
-                                🔄 Bỏ bỏ qua (kiểm tra lại)
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- PHẦN GHI CHÚ NHÂN VIÊN -->
                     <div class="settings-section" id="settingsStaffNoteSection">
                         <h3 class="settings-title">📝 Ghi chú</h3>
@@ -659,6 +592,46 @@
                                 <input type="text" id="telegramShiftCloseChatId" class="form-input"
                                     placeholder="VD: 6372876364" value="6372876364">
                                 <div class="settings-hint">Chat ID nhận báo cáo chốt ca (mặc định: ID hệ thống)</div>
+                            </div>
+                        </div>
+
+                        <!-- === CẢNH BÁO (TỒN KHO, XÓA BÀN, XÓA MÓN) === -->
+                        <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
+                            <div style="font-weight:600;font-size:14px;color:#ef4444;margin-bottom:8px;">⚠️ Cảnh báo (tồn kho, xóa bàn, xóa món)</div>
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Bot Token cảnh báo</label>
+                                <div class="settings-input-group">
+                                    <input type="password" id="telegramWarningToken" class="form-input"
+                                        placeholder="VD: 123456789:ABCdefGHIjklmNOpqrsTUVwxyz">
+                                    <button class="settings-toggle-btn" id="settingsToggleWarningToken"
+                                        onclick="toggleWarningTokenVisibility()">👁️</button>
+                                </div>
+                                <div class="settings-hint">
+                                    Token riêng cho bot gửi cảnh báo tồn kho, xóa bàn, xóa món.
+                                    Dùng chung Chat ID với thông báo chung.
+                                    <a href="https://t.me/BotFather" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- === CHI PHÍ === -->
+                        <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
+                            <div style="font-weight:600;font-size:14px;color:#a855f7;margin-bottom:8px;">📊 Chi phí</div>
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Bot Token chi phí</label>
+                                <div class="settings-input-group">
+                                    <input type="password" id="telegramExpenseToken" class="form-input"
+                                        placeholder="VD: 123456789:ABCdefGHIjklmNOpqrsTUVwxyz">
+                                    <button class="settings-toggle-btn" id="settingsToggleExpenseToken"
+                                        onclick="toggleExpenseTokenVisibility()">👁️</button>
+                                </div>
+                                <div class="settings-hint">
+                                    Token riêng cho bot gửi thông báo khi có chi phí phát sinh.
+                                    Dùng chung Chat ID với thông báo chung.
+                                    <a href="https://t.me/BotFather" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
+                                </div>
                             </div>
                         </div>
 
@@ -803,6 +776,24 @@
                             <div class="settings-hint">Nhân viên mới sẽ có quyền Staff mặc định</div>
                         </div>
                         <div id="staffPermissionStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                    </div>
+
+                    <!-- PHẦN DỮ LIỆU -->
+                    <div class="settings-section" id="settingsDataSection">
+                        <h3 class="settings-title">🗄️ Dữ liệu</h3>
+                        <div class="settings-field">
+                            <label class="settings-label">Xóa bộ nhớ đệm IndexedDB</label>
+                            <div class="settings-hint" style="margin-bottom:8px;">
+                                Xóa toàn bộ dữ liệu cache trên trình duyệt và tải lại từ Firebase.
+                                Dữ liệu trên Firebase <strong>không bị ảnh hưởng</strong>.
+                                Dùng khi dữ liệu hiển thị không chính xác hoặc cần refresh.
+                            </div>
+                            <div class="settings-actions" style="margin-top:4px;">
+                                <button class="settings-btn settings-btn-danger" onclick="clearIndexedDB()" style="font-size:13px;background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">
+                                    🗑️ Xóa cache & Tải lại
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -1281,7 +1272,6 @@
     <script src="history.js"></script>
     <script src="print.js"></script>
     <script src="draft-orders.js"></script>
-    <script src="report.js"></script>
     <script src="fund-reconciliation.js"></script>
     <!-- Manager Detail - click vào manager-grid items + tab quản lý -->
     <script src="manager-detail.js"></script>

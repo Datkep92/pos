@@ -451,6 +451,24 @@
                         <div id="staffPermissionStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
+                    <!-- PHẦN DỮ LIỆU -->
+                    <div class="settings-section" id="settingsDataSection">
+                        <h3 class="settings-title">🗄️ Dữ liệu</h3>
+                        <div class="settings-field">
+                            <label class="settings-label">Xóa bộ nhớ đệm IndexedDB</label>
+                            <div class="settings-hint" style="margin-bottom:8px;">
+                                Xóa toàn bộ dữ liệu cache trên trình duyệt và tải lại từ Firebase.
+                                Dữ liệu trên Firebase <strong>không bị ảnh hưởng</strong>.
+                                Dùng khi dữ liệu hiển thị không chính xác hoặc cần refresh.
+                            </div>
+                            <div class="settings-actions" style="margin-top:4px;">
+                                <button class="settings-btn settings-btn-danger" onclick="clearIndexedDB()" style="font-size:13px;background:#dc2626;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">
+                                    🗑️ Xóa cache & Tải lại
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>

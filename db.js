@@ -1133,6 +1133,7 @@
             subscribeToCollection('info');
             subscribeToCollection('messages');
             subscribeToCollection('daily_balances');
+            subscribeToCollection('ingredients');
             console.log('âœ… Database ready, device:', CURRENT_DEVICE_ID);
             return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
         });
@@ -1466,3 +1467,8 @@
         getShopConfig: getShopConfig
     };
 })();
+
+
+
+
+

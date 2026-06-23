@@ -11,7 +11,8 @@
     // Hàm gửi tin nhắn Telegram
     // - Nếu ESP32 online → đẩy vào queue (ESP32 xử lý), tự động xóa sau 30 giây
     // - Nếu ESP32 offline → gửi trực tiếp qua Telegram Bot API
-    window.queueTelegramMessage = function(message) {
+    // Có thể truyền token và chatId tùy chỉnh (cho các bot riêng biệt)
+    window.queueTelegramMessage = function(message, customToken, customChatId) {
         if (!message) return Promise.resolve();
         
         // Kiểm tra trạng thái ESP32
@@ -37,20 +38,21 @@
             });
         } else {
             // ESP offline → gửi trực tiếp qua Telegram Bot API
-            return _sendTelegramDirect(message);
+            return _sendTelegramDirect(message, customToken, customChatId);
         }
     };
     
     // Gửi trực tiếp qua Telegram Bot API (dùng fetch, ko cần ESP32)
-    function _sendTelegramDirect(message) {
+    // Có thể truyền token và chatId tùy chỉnh, nếu ko thì dùng telegramBotToken mặc định
+    function _sendTelegramDirect(message, customToken, customChatId) {
         var shopId = _getShopId();
         // Đọc token và chatId từ shopConfig (đã có sẵn trong window)
         var config = window.shopConfig || {};
-        var botToken = config.telegramBotToken;
-        var chatId = config.telegramChatId;
+        var botToken = customToken || config.telegramBotToken;
+        var chatId = customChatId || config.telegramChatId;
         
         if (!botToken || !chatId) {
-            console.error('[Telegram] Thiếu telegramBotToken hoặc telegramChatId trong shopConfig');
+            console.error('[Telegram] Thiếu botToken hoặc chatId');
             return Promise.resolve();
         }
         
@@ -210,9 +212,20 @@
         if (msg) window.queueTelegramMessage(msg);
     };
 
+    // Gửi chi phí qua token chi phí riêng (telegramExpenseToken), dùng chung Chat ID
     window.notifyTelegramExpense = function(expenseData) {
         var msg = window.formatTelegramExpense(expenseData);
-        if (msg) window.queueTelegramMessage(msg);
+        if (msg) {
+            var config = window.shopConfig || {};
+            var expenseToken = config.telegramExpenseToken;
+            var chatId = config.telegramChatId;
+            if (expenseToken && chatId) {
+                window.queueTelegramMessage(msg, expenseToken, chatId);
+            } else {
+                // Fallback về token chính nếu chưa cấu hình token chi phí
+                window.queueTelegramMessage(msg);
+            }
+        }
     };
 
     window.notifyTelegramCustom = function(message) {
@@ -223,6 +236,20 @@
     window.notifyTelegramRefund = function(transaction, reason, needPassword) {
         var msg = window.formatTelegramRefund(transaction, reason, needPassword);
         if (msg) window.queueTelegramMessage(msg);
+    };
+
+    // Gửi cảnh báo (tồn kho, xóa bàn, xóa món) qua token cảnh báo riêng, dùng chung Chat ID
+    window.notifyTelegramWarning = function(warningMessage) {
+        if (!warningMessage) return;
+        var config = window.shopConfig || {};
+        var warningToken = config.telegramWarningToken;
+        var chatId = config.telegramChatId;
+        if (warningToken && chatId) {
+            var msg = window.formatTelegramCustom(warningMessage);
+            window.queueTelegramMessage(msg, warningToken, chatId);
+        } else {
+            console.log('[Telegram] Chưa cấu hình token cảnh báo, bỏ qua:', warningMessage);
+        }
     };
 
     // ========== ESP32 STATUS MONITOR ==========

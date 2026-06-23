@@ -199,10 +199,13 @@ function _renderHistoryCore(dateStr) {
         }
         staffNames.sort();
         
-        // Động cập nhật dropdown: xóa các option staff cũ, thêm option mới
+        // Động cập nhật dropdown: xóa các option staff cũ và separator, thêm option mới
         // Giữ lại các option cố định (all, dinein, takeaway, ...)
         var currentValue = filterEl.value;
-        // Chỉ rebuild nếu đang ở filter staff hoặc có staff names
+        // Xóa separator cũ (nếu có)
+        var oldSep = filterEl.querySelector('option[disabled].staff-separator');
+        if (oldSep) filterEl.removeChild(oldSep);
+        // Xóa các option staff cũ
         var staffOptions = filterEl.querySelectorAll('option[data-staff]');
         for (var i = staffOptions.length - 1; i >= 0; i--) {
             filterEl.removeChild(staffOptions[i]);
@@ -212,6 +215,7 @@ function _renderHistoryCore(dateStr) {
             // Thêm separator disabled
             var sep = document.createElement('option');
             sep.disabled = true;
+            sep.className = 'staff-separator';
             sep.textContent = '─── Nhân viên ───';
             filterEl.appendChild(sep);
             
@@ -264,13 +268,18 @@ function _renderHistoryCore(dateStr) {
             return;
         }
 
-        // TÍNH TỔNG: số giao dịch và tổng tiền (chỉ tính giao dịch không refund, không credit)
+        // TÍNH TỔNG: dựa trên transactions đã được lọc
+        // Khi filter = 'debt', transactions chỉ còn giao dịch ghi nợ → tính tổng trực tiếp
+        // Khi filter = 'all', bỏ qua debt (vì bộ lọc đã có phần lọc trả sau riêng)
         var totalAmount = 0;
         var totalCount = 0;
+        var isDebtFilter = (filter === 'debt');
         for (var i = 0; i < transactions.length; i++) {
             var tx = transactions[i];
             if (tx.refunded) continue;
             if (tx.type === 'credit') continue;
+            // Nếu filter = 'all', bỏ qua giao dịch debt (vì đã có bộ lọc riêng)
+            if (!isDebtFilter && tx.type === 'debt_payment' && tx.paymentMethod === 'debt') continue;
             totalCount++;
             totalAmount += tx.amount || 0;
         }
@@ -324,7 +333,7 @@ function showTransactionDetail(transactionId) {
             currentTimeStr = new Date(tx.createdAt).toLocaleString('vi-VN');
         }
         
-        // Phân biệt Ghi nợ (mua chịu) vs Thanh toán nợ (trả tiền)
+        // Phân biệt Trả sau (mua chịu) vs Thanh toán trả sau (trả tiền)
         var isDebtRecord = (tx.type === 'debt_payment' && tx.paymentMethod === 'debt');
         var isDebtPayment = (tx.type === 'debt_payment' && tx.paymentMethod === 'cash');
         var isCredit = (tx.type === 'credit');
@@ -620,20 +629,20 @@ function proceedRefund(trans, needPassword) {
         showRefundReasonModal(function(reason) {
             if (!reason) return;
             restoreIngredients(trans.items).then(function() {
-                // Xử lý hoàn tác nợ: trả về Promise để đợi hoàn thành trước khi update transaction
+                // Xử lý hoàn tác trả sau: trả về Promise để đợi hoàn thành trước khi update transaction
                 var debtPromise = Promise.resolve();
                 
                 if (trans.type === 'debt_payment' && trans.customer) {
                     if (trans.paymentMethod === 'debt') {
                         // GHI NỢ: hoàn tác = xóa entry debtHistory gốc và trừ totalDebt
-                        // KHÔNG thêm entry mới để tránh sai lệch lịch sử nợ
+                        // KHÔNG thêm entry mới để tránh sai lệch lịch sử trả sau
                         debtPromise = new Promise(function(resolve) {
                             var c = null;
                             for (var i = 0; i < customers.length; i++) {
                                 if (customers[i].id === trans.customer.id) { c = customers[i]; break; }
                             }
                             function doRestoreDebt(cust) {
-                                // Tìm và xóa entry debtHistory gốc tương ứng với giao dịch ghi nợ này
+                                // Tìm và xóa entry debtHistory gốc tương ứng với giao dịch trả sau này
                                 if (cust.debtHistory) {
                                     var foundIdx = -1;
                                     for (var d = 0; d < cust.debtHistory.length; d++) {
@@ -702,7 +711,7 @@ function proceedRefund(trans, needPassword) {
                                         cust.paymentHistory.splice(foundIdx, 1);
                                     }
                                 }
-                                // Khôi phục nợ: cộng lại số tiền đã thanh toán
+                                // Khôi phục: cộng lại số tiền đã thanh toán
                                 cust.totalDebt = (cust.totalDebt || 0) + trans.amount;
                                 DB.update('customers', cust.id, {
                                     totalDebt: cust.totalDebt,
@@ -729,19 +738,19 @@ function proceedRefund(trans, needPassword) {
                     }
                 }
                 
-                // Khôi phục bàn nếu là giao dịch tại bàn (dinein) hoặc ghi nợ tại bàn
-                // KHÔNG khôi phục bàn khi thanh toán nợ (paymentMethod === 'cash')
+                // Khôi phục bàn nếu là giao dịch tại bàn (dinein) hoặc trả sau tại bàn
+                // KHÔNG khôi phục bàn khi thanh toán trả sau (paymentMethod === 'cash')
                 var tablePromise = Promise.resolve();
                 if (trans.tableId) {
                     if (trans.type === 'dinein') {
                         tablePromise = restoreTable(trans);
                     } else if (trans.type === 'debt_payment' && trans.paymentMethod === 'debt') {
-                        // Ghi nợ tại bàn: khôi phục bàn
+                        // Trả sau tại bàn: khôi phục bàn
                         tablePromise = restoreTable(trans);
                     }
                 }
                 
-                // Đợi xử lý nợ + khôi phục bàn xong mới update transaction
+                // Đợi xử lý trả sau + khôi phục bàn xong mới update transaction
                 Promise.all([debtPromise, tablePromise]).then(function() {
                     // FIX TIMEZONE: KHÔNG ghi đè trans.createdAt để giữ nguyên ngày gốc của giao dịch
                     // Thay vào đó, dùng refundedAt để sort nếu cần

@@ -40,7 +40,8 @@ function renderReport(dateObj) {
             else if (tx.paymentMethod === 'grab') { grabTotal += tx.amount; grabCount++; }
         }
         
-        var totalRevenue = cashTotal + transferTotal + debtPaymentTotal + grabTotal;
+        // TotalRevenue chỉ tính doanh thu thực tế (TM + CK + Grab), không bao gồm ghi nợ
+        var totalRevenue = cashTotal + transferTotal + grabTotal;
         
         // ===== 2. BÀN ĐANG HOẠT ĐỘNG =====
         var activeTables = allTables.filter(function(t) { return (t.items && t.items.length) || t.total > 0; });
