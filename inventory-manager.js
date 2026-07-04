@@ -38,6 +38,15 @@ function _safeText(selector, parent) {
     return el ? el.innerText.trim() : '';
 }
 
+// Global helper: tra cứu tên nguyên liệu theo ID
+function _lookupIngName(id) {
+    var ings = window.ingredients || ingredients || [];
+    for (var j = 0; j < ings.length; j++) {
+        if (ings[j].id === id) return ings[j].name;
+    }
+    return '';
+}
+
 function _collectSelectValues(containerSelector, selectSelector, qtySelector, unitSelector) {
     // Collect paired values from multiple rows: select, qty, unit
     var container = document.querySelector(containerSelector);
@@ -551,6 +560,10 @@ function deleteCategory(catId) {
 }
 
 // ========== RENDER MÓN ĂN (GRID) ==========
+// Biến đếm số lần retry cho renderInventoryMenu
+var _invMenuRetryCount = 0;
+var _invMenuRetryMax = 30; // 30 lần * 1s = 30s
+
 function renderInventoryMenu() {
     var container = document.getElementById('invMenuItemList');
     if (!container) return;
@@ -563,25 +576,49 @@ function renderInventoryMenu() {
     
     // Nếu chưa có dữ liệu menu items, load từ DB
     if (items.length === 0 && typeof DB !== 'undefined' && DB.getAll) {
-        DB.getAll('menu').then(function(dbItems) {
-            if (dbItems && dbItems.length > 0) {
-                window.menuItems = dbItems;
-                menuItems = dbItems;
-            }
-            // Load categories nếu chưa có
-            if (cats.length === 0) {
-                return DB.getAll('menu_categories').then(function(dbCats) {
-                    if (dbCats && dbCats.length > 0) {
-                        window.menuCategories = dbCats;
-                        menuCategories = dbCats;
-                    }
-                    renderInventoryMenu();
-                });
-            }
-            renderInventoryMenu();
-        }).catch(function() {
-            container.innerHTML = '<div class="empty-text">Chưa có món ăn nào</div>';
-        });
+        // FIX: Chờ sync hoàn thành trước khi load từ DB
+        if (typeof DB.whenSyncComplete === 'function') {
+            DB.whenSyncComplete().then(function() {
+                return DB.getAll('menu');
+            }).then(function(dbItems) {
+                if (dbItems && dbItems.length > 0) {
+                    window.menuItems = dbItems;
+                    menuItems = dbItems;
+                }
+                // Load categories nếu chưa có
+                if (cats.length === 0) {
+                    return DB.getAll('menu_categories').then(function(dbCats) {
+                        if (dbCats && dbCats.length > 0) {
+                            window.menuCategories = dbCats;
+                            menuCategories = dbCats;
+                        }
+                        renderInventoryMenu();
+                    });
+                }
+                renderInventoryMenu();
+            }).catch(function() {
+                container.innerHTML = '<div class="empty-text">Chưa có món ăn nào</div>';
+            });
+        } else {
+            DB.getAll('menu').then(function(dbItems) {
+                if (dbItems && dbItems.length > 0) {
+                    window.menuItems = dbItems;
+                    menuItems = dbItems;
+                }
+                if (cats.length === 0) {
+                    return DB.getAll('menu_categories').then(function(dbCats) {
+                        if (dbCats && dbCats.length > 0) {
+                            window.menuCategories = dbCats;
+                            menuCategories = dbCats;
+                        }
+                        renderInventoryMenu();
+                    });
+                }
+                renderInventoryMenu();
+            }).catch(function() {
+                container.innerHTML = '<div class="empty-text">Chưa có món ăn nào</div>';
+            });
+        }
         return;
     }
     
@@ -599,6 +636,15 @@ function renderInventoryMenu() {
         });
         return;
     }
+    
+    // FIX: Nếu items vẫn rỗng, thử retry (chờ sync hoàn thành)
+    if (items.length === 0 && _invMenuRetryCount < _invMenuRetryMax) {
+        _invMenuRetryCount++;
+        console.log('⏳ renderInventoryMenu retry ' + _invMenuRetryCount + '/' + _invMenuRetryMax);
+        setTimeout(renderInventoryMenu, 1000);
+        return;
+    }
+    _invMenuRetryCount = 0;
     
     _doRenderInventoryMenu(items, cats, filterCatId, container);
 }
@@ -1386,36 +1432,78 @@ function handleEditMenuItemSave() {
 }
 
 // ========== RENDER NGUYÊN LIỆU (GRID) ==========
+// Biến đếm số lần retry cho renderInventoryIngredients
+var _invIngRetryCount = 0;
+var _invIngRetryMax = 30; // 30 lần * 1s = 30s
+
+// OPTIMIZE: Cache version để tránh render lại khi dữ liệu không đổi
+var _invIngRenderVersion = 0;
+var _invIngLastRenderData = null;
+
 function renderInventoryIngredients() {
     var container = document.getElementById('invIngredientList');
-    console.log('🔍 renderInventoryIngredients:', { container: !!container, windowIngredientsLen: (window.ingredients||[]).length, ingredientsLen: (ingredients||[]).length });
-    if (!container) { console.log('🔍 renderInventoryIngredients: container not found!'); return; }
+    if (!container) return;
     
     // FIX: Ưu tiên window.ingredients (đã được load từ pos-app.js) trước
     var ings = window.ingredients || ingredients || [];
-    console.log('🔍 renderInventoryIngredients ings:', { len: ings.length, names: ings.map(function(i){return i.name;}) });
     
     // Nếu chưa có dữ liệu, load từ DB
     if (ings.length === 0) {
-        console.log('🔍 renderInventoryIngredients: no data, loading from DB...');
         if (typeof DB !== 'undefined' && DB.getAll) {
-            DB.getAll('ingredients').then(function(dbIngs) {
-                console.log('🔍 renderInventoryIngredients DB.getAll:', { len: dbIngs.length, names: dbIngs.map(function(i){return i.name;}) });
+            // FIX: Chờ sync hoàn thành trước khi load từ DB
+            var loadPromise;
+            if (typeof DB.whenSyncComplete === 'function') {
+                loadPromise = DB.whenSyncComplete().then(function() {
+                    return DB.getAll('ingredients');
+                });
+            } else {
+                loadPromise = DB.getAll('ingredients');
+            }
+            loadPromise.then(function(dbIngs) {
                 if (dbIngs && dbIngs.length > 0) {
                     window.ingredients = dbIngs;
                     ingredients = dbIngs;
+                    _invIngRetryCount = 0;
+                    _invIngRenderVersion++; // Đánh dấu data đã thay đổi
                     renderInventoryIngredients();
+                } else {
+                    // FIX: Nếu DB vẫn rỗng, thử retry (chờ sync hoàn thành)
+                    if (_invIngRetryCount < _invIngRetryMax) {
+                        _invIngRetryCount++;
+                        setTimeout(renderInventoryIngredients, 1000);
+                    } else {
+                        container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
+                    }
+                }
+            }).catch(function() {
+                // FIX: Nếu lỗi, thử retry
+                if (_invIngRetryCount < _invIngRetryMax) {
+                    _invIngRetryCount++;
+                    setTimeout(renderInventoryIngredients, 1000);
                 } else {
                     container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
                 }
-            }).catch(function() {
-                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
             });
+            return;
+        }
+        // FIX: Nếu DB chưa sẵn sàng, thử retry
+        if (_invIngRetryCount < _invIngRetryMax) {
+            _invIngRetryCount++;
+            setTimeout(renderInventoryIngredients, 1000);
             return;
         }
         container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu nào</div>';
         return;
     }
+    
+    _invIngRetryCount = 0;
+    
+    // OPTIMIZE: Cache check - nếu data không đổi thì không render lại
+    var currentDataHash = ings.map(function(i){ return i.id + ':' + (i.stock||'') + ':' + (i.name||''); }).join('|');
+    if (currentDataHash === _invIngLastRenderData) {
+        return; // Data không đổi, bỏ qua render
+    }
+    _invIngLastRenderData = currentDataHash;
     
     var html = '';
     for (var i = 0; i < ings.length; i++) {

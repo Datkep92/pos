@@ -162,9 +162,13 @@ function applyRoleBasedUI(user) {
     // Cập nhật tên nhân viên trên header
     var staffNameEl = document.querySelector('.staff-name');
     if (staffNameEl) {
-        var roleText = user.role === 'admin' ? '🛡️ Admin' : '👤 Nhân viên';
-        staffNameEl.innerHTML = roleText + ' - ' + escapeHtml(user.displayName) +
-            ' <span class="logout-link" onclick="handleLogout()" style="font-size:11px;color:#f97316;cursor:pointer;margin-left:8px;">[Đăng xuất]</span>';
+        var roleIcon = user.role === 'admin' ? '🛡️' : '👤';
+        staffNameEl.innerHTML = roleIcon + ' ' + escapeHtml(user.displayName);
+        staffNameEl.style.cursor = 'pointer';
+        staffNameEl.title = 'Đăng xuất';
+        staffNameEl.onclick = function() {
+            if (confirm('Đăng xuất?')) handleLogout();
+        };
     }
     
     // Ẩn/hiện tab Quản lý, Nhân viên, Menu-Tồn kho dựa trên role

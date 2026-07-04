@@ -348,11 +348,14 @@ function confirmTransferItems() {
             if (newNumber > 99) { showToast('Đã đạt giới hạn 99 bàn!', 'warning'); return; }
             var newId = Date.now().toString();
             var now = new Date();
+            var currentUser = DB.getCurrentUser();
             targetTable = {
                 id: newId, name: targetName, status: 'occupied',
                 time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                 startTime: now.toISOString(),
-                items: [], total: 0, customerId: null, customerName: null
+                items: [], total: 0, customerId: null, customerName: null,
+                createdByName: (currentUser && currentUser.displayName) || '',
+                createdByRole: (currentUser && currentUser.role) || ''
             };
         }
         var targetItems = targetTable.items || [];
@@ -456,7 +459,14 @@ function showDeleteTableConfirm(tableId) {
         
         // Kiểm tra đã chốt ngày chưa - nếu đã chốt thì yêu cầu mật khẩu
         // Chống gian lận: nhân viên không thể xóa bàn sau khi đã chốt ngày
+        // NÂNG CẤP: Admin không cần mật khẩu, vẫn mở modal xóa bàn
         if (typeof isDayClosed === 'function' && isDayClosed()) {
+            var currentUser = DB.getCurrentUser();
+            if (currentUser && currentUser.role === 'admin') {
+                // Admin: mở modal xóa bàn trực tiếp, không cần mật khẩu
+                document.getElementById('deleteTableModal').style.display = 'flex';
+                return;
+            }
             closeModal('deleteTableModal');
             requirePassword('xóa bàn (đã chốt ngày hôm nay)', function() {
                 document.getElementById('deleteTableModal').style.display = 'flex';
@@ -464,15 +474,10 @@ function showDeleteTableConfirm(tableId) {
             return;
         }
         
-        if (isTableLocked(table)) {
-            // Bàn bị khóa: yêu cầu mật khẩu
-            closeModal('deleteTableModal');
-            requirePassword('xóa bàn (bàn đang bị khóa)', function() {
-                document.getElementById('deleteTableModal').style.display = 'flex';
-            });
-        } else {
-            document.getElementById('deleteTableModal').style.display = 'flex';
-        }
+        // FIX: Bỏ kiểm tra isTableLocked ở đây
+        // Bàn khóa đã được xử lý ở tables.js (dòng 417) - gọi requirePassword trước khi gọi hàm này
+        // Nếu kiểm tra lại ở đây sẽ gây ra nhập mật khẩu 2 lần
+        document.getElementById('deleteTableModal').style.display = 'flex';
     });
 }
 
@@ -480,15 +485,9 @@ function confirmDeleteTable() {
     if (!pendingDeleteTableId) return;
     DB.get('tables', String(pendingDeleteTableId)).then(function(table) {
         if (!table) return;
-        // Kiểm tra lại khóa bàn trước khi xóa (phòng trường hợp đã mở modal lâu)
-        if (isTableLocked(table)) {
-            closeModal('deleteTableModal');
-            requirePassword('xóa bàn (bàn đang bị khóa)', function() {
-                // Sau khi nhập đúng mật khẩu, thực hiện xóa
-                doDeleteTable(table);
-            });
-            return;
-        }
+        // FIX: Bỏ kiểm tra isTableLocked ở đây vì đã được kiểm tra trong showDeleteTableConfirm
+        // Nếu bàn locked, showDeleteTableConfirm đã yêu cầu mật khẩu trước khi hiển thị modal
+        // Kiểm tra lại ở đây chỉ gây ra nhập mật khẩu 2 lần
         doDeleteTable(table);
     });
 }
@@ -498,6 +497,23 @@ function doDeleteTable(table) {
     if (table.items && table.items.length) {
         restoreIngredients(table.items);
     }
+    
+    // Ghi lịch sử xóa bàn trước khi xóa
+    var user = DB.getCurrentUser();
+    addHistory({
+        type: 'delete_table',
+        amount: table.total || 0,
+        paymentMethod: 'delete',
+        tableName: table.name,
+        tableId: table.id,
+        items: itemsSnapshot,
+        customer: table.customer || null,
+        createdByName: (user && user.displayName) ? user.displayName : (table.createdByName || ''),
+        startTime: table.startTime || null,
+        endTime: new Date().toISOString(),
+        tableTime: table.tableTime || ''
+    });
+    
     DB.remove('tables', String(pendingDeleteTableId)).then(function() {
         // Log xóa bàn vào Firebase delete_logs
         var details = {

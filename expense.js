@@ -181,24 +181,84 @@ function switchFundSource(source) {
 // ========== RENDER DANH SÁCH NGUYÊN LIỆU ==========
 // FIX 4: Luôn load ingredients từ DB để đảm bảo tồn kho mới nhất
 // (đã trừ các giao dịch bán hàng, cộng nhập kho)
+// Đăng ký listener để tự động re-render ingredients grid khi dữ liệu thay đổi
+var _ingredientListRendered = false;
+function _ensureIngredientListener() {
+    if (_ingredientListRendered) return;
+    _ingredientListRendered = true;
+    // Lắng nghe sự kiện db_update từ DB module
+    document.addEventListener('db_update', function(e) {
+        var detail = e.detail;
+        if (!detail || detail.collection !== 'ingredients') return;
+        var container = document.getElementById('expenseIngredientGrid');
+        if (!container) return;
+        // Reset retry count khi có dữ liệu mới
+        _ingredientRetryCount = 0;
+        if (_ingredientRetryTimer) {
+            clearTimeout(_ingredientRetryTimer);
+            _ingredientRetryTimer = null;
+        }
+        // Chỉ re-render nếu grid đang hiển thị (không phải search results)
+        var searchResults = document.getElementById('expenseIngredientSearchResults');
+        if (searchResults && searchResults.style.display !== 'none') return;
+        // Cập nhật window.ingredients từ memory cache
+        if (typeof DB.getAll === 'function') {
+            DB.getAll('ingredients').then(function(list) {
+                if (list && list.length > 0) {
+                    window.ingredients = list;
+                    _renderIngredientGrid(container, list);
+                }
+            });
+        }
+    });
+}
+
+// Retry counter để tránh loop vô hạn
+var _ingredientRetryCount = 0;
+var _ingredientRetryTimer = null;
+
 function renderIngredientList() {
     var container = document.getElementById('expenseIngredientGrid');
     if (!container) return;
 
+    // Đăng ký listener để tự động cập nhật khi ingredients thay đổi
+    _ensureIngredientListener();
+
+    // Ưu tiên dùng window.ingredients nếu đã có
+    var cachedList = window.ingredients;
+    if (cachedList && cachedList.length > 0) {
+        _renderIngredientGrid(container, cachedList);
+        return;
+    }
+
     if (typeof DB !== 'undefined' && DB.getAll) {
+        // Thử load từ IndexedDB trực tiếp (không đợi sync)
         DB.getAll('ingredients').then(function(dbList) {
             if (dbList && dbList.length > 0) {
-                // Cập nhật cache window.ingredients để đồng bộ
                 window.ingredients = dbList;
                 _renderIngredientGrid(container, dbList);
+                return;
+            }
+            // Local trống, thử sync từ Firebase
+            if (typeof DB.ensureCollection === 'function') {
+                DB.ensureCollection('ingredients').then(function(syncedList) {
+                    if (syncedList && syncedList.length > 0) {
+                        window.ingredients = syncedList;
+                        _renderIngredientGrid(container, syncedList);
+                    } else {
+                        // Sync xong vẫn không có dữ liệu -> thử lại sau (chờ smartSync/forceSync hoàn thành)
+                        _retryIngredientLoad(container);
+                    }
+                }).catch(function() {
+                    _retryIngredientLoad(container);
+                });
             } else {
-                container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+                _retryIngredientLoad(container);
             }
         }).catch(function() {
-            container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+            _retryIngredientLoad(container);
         });
     } else {
-        // Fallback: dùng window.ingredients cache nếu DB không available
         var list = window.ingredients;
         if (list && list.length > 0) {
             _renderIngredientGrid(container, list);
@@ -206,6 +266,39 @@ function renderIngredientList() {
             container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
         }
     }
+}
+
+// Thử lại sau mỗi 1s nếu chưa có dữ liệu (tối đa 30 lần = 30 giây)
+// Giải quyết race condition: loadData() chạy trước, smartSync/forceSync chạy song song chưa xong
+function _retryIngredientLoad(container) {
+    if (_ingredientRetryCount >= 30) {
+        _ingredientRetryCount = 0;
+        container.innerHTML = '<div class="empty-text">Chưa có nguyên liệu</div>';
+        return;
+    }
+    _ingredientRetryCount++;
+    if (_ingredientRetryTimer) clearTimeout(_ingredientRetryTimer);
+    _ingredientRetryTimer = setTimeout(function() {
+        _ingredientRetryTimer = null;
+        // Kiểm tra window.ingredients trước (nhanh nhất)
+        if (window.ingredients && window.ingredients.length > 0) {
+            _ingredientRetryCount = 0;
+            _renderIngredientGrid(container, window.ingredients);
+            return;
+        }
+        // Thử load từ IndexedDB
+        DB.getAll('ingredients').then(function(dbList) {
+            if (dbList && dbList.length > 0) {
+                _ingredientRetryCount = 0;
+                window.ingredients = dbList;
+                _renderIngredientGrid(container, dbList);
+            } else {
+                _retryIngredientLoad(container);
+            }
+        }).catch(function() {
+            _retryIngredientLoad(container);
+        });
+    }, 1000);
 }
 
 // FIX 7 (tiếp): Thêm data-id attribute thay vì onclick selector
@@ -810,7 +903,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSo
 }
 
 // ========== LƯU CHI PHÍ HAO PHÍ ==========
-function saveWasteExpense(categoryName, amount, fundSource) {
+function saveWasteExpense(categoryName, amount, fundSource, fundHistoryKey) {
     var now = new Date();
     var dateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10);
 
@@ -865,7 +958,8 @@ function saveWasteExpense(categoryName, amount, fundSource) {
             dateKey: dateKey,
             createdAt: Date.now(),
             createdBy: (DB.getCurrentUser() && DB.getCurrentUser().id) || window.currentDeviceId || '',
-            deleted: false
+            deleted: false,
+            fundHistoryKey: fundHistoryKey || null
         };
         return DB.create('cost_transactions', costData);
     };
@@ -2603,6 +2697,18 @@ function confirmEditExpense(id) {
         return;
     }
 
+    // Lưu thông tin cũ để điều chỉnh quỹ sau này
+    var oldTx = _findTxInCache(id);
+    var oldAmount = oldTx ? oldTx.amount : 0;
+    var oldName = oldTx ? oldTx.categoryName : '';
+    var oldFundSource = oldTx ? oldTx.fundSource : '';
+    
+    // Xác định xem có cần điều chỉnh quỹ không
+    // - Cũ là "Quỹ trách nhiệm" + pos_cash → cần hoàn lại oldAmount
+    // - Mới là "Quỹ trách nhiệm" + pos_cash → cần trừ newAmount
+    var wasFundExpense = oldName === 'Quỹ trách nhiệm' && oldFundSource === 'pos_cash';
+    var willBeFundExpense = newName === 'Quỹ trách nhiệm'; // fundSource giữ nguyên pos_cash
+
     var updateData = {
         categoryName: newName,
         amount: newAmount
@@ -2628,6 +2734,19 @@ function confirmEditExpense(id) {
     DB.update('cost_transactions', id, updateData).then(function() {
         return loadExpenseData();
     }).then(function() {
+        // Điều chỉnh quỹ nếu liên quan đến "Quỹ trách nhiệm"
+        if (wasFundExpense && willBeFundExpense) {
+            // Cả cũ và mới đều là quỹ trách nhiệm → điều chỉnh chênh lệch
+            if (oldAmount !== newAmount) {
+                _adjustFundForExpenseChange('edit', oldAmount, newAmount);
+            }
+        } else if (wasFundExpense && !willBeFundExpense) {
+            // Đổi từ quỹ trách nhiệm → loại khác → hoàn lại toàn bộ
+            _adjustFundForExpenseChange('edit', oldAmount, 0);
+        } else if (!wasFundExpense && willBeFundExpense) {
+            // Đổi từ loại khác → quỹ trách nhiệm → trừ tiền (ghi nhận rút quỹ)
+            _adjustFundForExpenseChange('edit', 0, newAmount);
+        }
         showToast('✅ Đã cập nhật chi phí', 'success');
         cancelEditExpense();
         renderTodayExpenses();
@@ -2773,6 +2892,10 @@ function doDeleteExpense(tx, id, revertStock) {
     }).then(function() {
         return loadExpenseData();
     }).then(function() {
+        // Nếu xóa chi phí "Quỹ trách nhiệm" → hoàn lại tiền vào quỹ
+        if (tx && tx.categoryName === 'Quỹ trách nhiệm' && tx.fundSource === 'pos_cash' && tx.amount > 0) {
+            _adjustFundForExpenseChange('delete', tx.amount, 0);
+        }
         showToast('🗑️ Đã xóa chi phí', 'success');
         renderTodayExpenses();
         renderMonthExpenseTotal();
@@ -2781,6 +2904,62 @@ function doDeleteExpense(tx, id, revertStock) {
         console.error('Delete expense error:', err);
         showToast('Lỗi khi xóa chi phí!', 'error');
     });
+}
+
+// Điều chỉnh quỹ trách nhiệm khi xóa/sửa chi phí liên quan
+// type: 'delete' | 'edit'
+// oldAmount: số tiền cũ của chi phí
+// newAmount: số tiền mới (0 nếu xóa)
+function _adjustFundForExpenseChange(type, oldAmount, newAmount) {
+    try {
+        var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+        var fundRef = firebase.database().ref(shopId + '/responsibility_fund');
+        
+        fundRef.child('balance').once('value').then(function(snapshot) {
+            var currentBalance = snapshot.val() || 0;
+            
+            // Tính số tiền cần điều chỉnh
+            // Xóa: hoàn lại oldAmount (balance + oldAmount)
+            // Sửa: hoàn oldAmount, trừ newAmount (balance + oldAmount - newAmount)
+            var adjustment = oldAmount - newAmount;
+            var newBalance = currentBalance + adjustment;
+            
+            // Nếu sửa tăng số tiền, kiểm tra không vượt quá quỹ
+            // (adjustment âm = đang trừ thêm tiền từ quỹ)
+            // Cho phép âm quỹ nhưng cảnh báo
+            if (adjustment < 0 && newBalance < 0) {
+                // Cảnh báo quỹ sẽ âm nhưng vẫn cho phép
+            }
+            
+            var note = '';
+            if (type === 'delete') {
+                note = 'Hoàn lại từ xóa chi phí';
+            } else {
+                note = 'Điều chỉnh từ sửa chi phí (cũ: ' + formatMoney(oldAmount) + ' → mới: ' + formatMoney(newAmount) + ')';
+            }
+            
+            var historyEntry = {
+                type: 'refund',
+                amount: adjustment,
+                balanceBefore: currentBalance,
+                balanceAfter: newBalance,
+                note: note,
+                createdAt: Date.now(),
+                createdBy: window.currentDeviceId || 'system'
+            };
+            
+            var historyRef = fundRef.child('history').push();
+            var updates = {};
+            updates['balance'] = newBalance;
+            updates['history/' + historyRef.key] = historyEntry;
+            
+            return fundRef.update(updates);
+        }).catch(function(err) {
+            // Bỏ qua lỗi, không ảnh hưởng chính
+        });
+    } catch (e) {
+        // Bỏ qua lỗi
+    }
 }
 
 // ========== GẮN SỰ KIỆN ==========

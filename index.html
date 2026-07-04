@@ -17,6 +17,16 @@
     <link rel="stylesheet" href="css/manager-detail.css">
 </head>
 <body>
+    <!-- ========== MÀN HÌNH LOADING KHỞI TẠO ========== -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-content">
+            <div class="loading-logo">☕</div>
+            <div class="loading-spinner"></div>
+            <div class="loading-text">MILANO COFFEE 259</div>
+            <div class="loading-subtext">Đang khởi tạo...</div>
+        </div>
+    </div>
+
     <!-- ========== MÀN HÌNH ĐĂNG NHẬP / ĐĂNG KÝ ========== -->
     <div class="auth-overlay" id="authOverlay">
         <div class="auth-container">
@@ -95,6 +105,7 @@
 
         <!-- POS TABS -->
         <div class="main-tabs">
+            <div class="tab-btn" data-tab="takeaway">🛵 Mang đi</div>
             <div class="tab-btn active" data-tab="tables">🍽️ Bàn</div>
             <div class="tab-btn" data-tab="customers">👥 Khách</div>
             <div class="tab-btn" data-tab="history">📜 Lịch sử</div>
@@ -105,6 +116,43 @@
         </div>
 
         <div class="main-content">
+            <!-- TAB MANG ĐI -->
+            <div id="takeawayView" class="tab-content">
+                <div class="takeaway-layout">
+                    <!-- CỘT TRÁI: DANH MỤC -->
+                    <div class="takeaway-categories" id="takeawayCategories"></div>
+                    
+                    <!-- CỘT GIỮA: MENU -->
+                    <div class="takeaway-menu">
+                        <div class="takeaway-menu-header">
+                            <input class="takeaway-search" id="takeawaySearch" type="text" placeholder="🔍 Tìm món..." oninput="_takeawayOnSearch(this.value)">
+                        </div>
+                        <div class="takeaway-menu-grid" id="takeawayMenuGrid"></div>
+                    </div>
+                    
+                    <!-- CỘT PHẢI: GIỎ HÀNG -->
+                    <div class="takeaway-cart" id="takeawayCartPanel">
+                        <div class="takeaway-cart-header">
+                            <span>🛒 Giỏ hàng</span>
+                            <button class="takeaway-cart-clear" onclick="_takeawayClearCart()">🗑️</button>
+                        </div>
+                        <div class="takeaway-cart-list" id="takeawayCartList"></div>
+                        <div class="takeaway-cart-footer">
+                            <div class="takeaway-cart-total">
+                                <span id="takeawayCartCount">0 món</span>
+                                <span id="takeawayCartTotal">0đ</span>
+                            </div>
+                            <div class="takeaway-cart-actions">
+                                <button class="takeaway-pay-btn cash" onclick="_takeawayPay('cash')">💵 Tiền mặt</button>
+                                <button class="takeaway-pay-btn transfer" onclick="_takeawayPay('transfer')">💳 Chuyển khoản</button>
+                                <button class="takeaway-pay-btn grab" onclick="_takeawayGrab()">🚕 Grab</button>
+                                <button class="takeaway-pay-btn table" onclick="_takeawayCreateNewTable()">🆕 Tạo bàn mới</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TAB BÀN -->
             <div id="tablesView" class="tab-content active">
                 <!-- Banner thông báo lịch âm -->
@@ -149,12 +197,54 @@
                         <option value="cancelled">❌ Đã hủy</option>
                     </select>
                 </div>
+                <div class="history-search">
+                    <input type="text" id="historySearchInput" class="search-input" placeholder="🔍 Tìm theo số tiền, tên món, tên khách..." oninput="onHistorySearch()">
+                </div>
                 <div class="history-list" id="historyList"></div>
             </div>
 
             <!-- TAB MENU - TỒN KHO (ADMIN) -->
             <div id="inventoryView" class="tab-content">
                 <div class="inventory-container">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>🧂 Quản lý tồn kho</h2>
+                        </div>
+                        <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+                            <input class="inv-search-input" id="invIngredientSearch" type="text" placeholder="🔍 Tìm nguyên liệu..." oninput="filterInventoryIngredients(this.value)">
+                        </div>
+                        <div class="card-body">
+                            <div class="inv-section">
+                                <div class="inv-section-header">
+                                    <span class="inv-section-title">📦 Nguyên liệu</span>
+                                    <button class="btn-small btn-outline" onclick="showAddIngredientForm()">+ Thêm</button>
+                                </div>
+                                <div id="invIngredientList" class="inv-ingredient-list"></div>
+                                <div id="addIngredientForm" style="display:none;margin-top:8px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+                                    <input type="text" id="invIngredientName" class="form-input" placeholder="Tên nguyên liệu">
+                                    <input type="text" id="invIngredientUnit" class="form-input" placeholder="Đơn vị (VD: kg, lít, cái)" style="margin-top:6px;">
+                                    <input type="number" id="invIngredientStock" class="form-input" placeholder="Tồn kho hiện tại" style="margin-top:6px;" step="0.1">
+                                    <input type="number" id="invIngredientMinStock" class="form-input" placeholder="Cảnh báo tồn tối thiểu" style="margin-top:6px;" step="0.1">
+                                    <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+                                        <strong style="font-size:13px;">🔄 Quy đổi đơn vị</strong>
+                                        <div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap;">
+                                            <span style="font-size:12px;color:#64748b;">1</span>
+                                            <input type="text" id="invIngredientConvFrom" class="form-input" placeholder="VD: kg" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                                            <span style="font-size:12px;color:#64748b;">→</span>
+                                            <input type="number" id="invIngredientConvRate" class="form-input" placeholder="SL" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;" step="0.1">
+                                            <input type="text" id="invIngredientConvTo" class="form-input" placeholder="VD: ml" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
+                                        </div>
+                                        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">VD: 1 kg → 1600 ml (để trống nếu không quy đổi)</div>
+                                    </div>
+                                    <div style="display:flex;gap:6px;margin-top:8px;">
+                                        <button class="btn-small btn-save" onclick="handleSaveIngredient()">💾 Lưu</button>
+                                        <button class="btn-small btn-cancel" onclick="hideAddIngredientForm()">Hủy</button>
+                                    </div>
+                                    <div id="invIngredientError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="card">
                         <div class="card-header">
                             <h2>📋 Quản lý thực đơn</h2>
@@ -205,45 +295,6 @@
                                         <button class="btn-small btn-cancel" onclick="hideAddMenuItemForm()">Hủy</button>
                                     </div>
                                     <div id="invMenuItemError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">
-                            <h2>🧂 Quản lý tồn kho</h2>
-                        </div>
-                        <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
-                            <input class="inv-search-input" id="invIngredientSearch" type="text" placeholder="🔍 Tìm nguyên liệu..." oninput="filterInventoryIngredients(this.value)">
-                        </div>
-                        <div class="card-body">
-                            <div class="inv-section">
-                                <div class="inv-section-header">
-                                    <span class="inv-section-title">📦 Nguyên liệu</span>
-                                    <button class="btn-small btn-outline" onclick="showAddIngredientForm()">+ Thêm</button>
-                                </div>
-                                <div id="invIngredientList" class="inv-ingredient-list"></div>
-                                <div id="addIngredientForm" style="display:none;margin-top:8px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-                                    <input type="text" id="invIngredientName" class="form-input" placeholder="Tên nguyên liệu">
-                                    <input type="text" id="invIngredientUnit" class="form-input" placeholder="Đơn vị (VD: kg, lít, cái)" style="margin-top:6px;">
-                                    <input type="number" id="invIngredientStock" class="form-input" placeholder="Tồn kho hiện tại" style="margin-top:6px;" step="0.1">
-                                    <input type="number" id="invIngredientMinStock" class="form-input" placeholder="Cảnh báo tồn tối thiểu" style="margin-top:6px;" step="0.1">
-                                    <div style="margin-top:8px;padding:8px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
-                                        <strong style="font-size:13px;">🔄 Quy đổi đơn vị</strong>
-                                        <div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap;">
-                                            <span style="font-size:12px;color:#64748b;">1</span>
-                                            <input type="text" id="invIngredientConvFrom" class="form-input" placeholder="VD: kg" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
-                                            <span style="font-size:12px;color:#64748b;">→</span>
-                                            <input type="number" id="invIngredientConvRate" class="form-input" placeholder="SL" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;" step="0.1">
-                                            <input type="text" id="invIngredientConvTo" class="form-input" placeholder="VD: ml" style="flex:0.8;min-width:60px;padding:6px 8px;font-size:12px;">
-                                        </div>
-                                        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">VD: 1 kg → 1600 ml (để trống nếu không quy đổi)</div>
-                                    </div>
-                                    <div style="display:flex;gap:6px;margin-top:8px;">
-                                        <button class="btn-small btn-save" onclick="handleSaveIngredient()">💾 Lưu</button>
-                                        <button class="btn-small btn-cancel" onclick="hideAddIngredientForm()">Hủy</button>
-                                    </div>
-                                    <div id="invIngredientError" style="color:#ef4444;font-size:12px;margin-top:4px;"></div>
                                 </div>
                             </div>
                         </div>
@@ -471,6 +522,66 @@
                         <div id="quickCashContainer"></div>
                     </div>
 
+                    <!-- PHẦN QUỸ THƯỞNG TRÁCH NHIỆM (mở rộng mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsResponsibilityFundSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsResponsibilityFundSection')">
+                            🏆 Quỹ thưởng trách nhiệm
+                            <span class="collapse-icon">▼</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:block;">
+                        <div class="settings-field">
+                            <label class="settings-label">Số dư quỹ hiện tại</label>
+                            <div style="font-size:24px;font-weight:700;color:#fbbf24;padding:8px 0;" id="fundBalanceDisplay">0đ</div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Rút tiền từ quỹ</label>
+                            <div class="settings-input-group">
+                                <input type="number" id="fundWithdrawInput" class="form-input" placeholder="0" min="0" style="flex:1;">
+                                <button class="settings-btn settings-btn-primary" onclick="staffWithdrawFund()" style="white-space:nowrap;">💸 Rút</button>
+                            </div>
+                            <div class="settings-hint">Rút tiền từ quỹ thưởng trách nhiệm. Số tiền rút sẽ tự động tạo phiếu chi tại két POS.</div>
+                        </div>
+                        <div class="settings-field" id="fundInitialField">
+                            <label class="settings-label">Nhập quỹ ban đầu</label>
+                            <div class="settings-input-group">
+                                <input type="number" id="fundInitialInput" class="form-input" placeholder="0" min="0" style="flex:1;">
+                                <button class="settings-btn settings-btn-primary" onclick="saveFundInitial()" style="white-space:nowrap;">💾 Cập nhật</button>
+                            </div>
+                            <div class="settings-hint">Số tiền quỹ ban đầu (cộng dồn vào số dư hiện tại)</div>
+                        </div>
+                        <div class="settings-field" id="fundHideForStaffField">
+                            <label class="settings-label">Ẩn quỹ với nhân viên</label>
+                            <div class="settings-input-group">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fundHideForStaffToggle" onchange="toggleFundHideForStaff()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span id="fundHideForStaffLabel" style="color:#94a3b8;font-size:13px;">Nhân viên có thể xem quỹ</span>
+                            </div>
+                            <div class="settings-hint">Bật để ẩn toàn bộ phần quỹ thưởng trách nhiệm khỏi giao diện nhân viên</div>
+                        </div>
+                        <div class="settings-field" id="fundAutoField">
+                            <label class="settings-label">Tự động tính quỹ</label>
+                            <div class="settings-input-group" style="margin-bottom:6px;">
+                                <input type="text" id="fundAutoFromDate" class="form-input" placeholder="dd/mm/yyyy" style="flex:1;min-width:0;" maxlength="10" oninput="formatDateInput(this)" onblur="formatDateInput(this)">
+                                <span style="color:#64748b;padding:0 4px;">→</span>
+                                <input type="text" id="fundAutoToDate" class="form-input" placeholder="dd/mm/yyyy" style="flex:1;min-width:0;" maxlength="10" oninput="formatDateInput(this)" onblur="formatDateInput(this)">
+                                <button class="settings-btn settings-btn-primary" onclick="autoCalculateFundForPeriodFromUI()" style="white-space:nowrap;">🔢 Tính</button>
+                            </div>
+                            <div class="settings-hint">Tự động tính 1% doanh thu và bổ sung vào quỹ cho khoảng thời gian. Các ngày đã tính sẽ bỏ qua.</div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Lịch sử quỹ</label>
+                            <div id="fundHistoryList" style="max-height:300px;overflow-y:auto;background:#1e293b;border-radius:8px;padding:8px;border:1px solid #334155;">
+                                <div style="color:#64748b;font-size:12px;text-align:center;padding:12px;">Đang tải...</div>
+                            </div>
+                            <div id="fundHistoryShowMore" style="display:none;text-align:center;margin-top:4px;">
+                                <button class="settings-btn" onclick="loadMoreFundHistory()" style="font-size:12px;padding:4px 12px;">📋 Xem thêm</button>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
                     <!-- PHẦN GHI CHÚ NHÂN VIÊN -->
                     <div class="settings-section" id="settingsStaffNoteSection">
                         <h3 class="settings-title">📝 Ghi chú</h3>
@@ -484,56 +595,80 @@
                         </div>
                     </div>
 
-                    <!-- PHẦN CÀI ĐẶT CHAT -->
-                    <div class="settings-section" id="settingsChatSection">
-                        <h3 class="settings-title">💬 Cài đặt Chat nội bộ</h3>
-                        <div class="settings-field">
-                            <label class="settings-label">Âm thanh thông báo</label>
-                            <div class="settings-toggle-row">
-                                <span class="settings-toggle-label" id="chatSoundStatusLabel">🔊 Đang bật</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="chatSoundToggle" checked onchange="toggleChatSoundSetting(this.checked)">
-                                    <span class="switch-slider"></span>
-                                </label>
+                    <!-- PHẦN CÀI ĐẶT CHAT (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsChatSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsChatSection')">
+                            💬 Cài đặt Chat nội bộ
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
+                            <div class="settings-field">
+                                <label class="settings-label">Âm thanh thông báo</label>
+                                <div class="settings-toggle-row">
+                                    <span class="settings-toggle-label" id="chatSoundStatusLabel">🔊 Đang bật</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="chatSoundToggle" checked onchange="toggleChatSoundSetting(this.checked)">
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-hint">Bật/tắt âm thanh khi có tin nhắn mới</div>
                             </div>
-                            <div class="settings-hint">Bật/tắt âm thanh khi có tin nhắn mới</div>
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Tự động hiện popup</label>
-                            <div class="settings-toggle-row">
-                                <span class="settings-toggle-label" id="chatAutoPopupStatusLabel">✅ Đang bật</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="chatAutoPopupToggle" checked onchange="toggleChatAutoPopup(this.checked)">
-                                    <span class="switch-slider"></span>
-                                </label>
+                            <div class="settings-field">
+                                <label class="settings-label">Tự động hiện popup</label>
+                                <div class="settings-toggle-row">
+                                    <span class="settings-toggle-label" id="chatAutoPopupStatusLabel">✅ Đang bật</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="chatAutoPopupToggle" checked onchange="toggleChatAutoPopup(this.checked)">
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-hint">Tự động hiện popup thông báo khi có tin nhắn mới</div>
                             </div>
-                            <div class="settings-hint">Tự động hiện popup thông báo khi có tin nhắn mới</div>
-                        </div>
-                        <div class="settings-field" id="chatLockField">
-                            <label class="settings-label">🔒 Khóa chat nhân viên</label>
-                            <div class="settings-toggle-row">
-                                <span class="settings-toggle-label" id="chatLockStatusLabel">🔓 Đã mở</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)">
-                                    <span class="switch-slider"></span>
-                                </label>
+                            <div class="settings-field" id="chatLockField">
+                                <label class="settings-label">🔒 Khóa chat nhân viên</label>
+                                <div class="settings-toggle-row">
+                                    <span class="settings-toggle-label" id="chatLockStatusLabel">🔓 Đã mở</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="chatLockToggle" onchange="toggleChatLock(this.checked)">
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="settings-hint">Khi khóa, nhân viên chỉ xem được tin nhắn, không thể gửi hoặc trả lời</div>
                             </div>
-                            <div class="settings-hint">Khi khóa, nhân viên chỉ xem được tin nhắn, không thể gửi hoặc trả lời</div>
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Xóa tin nhắn cũ</label>
-                            <div class="settings-actions" style="margin-top:4px;">
-                                <button class="settings-btn settings-btn-secondary" onclick="clearOldChatMessages()" style="font-size:13px;">
-                                    🗑️ Xóa tin nhắn > 30 ngày
-                                </button>
+                            <div class="settings-field">
+                                <label class="settings-label">Xóa tin nhắn cũ</label>
+                                <div class="settings-actions" style="margin-top:4px;">
+                                    <button class="settings-btn settings-btn-secondary" onclick="clearOldChatMessages()" style="font-size:13px;">
+                                        🗑️ Xóa tin nhắn > 30 ngày
+                                    </button>
+                                </div>
+                                <div class="settings-hint">Chỉ admin mới có quyền xóa tin nhắn cũ</div>
                             </div>
-                            <div class="settings-hint">Chỉ admin mới có quyền xóa tin nhắn cũ</div>
                         </div>
                     </div>
 
-                    <!-- PHẦN TELEGRAM -->
-                    <div class="settings-section" id="settingsTelegramSection">
-                        <h3 class="settings-title">🤖 Cấu hình Telegram cho từng token</h3>
+                    <!-- PHẦN TELEGRAM (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsTelegramSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsTelegramSection')">
+                            🤖 Cấu hình Telegram
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
+
+                        <!-- === CHAT ID DÙNG CHUNG === -->
+                        <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
+                            <div style="font-weight:600;font-size:14px;color:#fbbf24;margin-bottom:8px;">📢 Chat ID chung (dùng cho tất cả thông báo)</div>
+                            <div class="settings-field" style="margin-bottom:6px;">
+                                <label class="settings-label">Chat ID</label>
+                                <input type="text" id="telegramChatId" class="form-input"
+                                    placeholder="VD: -1001234567890 hoặc 123456789">
+                                <div class="settings-hint">
+                                    Chat ID nhóm/channel dùng chung cho toàn bộ bot token bên dưới.
+                                    <a href="https://t.me/username_to_id_bot" target="_blank"
+                                       style="color:#f97316;text-decoration:underline;">Lấy Chat ID tại đây</a>
+                                </div>
+                            </div>
+                        </div>
 
                         <!-- === THÔNG BÁO CHUNG === -->
                         <div style="padding:10px 12px;margin-bottom:10px;background:#1e293b;border-radius:8px;border:1px solid #334155;">
@@ -549,24 +684,8 @@
                                 <div class="settings-hint">
                                     Token từ <a href="https://t.me/BotFather" target="_blank"
                                        style="color:#f97316;text-decoration:underline;">@BotFather</a>
-                                    trên Telegram
+                                    trên Telegram. Dùng chung Chat ID bên trên.
                                 </div>
-                            </div>
-                            <div class="settings-field" style="margin-bottom:6px;">
-                                <label class="settings-label">Chat ID</label>
-                                <input type="text" id="telegramChatId" class="form-input"
-                                    placeholder="VD: -1001234567890 hoặc 123456789">
-                                <div class="settings-hint">
-                                    Chat ID nhóm/channel để gửi thông báo.
-                                    <a href="https://t.me/username_to_id_bot" target="_blank"
-                                       style="color:#f97316;text-decoration:underline;">Lấy Chat ID tại đây</a>
-                                </div>
-                            </div>
-                            <div class="settings-field">
-                                <label class="settings-label">Tên bot hiển thị</label>
-                                <input type="text" id="telegramBotName" class="form-input"
-                                    placeholder="VD: MILANO Coffee Bot">
-                                <div class="settings-hint">Tên hiển thị khi gửi thông báo</div>
                             </div>
                         </div>
 
@@ -582,16 +701,10 @@
                                         onclick="toggleShiftCloseTokenVisibility()">👁️</button>
                                 </div>
                                 <div class="settings-hint">
-                                    Token riêng cho bot gửi báo cáo chốt ca.
+                                    Token riêng cho bot gửi báo cáo chốt ca. Dùng chung Chat ID bên trên.
                                     <a href="https://t.me/BotFather" target="_blank"
                                        style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
                                 </div>
-                            </div>
-                            <div class="settings-field">
-                                <label class="settings-label">Chat ID</label>
-                                <input type="text" id="telegramShiftCloseChatId" class="form-input"
-                                    placeholder="VD: 6372876364" value="6372876364">
-                                <div class="settings-hint">Chat ID nhận báo cáo chốt ca (mặc định: ID hệ thống)</div>
                             </div>
                         </div>
 
@@ -608,7 +721,7 @@
                                 </div>
                                 <div class="settings-hint">
                                     Token riêng cho bot gửi cảnh báo tồn kho, xóa bàn, xóa món.
-                                    Dùng chung Chat ID với thông báo chung.
+                                    Dùng chung Chat ID bên trên.
                                     <a href="https://t.me/BotFather" target="_blank"
                                        style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
                                 </div>
@@ -628,7 +741,7 @@
                                 </div>
                                 <div class="settings-hint">
                                     Token riêng cho bot gửi thông báo khi có chi phí phát sinh.
-                                    Dùng chung Chat ID với thông báo chung.
+                                    Dùng chung Chat ID bên trên.
                                     <a href="https://t.me/BotFather" target="_blank"
                                        style="color:#f97316;text-decoration:underline;">Tạo bot tại @BotFather</a>
                                 </div>
@@ -642,11 +755,16 @@
                             <button class="settings-btn settings-btn-secondary" onclick="clearTelegramConfig()">🗑️ Xóa</button>
                         </div>
                         <div id="telegramConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
                     </div>
 
-                    <!-- PHẦN CẤU HÌNH KHÓA BÀN & THỜI GIAN -->
-                    <div class="settings-section" id="settingsLockSection">
-                        <h3 class="settings-title">🔒 Cấu hình khóa bàn & thời gian</h3>
+                    <!-- PHẦN CẤU HÌNH KHÓA BÀN & THỜI GIAN (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsLockSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsLockSection')">
+                            🔒 Cấu hình khóa bàn & thời gian
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
                         <div class="settings-field">
                             <label class="settings-label">🕐 Giờ mở quán (bắt đầu tính giờ)</label>
                             <input type="number" id="settingsLockStartHour" class="form-input"
@@ -680,11 +798,16 @@
                             <button class="settings-btn settings-btn-primary" onclick="saveLockConfig()">💾 Lưu cấu hình</button>
                         </div>
                         <div id="lockConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
                     </div>
 
-                    <!-- PHẦN CẤU HÌNH ESP32 (KÉT TIỀN) -->
-                    <div class="settings-section" id="settingsEsp32Section" style="display:none;">
-                        <h3 class="settings-title">🔌 Cấu hình ESP32 (Két tiền)</h3>
+                    <!-- PHẦN CẤU HÌNH ESP32 (KÉT TIỀN) (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsEsp32Section" style="display:none;">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsEsp32Section')">
+                            🔌 Cấu hình ESP32 (Két tiền)
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
                         <div class="settings-field">
                             <label class="settings-label">📶 WiFi SSID</label>
                             <input type="text" id="esp32WifiSsid" class="form-input" placeholder="VD: Ca Na">
@@ -725,11 +848,59 @@
                             <button class="settings-btn settings-btn-secondary" onclick="clearEsp32Config()">🗑️ Xóa</button>
                         </div>
                         <div id="esp32ConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
                     </div>
 
-                    <!-- PHẦN THÔNG TIN QUÁN -->
-                    <div class="settings-section" id="settingsShopSection">
-                        <h3 class="settings-title">🏪 Thông tin quán</h3>
+                    <!-- PHẦN CẤU HÌNH FIREBASE RIÊNG (chỉ hiện khi admin) -->
+                    <div class="settings-section" id="settingsFirebaseSection" style="display:none;">
+                        <h3 class="settings-title">🔥 Cấu hình Firebase riêng</h3>
+                        <div style="font-size:12px;color:#888;margin-bottom:10px;">
+                            ⚠️ Chỉ admin POS có config Firebase riêng mới thấy section này.
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">API Key</label>
+                            <input type="text" id="fbApiKey" class="form-input" placeholder="AIzaSy...">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Auth Domain</label>
+                            <input type="text" id="fbAuthDomain" class="form-input" placeholder="project.firebaseapp.com">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Database URL</label>
+                            <input type="text" id="fbDatabaseURL" class="form-input" placeholder="https://project-default-rtdb.firebaseio.com">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Project ID</label>
+                            <input type="text" id="fbProjectId" class="form-input" placeholder="project-id">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Storage Bucket</label>
+                            <input type="text" id="fbStorageBucket" class="form-input" placeholder="project.appspot.com">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Messaging Sender ID</label>
+                            <input type="text" id="fbMessagingSenderId" class="form-input" placeholder="123456789">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">App ID</label>
+                            <input type="text" id="fbAppId" class="form-input" placeholder="1:123456789:web:abc123">
+                        </div>
+                        <div class="settings-actions" style="margin-top:8px;">
+                            <button class="settings-btn settings-btn-primary" onclick="testFirebaseConfig()" style="background:#22c55e;">🔌 Kiểm tra kết nối</button>
+                            <button class="settings-btn settings-btn-primary" onclick="saveFirebaseConfig()">💾 Lưu cấu hình</button>
+                            <button class="settings-btn settings-btn-secondary" onclick="clearFirebaseConfig()">🗑️ Xóa (dùng Firebase mặc định)</button>
+                            <button class="settings-btn settings-btn-secondary" onclick="syncDataToNewFirebase()" style="background:#f97316;">🔄 Đồng bộ dữ liệu sang Firebase mới</button>
+                        </div>
+                        <div id="firebaseConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                    </div>
+
+                    <!-- PHẦN THÔNG TIN QUÁN (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsShopSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsShopSection')">
+                            🏪 Thông tin quán
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
                         <div class="settings-field">
                             <label class="settings-label">Tên quán</label>
                             <input type="text" id="shopInfoName" class="form-input" placeholder="VD: MILANO COFFEE 259">
@@ -752,6 +923,7 @@
                             <button class="settings-btn settings-btn-secondary" onclick="clearShopInfo()">🗑️ Xóa</button>
                         </div>
                         <div id="shopInfoStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
                     </div>
 
                     <!-- PHẦN PHÂN QUYỀN QUẢN LÝ (đã chuyển sang modal employees.js) -->
@@ -778,9 +950,13 @@
                         <div id="staffPermissionStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
-                    <!-- PHẦN DỮ LIỆU -->
-                    <div class="settings-section" id="settingsDataSection">
-                        <h3 class="settings-title">🗄️ Dữ liệu</h3>
+                    <!-- PHẦN DỮ LIỆU (thu gọn mặc định) -->
+                    <div class="settings-section collapsible-section" id="settingsDataSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsDataSection')">
+                            🗄️ Dữ liệu
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
                         <div class="settings-field">
                             <label class="settings-label">Xóa bộ nhớ đệm IndexedDB</label>
                             <div class="settings-hint" style="margin-bottom:8px;">
@@ -793,6 +969,7 @@
                                     🗑️ Xóa cache & Tải lại
                                 </button>
                             </div>
+                        </div>
                         </div>
                     </div>
 
@@ -1233,11 +1410,13 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
     
     <!-- DB CHUNG -->
-    <script src="db.js"></script>
+    <script src="db.js?v=3"></script>
     <!-- Auth CHUNG -->
     <script src="auth.js"></script>
     
     <!-- POS-APP RÚT GỌN (thay thế app.js) -->
+    <!-- index.html mặc định hiển thị tab Bàn, mangdi.html dùng tab Mang đi -->
+    <script>window._defaultTab = 'tables';</script>
     <script src="pos-app.js"></script>
     <!-- REALTIME RÚT GỌN (thay thế realtime.js) -->
     <script src="realtime-pos.js"></script>
@@ -1266,7 +1445,7 @@
     
     <!-- CORE MODULES DÙNG CHUNG -->
     <script src="order.js"></script>
-    <script src="tables.js"></script>
+    <script src="tables.js?v=2"></script>
     <script src="split-transfer-merge.js"></script>
     <script src="customers.js"></script>
     <script src="history.js"></script>
@@ -1274,7 +1453,7 @@
     <script src="draft-orders.js"></script>
     <script src="fund-reconciliation.js"></script>
     <!-- Manager Detail - click vào manager-grid items + tab quản lý -->
-    <script src="manager-detail.js"></script>
+    <script src="manager-detail.js?v=8"></script>
     <!-- Inventory / Menu management -->
     <script src="inventory-manager.js"></script>
     <script src="expense.js"></script>
@@ -1287,8 +1466,21 @@
     <!-- Chat nội bộ -->
     <script src="messages.js"></script>
     
-    <!-- Lunar calendar (giữ để có thông báo) -->
-    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/dist/lunar.min.js"></script>
+    <!-- Lunar calendar -->
+    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.6.1/lunar.min.js"></script>
+    <script>
+    // Cập nhật ngày âm lịch sau khi thư viện lunar đã load
+    try {
+        var _now = new Date();
+        var _dateEl = document.getElementById('headerDate');
+        if (_dateEl && typeof Lunar !== 'undefined') {
+            var _lunar = Lunar.fromDate(_now);
+            var _dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+            var _solar = _dayNames[_now.getDay()] + ', ' + _now.toLocaleDateString('vi-VN');
+            _dateEl.innerText = _solar + '  🏮 ' + _lunar.getDay() + '/' + _lunar.getMonth();
+        }
+    } catch(_e) {}
+    </script>
     
     <!-- Employees management - Modal quản lý nhân viên (thay thế staff logic trong auth.js, settings.js, manager-detail.js) -->
     <script src="employees.js"></script>

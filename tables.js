@@ -1,6 +1,17 @@
 // tables.js - Quản lý bàn
 // Tách từ pos.js - ES5, tương thích Android 6, iOS 12
 
+// Helper: Dispatch event để settings.js reload doanh thu pos-cash-info
+// Được gọi sau khi thanh toán thành công để cập nhật realtime trên cùng máy
+function _dispatchPosCashUpdate() {
+    try {
+        var evt = document.createEvent('CustomEvent');
+        evt.initCustomEvent('pos_cash_update', true, true, {});
+        window.dispatchEvent(evt);
+    } catch (e) {
+    }
+}
+
 // ========== HẰNG SỐ KHÓA BÀN (đọc từ shopConfig, fallback hardcode) ==========
 function _getTableLockHours() {
     return (window.shopConfig && window.shopConfig.tableLockHours !== undefined) ? window.shopConfig.tableLockHours : 5;
@@ -12,7 +23,7 @@ function _getLockPassword() {
     return (window.shopConfig && window.shopConfig.lockPassword) ? window.shopConfig.lockPassword : '28122020';
 }
 function _getLockStartHour() {
-    return (window.shopConfig && window.shopConfig.lockStartHour !== undefined) ? window.shopConfig.lockStartHour : 17;
+    return (window.shopConfig && window.shopConfig.lockStartHour !== undefined) ? window.shopConfig.lockStartHour : 22;
 }
 function _getLockEndHour() {
     return (window.shopConfig && window.shopConfig.lockEndHour !== undefined) ? window.shopConfig.lockEndHour : 5;
@@ -105,50 +116,15 @@ function getTableLockInfo(table) {
 
 // ========== YÊU CẦU MẬT KHẨU ==========
 function requirePassword(action, callback) {
-    // Tạo overlay modal động (thay thế prompt() - không hoạt động trên mobile)
-    var overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
-    
-    var modal = document.createElement('div');
-    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);';
-    modal.innerHTML =
-        '<div style="font-size:18px;font-weight:700;margin-bottom:16px;text-align:center;">🔒 Nhập mật khẩu</div>' +
-        '<div style="font-size:14px;color:#64748b;margin-bottom:16px;text-align:center;">Cần mật khẩu để ' + action + '</div>' +
-        '<input type="password" id="requirePasswordInput" style="width:100%;padding:12px;border:2px solid #e2e8f0;border-radius:12px;font-size:16px;text-align:center;box-sizing:border-box;-webkit-appearance:none;" placeholder="Nhập mật khẩu..." inputmode="numeric">' +
-        '<div style="display:flex;gap:8px;margin-top:16px;">' +
-            '<button id="requirePasswordCancelBtn" style="flex:1;padding:12px;border-radius:40px;border:2px solid #e2e8f0;background:#fff;color:#475569;font-weight:600;font-size:14px;cursor:pointer;-webkit-appearance:none;">Hủy</button>' +
-            '<button id="requirePasswordConfirmBtn" style="flex:1;padding:12px;border-radius:40px;border:none;background:#f97316;color:#fff;font-weight:700;font-size:14px;cursor:pointer;-webkit-appearance:none;">Xác nhận</button>' +
-        '</div>';
-    
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-    
-    var input = document.getElementById('requirePasswordInput');
-    var confirmBtn = document.getElementById('requirePasswordConfirmBtn');
-    var cancelBtn = document.getElementById('requirePasswordCancelBtn');
-    
-    function closeModal() {
-        if (overlay.parentNode) overlay.remove();
+    // NÂNG CẤP: Admin không cần nhập mật khẩu
+    var currentUser = DB.getCurrentUser();
+    if (currentUser && currentUser.role === 'admin') {
+        callback();
+        return;
     }
     
-    function doSubmit() {
-        var pwd = input.value;
-        closeModal();
-        if (pwd === _getLockPassword()) {
-            callback();
-        } else {
-            showToast('❌ Sai mật khẩu!', 'error');
-        }
-    }
-    
-    confirmBtn.onclick = doSubmit;
-    cancelBtn.onclick = closeModal;
-    input.onkeydown = function(e) {
-        if (e.key === 'Enter') doSubmit();
-    };
-    
-    setTimeout(function() { input.focus(); }, 100);
+    // NÂNG CẤP: Staff không được phép, hiển thị thông báo liên hệ quản lý
+    showToast('👑 Vui lòng liên hệ quản lý để ' + action, 'warning');
 }
 
 // ========== LOG XÓA VÀO FIREBASE ==========
@@ -162,90 +138,93 @@ function logDelete(action, details) {
         deviceId: localStorage.getItem('device_id') || 'unknown',
         details: details
     };
-    // Ghi vào Firebase qua DB.create (lưu local + sync lên Firebase)
-    return DB.create('delete_logs', logEntry).then(function() {
-        // Gửi thông báo Telegram
-        try {
-            var user = DB.getCurrentUser();
-            var staffName = user ? user.displayName : 'Nhân viên';
-            var now = new Date();
-            var timeStr = now.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
-            var msg = '';
-            if (action === 'delete_table') {
-                var tableName = details.tableName || 'không tên';
-                var items = details.items || [];
-                var total = 0;
-                var itemLines = '';
-                for (var i = 0; i < items.length; i++) {
-                    var it = items[i];
-                    var line = '  ' + (i + 1) + '. ' + (it.name || '?') + ' x' + (it.qty || 0) + ' = ' + formatMoney((it.price || 0) * (it.qty || 0));
-                    itemLines += line + '\n';
-                    total += (it.price || 0) * (it.qty || 0);
-                }
-                // Thời gian tạo bàn & nhân viên tạo
-                var createdByName = details.createdByName || '?';
-                var startTimeStr = '?';
-                if (details.startTime) {
-                    var st = new Date(details.startTime);
-                    startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
-                }
-                // Thời gian hoạt động
-                var durationStr = '?';
-                if (details.startTime) {
-                    var elapsed = Math.floor((now.getTime() - new Date(details.startTime).getTime()) / 60000);
-                    if (elapsed < 60) durationStr = elapsed + ' phút';
-                    else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
-                }
-                msg = '🗑️ <b>XÓA BÀN: ' + tableName + '</b>\n';
-                msg += '────────────────\n';
-                msg += '🕐 ' + timeStr + '\n';
-                msg += '👤 Người xóa: ' + staffName + '\n';
-                msg += '👤 Người tạo: ' + createdByName + '\n';
-                msg += '🕐 Tạo lúc: ' + startTimeStr + '\n';
-                msg += '⏱ Hoạt động: ' + durationStr + '\n';
-                if (details.customerName) msg += '👤 Khách: ' + details.customerName + '\n';
-                msg += '────────────────\n';
-                msg += '<b>CHI TIẾT MÓN:</b>\n';
-                msg += itemLines;
-                msg += '────────────────\n';
-                msg += '<b>TỔNG: ' + formatMoney(total) + '</b>';
-            } else if (action === 'delete_item') {
-                var tableName = details.tableName || 'không tên';
-                var item = details.item || {};
-                var itemTotal = (item.price || 0) * (item.qty || 0);
-                // Thông tin bàn hiện tại
-                var tableInfo = details.tableInfo || {};
-                var createdByName = tableInfo.createdByName || '?';
-                var startTimeStr = '?';
-                if (tableInfo.startTime) {
-                    var st = new Date(tableInfo.startTime);
-                    startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
-                }
-                var durationStr = '?';
-                if (tableInfo.startTime) {
-                    var elapsed = Math.floor((now.getTime() - new Date(tableInfo.startTime).getTime()) / 60000);
-                    if (elapsed < 60) durationStr = elapsed + ' phút';
-                    else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
-                }
-                msg = '🗑️ <b>XÓA MÓN: ' + tableName + '</b>\n';
-                msg += '────────────────\n';
-                msg += '🕐 ' + timeStr + '\n';
-                msg += '👤 Người xóa: ' + staffName + '\n';
-                msg += '👤 Người tạo bàn: ' + createdByName + '\n';
-                msg += '🕐 Bàn tạo lúc: ' + startTimeStr + '\n';
-                msg += '⏱ Bàn hoạt động: ' + durationStr + '\n';
-                if (tableInfo.customerName) msg += '👤 Khách: ' + tableInfo.customerName + '\n';
-                msg += '────────────────\n';
-                msg += '🍽️ <b>' + (item.name || 'không tên') + ' x' + (item.qty || 0) + '</b>\n';
-                msg += '💰 Đơn giá: ' + formatMoney(item.price || 0) + '\n';
-                msg += '💵 Thành tiền: ' + formatMoney(itemTotal);
+    
+    // Gửi thông báo Telegram NGAY LẬP TỨC, không đợi Firebase
+    try {
+        var user = DB.getCurrentUser();
+        var staffName = user ? user.displayName : 'Nhân viên';
+        var now = new Date();
+        var timeStr = now.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        var msg = '';
+        if (action === 'delete_table') {
+            var tableName = details.tableName || 'không tên';
+            var items = details.items || [];
+            var total = 0;
+            var itemLines = '';
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                var line = '  ' + (i + 1) + '. ' + (it.name || '?') + ' x' + (it.qty || 0) + ' = ' + formatMoney((it.price || 0) * (it.qty || 0));
+                itemLines += line + '\n';
+                total += (it.price || 0) * (it.qty || 0);
             }
-            if (msg && typeof notifyTelegramCustom === 'function') {
-                notifyTelegramCustom(msg);
+            // Thời gian tạo bàn & nhân viên tạo
+            var createdByName = details.createdByName || '?';
+            var startTimeStr = '?';
+            if (details.startTime) {
+                var st = new Date(details.startTime);
+                startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
             }
-        } catch(e) {
-            console.error('[logDelete] Lỗi gửi Telegram:', e);
+            // Thời gian hoạt động
+            var durationStr = '?';
+            if (details.startTime) {
+                var elapsed = Math.floor((now.getTime() - new Date(details.startTime).getTime()) / 60000);
+                if (elapsed < 60) durationStr = elapsed + ' phút';
+                else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
+            }
+            msg = '🗑️ <b>XÓA BÀN: ' + tableName + '</b>\n';
+            msg += '────────────────\n';
+            msg += '🕐 ' + timeStr + '\n';
+            msg += '👤 Người xóa: ' + staffName + '\n';
+            msg += '👤 Người tạo: ' + createdByName + '\n';
+            msg += '🕐 Tạo lúc: ' + startTimeStr + '\n';
+            msg += '⏱ Hoạt động: ' + durationStr + '\n';
+            if (details.customerName) msg += '👤 Khách: ' + details.customerName + '\n';
+            msg += '────────────────\n';
+            msg += '<b>CHI TIẾT MÓN:</b>\n';
+            msg += itemLines;
+            msg += '────────────────\n';
+            msg += '<b>TỔNG: ' + formatMoney(total) + '</b>';
+        } else if (action === 'delete_item') {
+            var tableName = details.tableName || 'không tên';
+            var item = details.item || {};
+            var itemTotal = (item.price || 0) * (item.qty || 0);
+            // Thông tin bàn hiện tại
+            var tableInfo = details.tableInfo || {};
+            var createdByName = tableInfo.createdByName || '?';
+            var startTimeStr = '?';
+            if (tableInfo.startTime) {
+                var st = new Date(tableInfo.startTime);
+                startTimeStr = st.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+            var durationStr = '?';
+            if (tableInfo.startTime) {
+                var elapsed = Math.floor((now.getTime() - new Date(tableInfo.startTime).getTime()) / 60000);
+                if (elapsed < 60) durationStr = elapsed + ' phút';
+                else durationStr = Math.floor(elapsed / 60) + 'h' + (elapsed % 60) + 'p';
+            }
+            msg = '🗑️ <b>XÓA MÓN: ' + tableName + '</b>\n';
+            msg += '────────────────\n';
+            msg += '🕐 ' + timeStr + '\n';
+            msg += '👤 Người xóa: ' + staffName + '\n';
+            msg += '👤 Người tạo bàn: ' + createdByName + '\n';
+            msg += '🕐 Bàn tạo lúc: ' + startTimeStr + '\n';
+            msg += '⏱ Bàn hoạt động: ' + durationStr + '\n';
+            if (tableInfo.customerName) msg += '👤 Khách: ' + tableInfo.customerName + '\n';
+            msg += '────────────────\n';
+            msg += '🍽️ <b>' + (item.name || 'không tên') + ' x' + (item.qty || 0) + '</b>\n';
+            msg += '💰 Đơn giá: ' + formatMoney(item.price || 0) + '\n';
+            msg += '💵 Thành tiền: ' + formatMoney(itemTotal);
         }
+        if (msg && typeof notifyTelegramWarning === 'function') {
+            notifyTelegramWarning(msg);
+        }
+    } catch(e) {
+        console.error('[logDelete] Lỗi gửi Telegram:', e);
+    }
+    
+    // Ghi vào Firebase qua DB.create (lưu local + sync lên Firebase) - không chặn UI
+    DB.create('delete_logs', logEntry).catch(function(err) {
+        console.error('[logDelete] Lỗi ghi delete_logs:', err);
     });
 }
 
@@ -333,21 +312,29 @@ function showTableDetail(tableId) {
         var customerName = table.customerName ? ' (' + escapeHtml(table.customerName) + ')' : '';
         var lockInfo = getTableLockInfo(table);
         var lockBadge = lockInfo ? ' <span style="color:#dc2626;font-size:12px;">🔒 ' + lockInfo.reason + '</span>' : '';
-        document.getElementById('detailTableName').innerHTML = '🪑 ' + tableName + customerName + lockBadge;
+        var creatorInfo = table.createdByName ? ' <span style="font-size:11px;color:#94a3b8;">👤 ' + escapeHtml(table.createdByName) + '</span>' : '';
+        document.getElementById('detailTableName').innerHTML = '🪑 ' + tableName + customerName + lockBadge + creatorInfo;
 
         var itemsHtml = '', totalAmount = 0, totalQty = 0;
+        // FIX: Lấy đầu ngày hôm nay (theo giờ địa phương) để so sánh
+        var now = new Date();
+        var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         if (table.items && table.items.length) {
             for (var i = 0; i < table.items.length; i++) {
                 var item = table.items[i];
                 totalAmount += item.price * item.qty;
                 totalQty += item.qty;
-                var timeStr = '';
+                var timePart = '', datePart = '';
                 if (item.addedTime) {
                     var d = new Date(item.addedTime);
-                    timeStr = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    timePart = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                    // Nếu món gọi khác ngày (qua đêm), hiển thị thêm ngày/tháng phía trên giờ
+                    if (d < todayStart) {
+                        datePart = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+                    }
                 }
                 itemsHtml += '<div class="cart-item">' +
-                    '<span class="cart-item-time">' + (timeStr ? timeStr : '') + '</span>' +
+                    '<span class="cart-item-time">' + (datePart ? '<span class="cart-item-date">' + datePart + '</span>' : '') + '<span class="cart-item-clock">' + (timePart ? timePart : '') + '</span></span>' +
                     '<span class="cart-item-name">' + escapeHtml(item.name) + '</span>' +
                     '<span class="cart-item-qty">x' + item.qty + '</span>' +
                     '<span class="cart-item-price">' + formatMoney(item.price * item.qty) + '</span>' +
@@ -392,11 +379,13 @@ function showTableDetail(tableId) {
         // === PHẦN KHÁC BIỆT: Locked vs Unlocked ===
         if (isLocked) {
             var editButtonsHtml =
-                '<div class="cart-actions edit-actions" style="opacity:0.5;pointer-events:none;">' +
-                    '<button class="cart-action-btn" style="background:#f1f5f9;">➕ Thêm món</button>' +
-                    '<button class="cart-action-btn" style="background:#f1f5f9;">🧾 Chia hóa đơn</button>' +
-                    '<button class="cart-action-btn" style="background:#f1f5f9;">🔄 Chuyển món</button>' +
-                    '<button class="cart-action-btn" style="background:#f1f5f9;">🔗 Gộp bàn</button>' +
+                '<div class="cart-actions edit-actions">' +
+                    '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="openAddMenuForTable(\'' + table.id + '\'); closeModal(\'tableDetailModal\')">➕ Thêm món</button>' +
+                    '<div style="display:flex;gap:8px;opacity:0.5;pointer-events:none;">' +
+                        '<button class="cart-action-btn" style="background:#f1f5f9;flex:1;">🧾 Chia hóa đơn</button>' +
+                        '<button class="cart-action-btn" style="background:#f1f5f9;flex:1;">🔄 Chuyển món</button>' +
+                        '<button class="cart-action-btn" style="background:#f1f5f9;flex:1;">🔗 Gộp bàn</button>' +
+                    '</div>' +
                     printBtn +
                     '<button class="cart-action-btn" style="background:#f1f5f9;" onclick="requirePassword(\'xóa bàn\', function(){ showDeleteTableConfirm(\'' + table.id + '\'); closeModal(\'tableDetailModal\'); })">🗑️ Xóa bàn (🔒)</button>' +
                 '</div>' +
@@ -421,13 +410,36 @@ function showTableDetail(tableId) {
 
 // ========== IN HÓA ĐƠN THỦ CÔNG ==========
 function printTableBill(tableId) {
-    // Kiểm tra nếu là màn hình dọc (điện thoại) -> yêu cầu xác nhận
-    var isPortrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-    if (isPortrait) {
-        if (!confirm('Xác nhận in hóa đơn?')) {
-            return;
-        }
-    }
+    // Hiển thị popup chọn hình thức in
+    var overlay = document.createElement('div');
+    overlay.className = 'print-choice-overlay';
+    overlay.innerHTML =
+        '<div class="print-choice-modal">' +
+            '<div class="print-choice-title">🖨️ Chọn hình thức in</div>' +
+            '<div class="print-choice-buttons">' +
+                '<button class="print-choice-btn thermal" onclick="doPrintThermal(\'' + tableId + '\'); closePrintChoice(this)">' +
+                    '<span class="print-choice-icon">🧾</span>' +
+                    '<span class="print-choice-label">In nhiệt</span>' +
+                    '<span class="print-choice-desc">Máy in hóa đơn Sunmi</span>' +
+                '</button>' +
+                '<button class="print-choice-btn pdf" onclick="doPrintPDF(\'' + tableId + '\'); closePrintChoice(this)">' +
+                    '<span class="print-choice-icon">📄</span>' +
+                    '<span class="print-choice-label">Xuất PDF</span>' +
+                    '<span class="print-choice-desc">Lưu file PDF / In giấy A4</span>' +
+                '</button>' +
+            '</div>' +
+            '<button class="print-choice-cancel" onclick="closePrintChoice(this)">✕ Đóng</button>' +
+        '</div>';
+    document.body.appendChild(overlay);
+}
+
+function closePrintChoice(btn) {
+    var overlay = btn.closest ? btn.closest('.print-choice-overlay') : null;
+    if (!overlay) overlay = document.querySelector('.print-choice-overlay');
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+}
+
+function doPrintThermal(tableId) {
     _getTableFromCache(tableId).then(function(table) {
         if (!table) return;
         if (typeof printAfterPayment === 'function') {
@@ -446,6 +458,29 @@ function printTableBill(tableId) {
             });
         } else {
             showToast('Chức năng in chưa sẵn sàng', 'warning');
+        }
+    });
+}
+
+function doPrintPDF(tableId) {
+    _getTableFromCache(tableId).then(function(table) {
+        if (!table) return;
+        if (typeof exportBillPDF === 'function') {
+            var now = new Date();
+            exportBillPDF({
+                orderType: 'dinein',
+                amount: table.total,
+                paymentMethod: 'manual_print',
+                items: table.items,
+                tableName: table.name,
+                customer: table.customerName ? { name: table.customerName } : null,
+                tableTime: table.startTime ? _calcTableTime(table.startTime) : null,
+                startTime: table.startTime ? new Date(table.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null,
+                endTime: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                createdAt: now.toISOString()
+            });
+        } else {
+            showToast('Chức năng xuất PDF chưa sẵn sàng', 'warning');
         }
     });
 }
@@ -685,6 +720,8 @@ function _processPaymentDirect(tableId, method) {
                     var msg = '✅ Thanh toán ' + formatMoney(finalAmount) + ' thành công';
                     if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
                     showToast(msg, 'success');
+                    // Cập nhật doanh thu pos-cash-info realtime
+                    _dispatchPosCashUpdate();
                 });
             }).catch(function(err) {
                 hideToast(_paymentToastId);
@@ -1375,11 +1412,14 @@ function confirmTransferItems() {
             if (newNumber > 99) { showToast('Đã đạt giới hạn 99 bàn!', 'warning'); return; }
             var newId = Date.now().toString();
             var now = new Date();
+            var currentUser = DB.getCurrentUser();
             targetTable = {
                 id: newId, name: targetName, status: 'occupied',
                 time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                 startTime: now.toISOString(),
-                items: [], total: 0, customerId: null, customerName: null
+                items: [], total: 0, customerId: null, customerName: null,
+                createdByName: (currentUser && currentUser.displayName) || '',
+                createdByRole: (currentUser && currentUser.role) || ''
             };
         }
         var targetItems = targetTable.items || [];

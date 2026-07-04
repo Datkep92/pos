@@ -6,6 +6,17 @@
 // và _processTakeawayDirect - cả 2 đều kiểm tra credit, gây trừ credit 2 lần
 var _skipOrderCreditCheck = false;
 
+// Helper: Dispatch event để settings.js reload doanh thu pos-cash-info
+// Được gọi sau khi thanh toán thành công để cập nhật realtime trên cùng máy
+function _dispatchPosCashUpdate() {
+    try {
+        var evt = document.createEvent('CustomEvent');
+        evt.initCustomEvent('pos_cash_update', true, true, {});
+        window.dispatchEvent(evt);
+    } catch (e) {
+    }
+}
+
 var _menuCategoryIds = []; // Danh sách category IDs để vuốt chuyển danh mục
 var _menuSwipeStartY = 0;
 
@@ -44,6 +55,11 @@ function _cloneArr(arr) {
         }
     }
     return result;
+}
+
+// Helper: Kiểm tra xem có đang ở chế độ portrait (dọc) hay không
+function _isPortrait() {
+    return window.innerHeight > window.innerWidth;
 }
 
 // ========== MỞ MODAL ==========
@@ -254,15 +270,15 @@ function filterMenuBySearch(keyword) {
                     var variant = item.variants[v];
                     variantsHtml += '<button class="variant-btn" data-item-id="' + item.id + '" data-variant="' + escapeHtml(variant.name) + '" data-price="' + variant.price + '">' + escapeHtml(variant.name) + '</button>';
                 }
-                html += '<div class="menu-item-card" data-item-id="' + item.id + '">' +
-                    '<div class="menu-item-name">' + escapeHtml(item.name) + '</div>' +
-                    '<div class="menu-item-variants">' + variantsHtml + '</div>' +
+                html += '<div class="menu-item-variant" data-item-id="' + item.id + '">' +
+                    '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
+                    '<div class="variant-group">' + variantsHtml + '</div>' +
                 '</div>';
             } else {
                 var price = item.price || 0;
-                html += '<div class="menu-item-card" data-item-id="' + item.id + '" data-price="' + price + '">' +
-                    '<div class="menu-item-name">' + escapeHtml(item.name) + '</div>' +
-                    '<div class="menu-item-price">' + formatMoney(price) + '</div>' +
+                html += '<div class="menu-card" data-item-id="' + item.id + '" data-name="' + escapeHtml(item.name) + '" data-price="' + price + '">' +
+                    '<div class="menu-name">' + escapeHtml(item.name) + '</div>' +
+                    '<div class="menu-price">' + formatMoney(price) + '</div>' +
                 '</div>';
             }
         }
@@ -1059,10 +1075,14 @@ function _doRenderCart() {
     '<button class="action-btn btn-grab" onclick="handleGrabOrder()">🚕 GR</button>' +
     '<button class="action-btn btn-debt" onclick="handleDebtOrder()">💢 Nợ</button>' +
 '</div>' +
-                // Nút lưu nháp - luôn hiển thị khi có món
-                '<div class="cart-draft-row">' +
-                    '<button class="action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>' +
-                '</div>'
+                // Nút lưu nháp (landscape) hoặc nút đóng (portrait)
+                (_isPortrait()
+                    ? '<div class="cart-draft-row">' +
+                        '<button class="action-btn btn-close-modal" onclick="closeModal(\'orderModal\')">✕ Đóng</button>' +
+                    '</div>'
+                    : '<div class="cart-draft-row">' +
+                        '<button class="action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>' +
+                    '</div>')
         }
     }
 }
@@ -1080,14 +1100,18 @@ function _renderOrderHeaderActionsFast(headerActions) {
     if (currentAddToTableId) {
         html = '<span class="header-action-btn btn-total">' + formatMoney(total) + '</span>' +
             '<button class="header-action-btn btn-table" onclick="handleAddToExistingTable()">🍽️ Nhập vào bàn</button>' +
-            '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>';
+            (_isPortrait()
+                ? '<button class="header-action-btn btn-close-modal" onclick="closeModal(\'orderModal\')">✕ Đóng</button>'
+                : '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>');
     } else {
         html = '<span class="header-action-btn btn-total">' + formatMoney(total) + '</span>' +
             '<button class="header-action-btn btn-table" onclick="handleCreateNewTable()">🍽️ Tạo bàn mới</button>' +
             '<button class="header-action-btn btn-cash" onclick="handleTakeawayPayment(\'cash\')">💰 Tiền mặt</button>' +
             '<button class="header-action-btn btn-transfer" onclick="handleTakeawayPayment(\'transfer\')">💳 Chuyển khoản</button>' +
             '<button class="header-action-btn btn-debt" onclick="handleDebtOrder()">💢 Nợ</button>' +
-            '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>' +
+            (_isPortrait()
+                ? '<button class="header-action-btn btn-close-modal" onclick="closeModal(\'orderModal\')">✕ Đóng</button>'
+                : '<button class="header-action-btn btn-draft" onclick="minimizeCurrentOrderToDraft()">💬 Lưu nháp</button>') +
             '<button class="header-action-btn btn-sort" onclick="toggleReorderMode()" id="reorderToggleBtn">🔀 Sắp xếp</button>';
     }
     headerActions.innerHTML = html;
@@ -1315,6 +1339,7 @@ function handleCreateNewTable() {
     var initTotal = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
     // Lưu danh sách món vừa thêm
     var initItems = tempOrder.map(function(item) { return { name: item.name, qty: item.qty }; });
+    var currentUser = DB.getCurrentUser();
     var newTable = {
         id: tableId,
         name: tableName,
@@ -1326,7 +1351,8 @@ function handleCreateNewTable() {
         customerId: selectedCustomer ? selectedCustomer.id : null,
         customerName: selectedCustomer ? selectedCustomer.name : null,
         recentAdds: [{ items: initItems, time: now.toISOString() }],
-        createdByName: (DB.getCurrentUser() && DB.getCurrentUser().displayName) || ''
+        createdByName: (currentUser && currentUser.displayName) || '',
+        createdByRole: (currentUser && currentUser.role) || ''
     };
     
     // OPTIMIZE: Gộp checkStock + deductIngredients, chạy song song với DB.create
@@ -1641,6 +1667,8 @@ function _processTakeawayDirect(method) {
             if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
             showToast(msg, 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
+            // Cập nhật doanh thu pos-cash-info realtime
+            _dispatchPosCashUpdate();
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -1800,6 +1828,8 @@ function handleGrabOrder() {
             hideToast(_paymentToastId);
             showToast('✅ Đã tạo đơn Grab thành công', 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
+            // Cập nhật doanh thu pos-cash-info realtime
+            _dispatchPosCashUpdate();
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -1918,6 +1948,8 @@ function handleDebtOrder() {
             showToast(msg, 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
             if (typeof renderCustomerList === 'function') renderCustomerList();
+            // Cập nhật doanh thu pos-cash-info realtime
+            _dispatchPosCashUpdate();
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();

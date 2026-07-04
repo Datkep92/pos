@@ -124,7 +124,7 @@ function renderManagerPickupHistory() {
                 '<span class="pickup-item-note">' + escapeHtml(p.note || '') + '</span>' +
             '</div>' +
             '<span class="pickup-item-amount">' + formatMoney(p.amount) + '</span>' +
-            (isAdmin ? '<button class="pickup-delete-btn" onclick="deleteManagerPickup(\'' + p.id + '\')">🗑️</button>' : '') +
+            (isAdmin ? '<button class="pickup-delete-btn" style="padding:2px 6px;font-size:10px;margin-left:auto;color:#e74c3c;background:none;border:1px solid #e74c3c;border-radius:4px;cursor:pointer;" onclick="deleteManagerPickup(\'' + p.id + '\')" title="Xóa">🗑️</button>' : '') +
         '</div>';
     }
 
@@ -508,26 +508,26 @@ function saveActualClosing(dateStr, expectedClosing) {
             savedAt: Date.now()
         });
 
-        // Đồng bộ lên Firebase để settings.js (loadPosCashData) đọc được cashKept
-        try {
-            var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
-            var fbRef = firebase.database().ref(shopId + '/daily_balances/' + dateStr);
-            fbRef.update({
-                cashKept: data.cashKept || actualClosing,
-                actualClosing: actualClosing,
-                expectedClosing: expectedClosing,
-                difference: difference,
-                diffPercent: diffPercent,
-                status: statusInfo.status,
-                updatedAt: Date.now()
-            }).catch(function(err) {
-                console.error('[SaveActualClosing] Firebase sync error:', err);
-            });
-        } catch(e) {
-            console.error('[SaveActualClosing] Firebase sync exception:', e);
-        }
-
+        // Bước 1: Lưu vào IndexedDB qua DB.create trước -> memoryCache được cập nhật ngay
         return DB.create('daily_balances', data, dateStr).then(function() {
+            // Bước 2: Sau khi DB.create thành công, đồng bộ lên Firebase
+            try {
+                var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+                var fbRef = firebase.database().ref(shopId + '/daily_balances/' + dateStr);
+                fbRef.update({
+                    cashKept: data.cashKept || actualClosing,
+                    actualClosing: actualClosing,
+                    expectedClosing: expectedClosing,
+                    difference: difference,
+                    diffPercent: diffPercent,
+                    status: statusInfo.status,
+                    updatedAt: Date.now()
+                }).catch(function(err) {
+                    console.error('[SaveActualClosing] Firebase sync error:', err);
+                });
+            } catch(e) {
+                console.error('[SaveActualClosing] Firebase sync exception:', e);
+            }
             // Kiểm tra: lần 2 khớp nhưng lần 1 lệch => gửi cảnh báo cho quản lý
             var isRetrySave = (prevActualClosing !== undefined && prevActualClosing !== null);
             var prevDiff = prevActualClosing - expectedClosing;
