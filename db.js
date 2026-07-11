@@ -1534,7 +1534,7 @@
             
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
-            _cleanupDeletedIds(collection);
+            _reconcileDeletedIds(collection);
         }, intervalSeconds * 1000);
         
         return function() {
@@ -2054,7 +2054,7 @@
                     return saveChain.then(function() {
                         // [Comment removed - encoding error]
                         // [Comment removed - encoding error]
-                        return _cleanupDeletedIds(collection).then(function() {
+                        return _reconcileDeletedIds(collection).then(function() {
                             saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
                             updateMetaOnFirebase(collection, newMaxVersion);
                             resolve();
@@ -2071,18 +2071,16 @@
         });
     }
     
-    // FIX: Chi cleanup deletedIds cho master collections nho (tables, menu, menu_categories, ingredients)
-    // Bo qua date-based collections (transactions, cost_transactions) vi qua lon, gay ton bandwidth
-    var _SMALL_MASTER_COLLECTIONS = { tables: true, menu: true, menu_categories: true, ingredients: true, customers: true, notifications: true, daily_balances: true, cost_categories: true };
-    function _cleanupDeletedIds(collection) {
-        var isMaster = MASTER_COLLECTIONS[collection];
-        if (!isMaster) return Promise.resolve();
+    // FIX: T?o co ch? t?ng quát d? phát hi?n items dã b? xóa kh?i Firebase
+    // So sánh danh sách ID local v?i Firebase, xóa items th?a kh?i local
+    // Dùng limitToLast cho collection l?n (transactions) d? tránh t?i toàn b?
+    var _RECONCILE_LIMITS = {
+        transactions: 200,
+        cost_transactions: 200,
+        inventory_transactions: 200
+    };
+    function _reconcileDeletedIds(collection) {
         if (!isOnline) return Promise.resolve();
-        
-        // FIX: Chi chay cho collection nho, bo qua collection lon (transactions, cost_transactions)
-        if (!_SMALL_MASTER_COLLECTIONS[collection]) {
-            return Promise.resolve();
-        }
         
         var loadMemory = Promise.resolve();
         if (!memoryCache[collection]) {
@@ -2098,9 +2096,17 @@
             
             var localIds = Object.keys(memoryCache[collection]);
             if (localIds.length === 0) return;
-        
+            
             var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
-            return ref.once('value').then(function(snapshot) {
+            
+            // V?i collection l?n, ch? t?i N items g?n nh?t d? so sánh
+            var limit = _RECONCILE_LIMITS[collection];
+            var queryRef = ref;
+            if (limit) {
+                queryRef = ref.orderByChild('createdAt').limitToLast(limit);
+            }
+            
+            return queryRef.once('value').then(function(snapshot) {
                 var remoteData = snapshot.val() || {};
                 var remoteIds = Object.keys(remoteData);
                 
@@ -2113,7 +2119,8 @@
                 
                 if (deletedIds.length === 0) return;
                 
-                // [Comment removed - encoding error]
+                console.log('[Reconcile] Phát hi?n', deletedIds.length, 'items dã b? xóa kh?i', collection);
+                
                 var deleteChain = Promise.resolve();
                 for (var d = 0; d < deletedIds.length; d++) {
                     (function(delId) {
@@ -2124,13 +2131,12 @@
                 }
                 return deleteChain;
             }).catch(function(err) {
-                // [Comment removed - encoding error]
-                console.warn('  ?? Could not check deleted IDs for', collection, ':', err.message);
+                console.warn('[Reconcile] L?i khi ki?m tra', collection, ':', err.message);
             });
         });
     }
     
-    // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
+    // SNAPSHOT RECONCILE: K?t h?p _reconcileDeletedIds() + fullSync() cho master collections
     // Gi?i quy?t tri?t d? v?n d?: d? li?u local l?ch v?i Firebase do:
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
@@ -2145,7 +2151,7 @@
         }
         console.log('?? Reconcile snapshot for:', collection);
         // [Comment removed - encoding error]
-        return _cleanupDeletedIds(collection).then(function() {
+        return _reconcileDeletedIds(collection).then(function() {
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
             return saveSyncMeta(collection, { lastSyncAt: 0, maxVersion: 0, dateKeys: [] });
@@ -2562,7 +2568,7 @@
             // tru?c khi loadData() d?c tables
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
-            _cleanupDeletedIds('tables').then(function() {
+            _reconcileDeletedIds('tables').then(function() {
                 subscribeToCollection('customers');
                 // FIX: transactions dung limitToLast(200) de giam tai, nhung Safari iOS
                 // co the miss child_removed events. Them polling du phong 30s de dam bao
@@ -2760,52 +2766,9 @@
             return; // Real-time d dang ho?t d?ng t?t, b? qua
         }
         
-        // L?y danh sách ID transactions t? local (memoryCache)
-        var localTx = memoryCache['transactions'];
-        if (!localTx) {
-            loadFromLocal('transactions').then(function(data) {
-                if (data) {
-                    memoryCache['transactions'] = data;
-                    localTx = data;
-                }
-            });
-            return;
-        }
-        
-        var localIds = Object.keys(localTx);
-        if (localIds.length === 0) return;
-        
-        // L?y danh sách ID transactions t? Firebase (limitToLast 200)
-        var ref = _getDb('transactions').ref(CURRENT_SHOP_ID + '/transactions');
-        ref.orderByChild('createdAt').limitToLast(200).once('value').then(function(snapshot) {
-            var remoteData = snapshot.val() || {};
-            var remoteIds = Object.keys(remoteData);
-            
-            // Tìm ID có trong local nh?ng không có trong Firebase => dã b? xóa
-            var deletedIds = [];
-            for (var i = 0; i < localIds.length; i++) {
-                if (remoteIds.indexOf(localIds[i]) === -1) {
-                    deletedIds.push(localIds[i]);
-                }
-            }
-            
-            if (deletedIds.length === 0) return;
-            
-            console.log('[TransactionPoll] Phát hi?n', deletedIds.length, 'giao d?ch dã b? xóa, d?ng b?...');
-            
-            // Xóa t?ng item kh?i local
-            var chain = Promise.resolve();
-            for (var d = 0; d < deletedIds.length; d++) {
-                (function(delId) {
-                    chain = chain.then(function() {
-                        return deleteFromLocal('transactions', delId);
-                    });
-                })(deletedIds[d]);
-            }
-            return chain;
-        }).catch(function(err) {
-            console.warn('[TransactionPoll] L?i khi ki?m tra transactions b? xóa:', err.message);
-        });
+        // Dùng _reconcileDeletedIds dã d?u?c t?ng quát hóa d? so sánh ID local v?i Firebase
+        // _reconcileDeletedIds t? d?ng dùng limitToLast(200) cho transactions
+        _reconcileDeletedIds('transactions');
     }
 
     // Patch _notifyLocal de cap nhat lastSyncTime va broadcast sang tab khac
