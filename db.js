@@ -2075,9 +2075,9 @@
     // So sánh danh sách ID local v?i Firebase, xóa items th?a kh?i local
     // Dùng limitToLast cho collection l?n (transactions) d? tránh t?i toàn b?
     var _RECONCILE_LIMITS = {
-        transactions: 200,
-        cost_transactions: 200,
-        inventory_transactions: 200
+        transactions: 3000,
+        cost_transactions: 3000,
+        inventory_transactions: 3000
     };
     function _reconcileDeletedIds(collection) {
         if (!isOnline) return Promise.resolve();
@@ -2570,10 +2570,9 @@
             // [Comment removed - encoding error]
             _reconcileDeletedIds('tables').then(function() {
                 subscribeToCollection('customers');
-                // FIX: transactions dung limitToLast(200) de giam tai, nhung Safari iOS
-                // co the miss child_removed events. Them polling du phong 30s de dam bao
-                // du lieu transactions luon chinh xac (dac biet khi xoa giao dich tu may khac)
-                subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
+                // FIX: transactions dung limitToLast(3000) de dam bao du thong ke
+                // Safari iOS co the miss child_removed events, them polling du phong 30s
+                subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 3000 });
                 _startTransactionPolling();
                 subscribeToCollection('notifications');
                 subscribeToCollection('info');
@@ -2724,9 +2723,9 @@
             }
             if (staleCollections.length > 0 && isOnline) {
                 // Tu dong smartSync cho cac collection bi stale (khong warning)
-                for (var i = 0; i < staleCollections.length; i++) {
-                    smartSync(staleCollections[i]);
-                }
+                // Goi smartSync() khong tham so de chay bulk sync tat ca collections
+                // Tranh goi tung collection rieng le gay spam log va cham
+                smartSync();
             }
             // Cap nhat indicator: online = xanh, offline = do
             _lastHeartbeatTime = now;
