@@ -2564,7 +2564,11 @@
             // [Comment removed - encoding error]
             _cleanupDeletedIds('tables').then(function() {
                 subscribeToCollection('customers');
+                // FIX: transactions dung limitToLast(200) de giam tai, nhung Safari iOS
+                // co the miss child_removed events. Them polling du phong 30s de dam bao
+                // du lieu transactions luon chinh xac (dac biet khi xoa giao dich tu may khac)
                 subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
+                _startTransactionPolling();
                 subscribeToCollection('notifications');
                 subscribeToCollection('info');
                 subscribeToCollection('daily_balances');
@@ -2735,6 +2739,29 @@
         staffEl.className = 'staff-name staff-online';
     }
     
+    // FIX: Polling du phong cho transactions (Safari iOS hay miss child_removed events)
+    // Khi xoa giao dich tu may A, may B (Safari) co the khong nhan duoc child_removed
+    // Polling 30s dam bao du lieu transactions luon chinh xac
+    var _transactionPollingTimer = null;
+    function _startTransactionPolling() {
+        if (_transactionPollingTimer) clearInterval(_transactionPollingTimer);
+        _transactionPollingTimer = setInterval(function() {
+            if (!isOnline) return;
+            // Chi chay neu transactions co the bi lech (Safari iOS workaround)
+            // Dung deltaSync nhe, khong fullSync de tranh ton bandwidth
+            getSyncMeta('transactions').then(function(meta) {
+                if (!meta) return;
+                var now = Date.now();
+                var timeSinceLastSync = now - (meta.lastSyncAt || 0);
+                // Neu qua 60s khong co sync, chay deltaSync de dong bo
+                if (timeSinceLastSync > 60000) {
+                    console.log('[TransactionPoll] Polling transactions (last sync:', Math.round(timeSinceLastSync/1000) + 's ago)');
+                    deltaSync('transactions');
+                }
+            }).catch(function() {});
+        }, 30000);
+    }
+
     // Patch _notifyLocal de cap nhat lastSyncTime va broadcast sang tab khac
     var _origNotifyLocal = _notifyLocal;
     _notifyLocal = function(collection, changeInfo) {
