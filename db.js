@@ -2739,27 +2739,73 @@
         staffEl.className = 'staff-name staff-online';
     }
     
-    // FIX: Polling du phong cho transactions (Safari iOS hay miss child_removed events)
-    // Khi xoa giao dich tu may A, may B (Safari) co the khong nhan duoc child_removed
-    // Polling 30s dam bao du lieu transactions luon chinh xac
+    // FIX: Polling d? phòng cho transactions (Safari iOS hay miss child_removed events)
+    // deltaSync KHÔNG th? phát hi?n xóa (ch? t?i item có _version > localMaxVersion)
+    // C?n co ch? so sánh ID local v?i Firebase d? phát hi?n giao d?ch dã b? xóa
     var _transactionPollingTimer = null;
     function _startTransactionPolling() {
         if (_transactionPollingTimer) clearInterval(_transactionPollingTimer);
         _transactionPollingTimer = setInterval(function() {
             if (!isOnline) return;
-            // Chi chay neu transactions co the bi lech (Safari iOS workaround)
-            // Dung deltaSync nhe, khong fullSync de tranh ton bandwidth
-            getSyncMeta('transactions').then(function(meta) {
-                if (!meta) return;
-                var now = Date.now();
-                var timeSinceLastSync = now - (meta.lastSyncAt || 0);
-                // Neu qua 60s khong co sync, chay deltaSync de dong bo
-                if (timeSinceLastSync > 60000) {
-                    console.log('[TransactionPoll] Polling transactions (last sync:', Math.round(timeSinceLastSync/1000) + 's ago)');
-                    deltaSync('transactions');
-                }
-            }).catch(function() {});
+            _syncTransactionDeletions();
         }, 30000);
+    }
+    
+    // So sánh danh sách ID transactions local v?i Firebase (ch? 200 items g?n nh?t)
+    // d? phát hi?n các giao d?ch dã b? xóa t? máy khác mà Safari iOS miss child_removed
+    function _syncTransactionDeletions() {
+        // Ch? d?nh k? 60s/l?n d? tránh ch?y liên t?c
+        var now = Date.now();
+        if (_lastSyncTimestamps['transactions'] && (now - _lastSyncTimestamps['transactions']) < 60000) {
+            return; // Real-time d dang ho?t d?ng t?t, b? qua
+        }
+        
+        // L?y danh sách ID transactions t? local (memoryCache)
+        var localTx = memoryCache['transactions'];
+        if (!localTx) {
+            loadFromLocal('transactions').then(function(data) {
+                if (data) {
+                    memoryCache['transactions'] = data;
+                    localTx = data;
+                }
+            });
+            return;
+        }
+        
+        var localIds = Object.keys(localTx);
+        if (localIds.length === 0) return;
+        
+        // L?y danh sách ID transactions t? Firebase (limitToLast 200)
+        var ref = _getDb('transactions').ref(CURRENT_SHOP_ID + '/transactions');
+        ref.orderByChild('createdAt').limitToLast(200).once('value').then(function(snapshot) {
+            var remoteData = snapshot.val() || {};
+            var remoteIds = Object.keys(remoteData);
+            
+            // Tìm ID có trong local nh?ng không có trong Firebase => dã b? xóa
+            var deletedIds = [];
+            for (var i = 0; i < localIds.length; i++) {
+                if (remoteIds.indexOf(localIds[i]) === -1) {
+                    deletedIds.push(localIds[i]);
+                }
+            }
+            
+            if (deletedIds.length === 0) return;
+            
+            console.log('[TransactionPoll] Phát hi?n', deletedIds.length, 'giao d?ch dã b? xóa, d?ng b?...');
+            
+            // Xóa t?ng item kh?i local
+            var chain = Promise.resolve();
+            for (var d = 0; d < deletedIds.length; d++) {
+                (function(delId) {
+                    chain = chain.then(function() {
+                        return deleteFromLocal('transactions', delId);
+                    });
+                })(deletedIds[d]);
+            }
+            return chain;
+        }).catch(function(err) {
+            console.warn('[TransactionPoll] L?i khi ki?m tra transactions b? xóa:', err.message);
+        });
     }
 
     // Patch _notifyLocal de cap nhat lastSyncTime va broadcast sang tab khac
