@@ -3220,20 +3220,19 @@ body.modal-open {
 }
 
 .history-search {
-    margin-bottom: 12px;
+    flex: 1;
+    min-width: 0;
 }
-
 .history-search .search-input {
     width: 100%;
-    padding: 10px 14px;
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 30px;
-    font-size: 14px;
+    font-size: 13px;
     background: var(--surface);
     box-sizing: border-box;
     -webkit-appearance: none;
 }
-
 .history-search .search-input:focus {
     outline: none;
     border-color: var(--primary);
@@ -3249,6 +3248,67 @@ body.modal-open {
     background: var(--surface);
     font-size: 13px;
     -webkit-appearance: none;
+}
+
+/* History filter chips - Dòng 1: icon filter */
+.history-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0 4px 0;
+}
+/* Dòng 2: search + staff chips */
+.history-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 0 8px 0;
+}
+.history-staff-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+.filter-chip {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 16px;
+    line-height: 34px;
+    text-align: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    box-sizing: border-box;
+}
+.filter-chip:active {
+    transform: scale(0.9);
+}
+.filter-chip.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+.filter-chip-staff {
+    font-size: 13px;
+    font-weight: 700;
+    background: #f1f5f9;
+    border-color: #d1d5db;
+    color: #475569;
+}
+.filter-chip-staff.active {
+    background: #475569;
+    color: #fff;
+    border-color: #475569;
 }
 
 .history-list {
