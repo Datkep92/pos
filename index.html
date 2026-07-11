@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f97316">
-    <title>MILANO COFFEE 259 - Bán hàng</title>
+    <title>Hệ Thống Bán Hàng</title>
     <link rel="stylesheet" href="css/pos-base.css">
     <link rel="stylesheet" href="css/report.css">
     <link rel="stylesheet" href="css/menu.css">
@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="css/manager.css">
     <link rel="stylesheet" href="css/expense.css">
     <link rel="stylesheet" href="css/manager-detail.css">
+    <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
     <!-- ========== MÀN HÌNH LOADING KHỞI TẠO ========== -->
@@ -22,7 +23,7 @@
         <div class="loading-content">
             <div class="loading-logo">☕</div>
             <div class="loading-spinner"></div>
-            <div class="loading-text">MILANO COFFEE 259</div>
+            <div class="loading-text">Hệ Thống Bán Hàng</div>
             <div class="loading-subtext">Đang khởi tạo...</div>
         </div>
     </div>
@@ -33,7 +34,7 @@
             <!-- FORM ĐĂNG NHẬP -->
             <div class="auth-form" id="loginForm">
                 <div class="auth-logo">☕</div>
-                <h2 class="auth-title">MILANO COFFEE 259</h2>
+                <h2 class="auth-title">Hệ Thống Bán Hàng</h2>
                 <p class="auth-subtitle">Đăng nhập để tiếp tục</p>
                 
                 <div class="auth-field">
@@ -49,12 +50,28 @@
                     <input type="password" id="loginPassword" class="form-input" placeholder="Mật khẩu">
                 </div>
                 
+                <!-- Ghi nhớ đăng nhập -->
+                <div class="auth-remember">
+                    <label class="remember-checkbox">
+                        <input type="checkbox" id="rememberLogin">
+                        <span class="remember-checkmark"></span>
+                        Ghi nhớ đăng nhập
+                    </label>
+                </div>
+                
                 <div class="auth-error" id="loginError"></div>
                 
                 <button class="auth-btn" id="loginBtn" onclick="handleLogin()">Đăng nhập</button>
                 
                 <div class="auth-switch">
                     Chưa có POS? <span onclick="showRegisterForm()">Đăng ký ngay</span>
+                </div>
+                
+                <!-- Nút liên hệ support -->
+                <div class="auth-support">
+                    <a href="https://zalo.me/0395995035" target="_blank" class="support-btn" title="Liên hệ hỗ trợ">
+                        🆘 Quên mật khẩu / Mở khóa? Liên hệ Zalo
+                    </a>
                 </div>
             </div>
             
@@ -112,6 +129,7 @@
             <div class="tab-btn" data-tab="inventory" style="display:none;">📋 Menu - Tồn kho</div>
             <div class="tab-btn" data-tab="cost">💰 Chi phí</div>
             <div class="tab-btn" data-tab="manager" style="display:none;">⚙️ Quản lý</div>
+            <div class="tab-btn" data-tab="admin" id="adminTabBtn" style="display:none;">👑 Admin</div>
             <div class="tab-btn" data-tab="settings">⚙️</div>
         </div>
 
@@ -194,6 +212,9 @@
                         <option value="debt">💢 Ghi nợ</option>
                         <option value="debt_payment">💵 Trả nợ</option>
                         <option value="credit">💰 Tiền dư</option>
+                        <option value="prepaid">💳 Đưa trước</option>
+                        <option value="change_in">💰 Nhận dư</option>
+                        <option value="change_use">💰 Dùng dư</option>
                         <option value="cancelled">❌ Đã hủy</option>
                     </select>
                 </div>
@@ -514,6 +535,21 @@
                 </div>
             </div>
 
+            <!-- TAB ADMIN MASTER (chỉ hiện khi đăng nhập với shopCode='master') -->
+            <div id="adminView" class="tab-content">
+                <div class="settings-container">
+                    <div class="settings-section">
+                        <h3 class="settings-title">👑 Admin Master - Quản lý POS</h3>
+                        <div style="font-size:12px;color:#888;margin-bottom:10px;">
+                            Quản lý tất cả POS đã đăng ký. Nhấn "Đăng nhập" để truy cập POS với tài khoản admin.
+                        </div>
+                        <div id="adminShopList">
+                            <div class="permission-loading">Đang tải danh sách POS...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TAB CÀI ĐẶT -->
             <div id="settingsView" class="tab-content">
                 <div class="settings-container">
@@ -529,26 +565,33 @@
                             <span class="collapse-icon">▼</span>
                         </h3>
                         <div class="collapsible-body" style="display:block;">
+                        <!-- Số dư quỹ -->
                         <div class="settings-field">
                             <label class="settings-label">Số dư quỹ hiện tại</label>
                             <div style="font-size:24px;font-weight:700;color:#fbbf24;padding:8px 0;" id="fundBalanceDisplay">0đ</div>
                         </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Rút tiền từ quỹ</label>
-                            <div class="settings-input-group">
-                                <input type="number" id="fundWithdrawInput" class="form-input" placeholder="0" min="0" style="flex:1;">
-                                <button class="settings-btn settings-btn-primary" onclick="staffWithdrawFund()" style="white-space:nowrap;">💸 Rút</button>
+
+                        <!-- Hành động: Rút quỹ + Nhập quỹ ban đầu (Admin) -->
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                            <div style="flex:1;min-width:200px;">
+                                <label class="settings-label">Rút tiền từ quỹ</label>
+                                <div class="settings-input-group">
+                                    <input type="number" id="fundWithdrawInput" class="form-input" placeholder="0" min="0" style="flex:1;">
+                                    <button class="settings-btn settings-btn-primary" onclick="staffWithdrawFund()" style="white-space:nowrap;">💸 Rút</button>
+                                </div>
+                                <div class="settings-hint">Rút tiền từ quỹ thưởng trách nhiệm. Tự động tạo phiếu chi tại két POS.</div>
                             </div>
-                            <div class="settings-hint">Rút tiền từ quỹ thưởng trách nhiệm. Số tiền rút sẽ tự động tạo phiếu chi tại két POS.</div>
-                        </div>
-                        <div class="settings-field" id="fundInitialField">
-                            <label class="settings-label">Nhập quỹ ban đầu</label>
-                            <div class="settings-input-group">
-                                <input type="number" id="fundInitialInput" class="form-input" placeholder="0" min="0" style="flex:1;">
-                                <button class="settings-btn settings-btn-primary" onclick="saveFundInitial()" style="white-space:nowrap;">💾 Cập nhật</button>
+                            <div style="flex:1;min-width:200px;" id="fundInitialField">
+                                <label class="settings-label">Nhập quỹ ban đầu</label>
+                                <div class="settings-input-group">
+                                    <input type="number" id="fundInitialInput" class="form-input" placeholder="0" min="0" style="flex:1;">
+                                    <button class="settings-btn settings-btn-primary" onclick="saveFundInitial()" style="white-space:nowrap;">💾 Cập nhật</button>
+                                </div>
+                                <div class="settings-hint">Số tiền quỹ ban đầu (cộng dồn vào số dư hiện tại)</div>
                             </div>
-                            <div class="settings-hint">Số tiền quỹ ban đầu (cộng dồn vào số dư hiện tại)</div>
                         </div>
+
+                        <!-- Ẩn quỹ với nhân viên (Admin) -->
                         <div class="settings-field" id="fundHideForStaffField">
                             <label class="settings-label">Ẩn quỹ với nhân viên</label>
                             <div class="settings-input-group">
@@ -560,23 +603,13 @@
                             </div>
                             <div class="settings-hint">Bật để ẩn toàn bộ phần quỹ thưởng trách nhiệm khỏi giao diện nhân viên</div>
                         </div>
-                        <div class="settings-field" id="fundAutoField">
-                            <label class="settings-label">Tự động tính quỹ</label>
-                            <div class="settings-input-group" style="margin-bottom:6px;">
-                                <input type="text" id="fundAutoFromDate" class="form-input" placeholder="dd/mm/yyyy" style="flex:1;min-width:0;" maxlength="10" oninput="formatDateInput(this)" onblur="formatDateInput(this)">
-                                <span style="color:#64748b;padding:0 4px;">→</span>
-                                <input type="text" id="fundAutoToDate" class="form-input" placeholder="dd/mm/yyyy" style="flex:1;min-width:0;" maxlength="10" oninput="formatDateInput(this)" onblur="formatDateInput(this)">
-                                <button class="settings-btn settings-btn-primary" onclick="autoCalculateFundForPeriodFromUI()" style="white-space:nowrap;">🔢 Tính</button>
-                            </div>
-                            <div class="settings-hint">Tự động tính 1% doanh thu và bổ sung vào quỹ cho khoảng thời gian. Các ngày đã tính sẽ bỏ qua.</div>
-                        </div>
+
+                        <!-- Bảng log lịch sử quỹ -->
                         <div class="settings-field">
-                            <label class="settings-label">Lịch sử quỹ</label>
-                            <div id="fundHistoryList" style="max-height:300px;overflow-y:auto;background:#1e293b;border-radius:8px;padding:8px;border:1px solid #334155;">
-                                <div style="color:#64748b;font-size:12px;text-align:center;padding:12px;">Đang tải...</div>
-                            </div>
-                            <div id="fundHistoryShowMore" style="display:none;text-align:center;margin-top:4px;">
-                                <button class="settings-btn" onclick="loadMoreFundHistory()" style="font-size:12px;padding:4px 12px;">📋 Xem thêm</button>
+                            <label class="settings-label">Lịch sử giao dịch quỹ</label>
+                            <div class="settings-hint" style="margin-bottom:8px;">📌 Tự động trích 1% doanh thu (tiền mặt + chuyển khoản + grab) mỗi ngày. Admin có thể xóa giao dịch thưởng.</div>
+                            <div id="fundLogList" class="fund-log-container">
+                                <div style="color:#64748b;font-size:12px;text-align:center;padding:20px;">Đang tải...</div>
                             </div>
                         </div>
                         </div>
@@ -851,11 +884,15 @@
                         </div>
                     </div>
 
-                    <!-- PHẦN CẤU HÌNH FIREBASE RIÊNG (chỉ hiện khi admin) -->
-                    <div class="settings-section" id="settingsFirebaseSection" style="display:none;">
-                        <h3 class="settings-title">🔥 Cấu hình Firebase riêng</h3>
-                        <div style="font-size:12px;color:#888;margin-bottom:10px;">
-                            ⚠️ Chỉ admin POS có config Firebase riêng mới thấy section này.
+                    <!-- PHẦN CẤU HÌNH FIREBASE RIÊNG (ĐÃ CHUYỂN SANG ADMIN MASTER DASHBOARD) -->
+                    <div class="settings-section collapsible-section" id="settingsFirebaseSection" style="display:none;">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsFirebaseSection')">
+                            🔥 Cấu hình Firebase riêng
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:block;">
+                        <div style="font-size:12px;color:#ef4444;margin-bottom:10px;background:#fef2f2;padding:8px 12px;border-radius:6px;">
+                            ⛔ Tính năng này đã được chuyển sang Admin Master Dashboard. Vui lòng liên hệ Admin Master để cấu hình Firebase riêng cho POS.
                         </div>
                         <div class="settings-field">
                             <label class="settings-label">API Key</label>
@@ -892,6 +929,7 @@
                             <button class="settings-btn settings-btn-secondary" onclick="syncDataToNewFirebase()" style="background:#f97316;">🔄 Đồng bộ dữ liệu sang Firebase mới</button>
                         </div>
                         <div id="firebaseConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
                     </div>
 
                     <!-- PHẦN THÔNG TIN QUÁN (thu gọn mặc định) -->
@@ -903,7 +941,7 @@
                         <div class="collapsible-body" style="display:none;">
                         <div class="settings-field">
                             <label class="settings-label">Tên quán</label>
-                            <input type="text" id="shopInfoName" class="form-input" placeholder="VD: MILANO COFFEE 259">
+                            <input type="text" id="shopInfoName" class="form-input" placeholder="VD: Cà phê của tôi">
                         </div>
                         <div class="settings-field">
                             <label class="settings-label">Địa chỉ</label>
@@ -950,6 +988,35 @@
                         <div id="staffPermissionStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
+                    <!-- PHẦN ĐỔI MẬT KHẨU (thu gọn mặc định, chỉ admin) -->
+                    <div class="settings-section collapsible-section" id="settingsChangePasswordSection">
+                        <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsChangePasswordSection')">
+                            🔑 Đổi mật khẩu
+                            <span class="collapse-icon">▶</span>
+                        </h3>
+                        <div class="collapsible-body" style="display:none;">
+                        <div class="settings-field">
+                            <label class="settings-label">Mật khẩu hiện tại</label>
+                            <input type="password" id="changePassCurrent" class="form-input" placeholder="Nhập mật khẩu hiện tại">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Mật khẩu mới</label>
+                            <input type="password" id="changePassNew" class="form-input" placeholder="Nhập mật khẩu mới (ít nhất 4 ký tự)">
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label">Xác nhận mật khẩu mới</label>
+                            <input type="password" id="changePassConfirm" class="form-input" placeholder="Nhập lại mật khẩu mới">
+                        </div>
+                        <div class="settings-hint" style="margin-bottom:8px;">
+                            Mật khẩu mới sẽ được đồng bộ lên hệ thống quản lý Admin Master.
+                        </div>
+                        <div class="settings-actions" style="margin-top:8px;">
+                            <button class="settings-btn settings-btn-primary" onclick="handleChangePassword()">🔑 Đổi mật khẩu</button>
+                        </div>
+                        <div id="changePasswordStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
+                        </div>
+                    </div>
+
                     <!-- PHẦN DỮ LIỆU (thu gọn mặc định) -->
                     <div class="settings-section collapsible-section" id="settingsDataSection">
                         <h3 class="settings-title collapsible-header" onclick="toggleSettingsSection('settingsDataSection')">
@@ -970,6 +1037,21 @@
                                 </button>
                             </div>
                         </div>
+                        </div>
+                    </div>
+
+                    <!-- PHẦN LIÊN HỆ HỖ TRỢ -->
+                    <div class="settings-section" style="border: 1px solid #334155;">
+                        <div style="text-align:center;padding:16px;">
+                            <div style="font-size:13px;color:#94a3b8;margin-bottom:8px;">
+                                🆘 Quên mật khẩu hoặc cần mở khóa POS?
+                            </div>
+                            <a href="https://zalo.me/0395995035" target="_blank"
+                               style="display:inline-flex;align-items:center;gap:8px;padding:10px 24px;
+                                      background:#0068ff;color:#fff;border-radius:40px;text-decoration:none;
+                                      font-size:14px;font-weight:600;">
+                                💬 Liên hệ Zalo: 0395 995 035
+                            </a>
                         </div>
                     </div>
 
@@ -1413,6 +1495,8 @@
     <script src="db.js?v=3"></script>
     <!-- Auth CHUNG -->
     <script src="auth.js"></script>
+    <!-- Admin Dashboard (tách riêng từ auth.js) -->
+    <script src="admin-dashboard.js"></script>
     
     <!-- POS-APP RÚT GỌN (thay thế app.js) -->
     <!-- index.html mặc định hiển thị tab Bàn, mangdi.html dùng tab Mang đi -->
@@ -1485,17 +1569,40 @@
     <!-- Employees management - Modal quản lý nhân viên (thay thế staff logic trong auth.js, settings.js, manager-detail.js) -->
     <script src="employees.js"></script>
     
-    <!-- Settings + Đếm tiền nhanh -->
+    <!-- Settings modules (tách từ settings.js) -->
+    <script src="settings-core.js"></script>
+    <script src="settings-escape.js"></script>
+    <script src="settings-cash-counter.js"></script>
+    <script src="settings-manager-pickup.js"></script>
+    <script src="settings-date.js"></script>
+    <script src="settings-alert.js"></script>
+    <script src="settings-close-day.js"></script>
+    <script src="settings-toast.js"></script>
+    <script src="settings-init.js"></script>
+    <script src="settings-staff.js"></script>
+    <script src="settings-shop-info.js"></script>
+    <script src="settings-telegram.js"></script>
+    <script src="settings-lock-config.js"></script>
+    <script src="settings-permissions.js"></script>
+    <script src="settings-data-fix.js"></script>
+    <script src="settings-esp32.js"></script>
+    <script src="settings-modals.js"></script>
+    <script src="settings-print.js"></script>
+    <script src="settings-fund.js"></script>
+    <script src="settings-firebase-config.js"></script>
+    <script src="settings-visibility.js"></script>
+    
+    <!-- Settings + Đếm tiền nhanh (thin loader) -->
     <script src="settings.js"></script>
     
     <!-- HEADER DƯỚI ĐÁY -->
     <div class="header">
-        <div class="logo"><span class="logo-icon">☕</span><span class="logo-text" id="shopNameHeader">MILANO COFFEE 259</span></div>
+        <div class="logo"><span class="logo-icon">☕</span><span class="logo-text" id="shopNameHeader">Hệ Thống Bán Hàng</span></div>
         <div class="header-center">
             <span class="header-date" id="headerDate">--</span>
         </div>
         <div class="header-right">
-            <span class="staff-name">👤 Nhân viên</span>
+            <span class="staff-name" id="staffName">👤 Nhân viên</span>
             <button class="chat-btn" id="chatBtn" onclick="toggleChatPopup()" title="Chat nội bộ">
                 💬 <span id="chatBadge" class="chat-badge" style="display:none;">0</span>
             </button>

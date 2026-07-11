@@ -675,21 +675,11 @@ function initRealtime() {
     // ============================================================
     // MENU (polling 60s)
     // ============================================================
-    // Subscribe cũ: cập nhật menuItems
-    DB.subscribeWithPolling('menu', function(data) {
-        if (!data) return;
-        _debounceRealtime('menu', function() {
-            DB.getAll('menu').then(function(list) {
-                menuItems = list;
-                menuItems.sort(function(a, b) {
-                    var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
-                    var orderB = (b.sortOrder !== undefined && b.sortOrder !== null) ? b.sortOrder : 9999;
-                    return orderA - orderB;
-                });
-                window.menuItems = menuItems;
-            });
-        }, 200);
-    }, 60);
+    // MENU (realtime via Firebase listener)
+    // ============================================================
+    // REALTIME OPTIMIZATION: Chuyen tu polling (60s) sang realtime listener
+    // DB.subscribe da duoc dang ky trong db.js initDatabase()
+    // Chi giu lai event bus handler de cap nhat UI
     // NÂNG CẤP: Event Bus handler cho menu
     DB.on('menu:*', function(event) {
         if (!event || !event.data) return;
@@ -730,15 +720,11 @@ function initRealtime() {
     // ============================================================
     // MENU CATEGORIES (polling 60s)
     // ============================================================
-    // Subscribe cũ: cập nhật menuCategories
-    DB.subscribeWithPolling('menu_categories', function(data) {
-        if (!data) return;
-        _debounceRealtime('menu_categories', function() {
-            DB.getAll('menu_categories').then(function(list) {
-                menuCategories = list;
-            });
-        }, 200);
-    }, 60);
+    // MENU CATEGORIES (realtime via Firebase listener)
+    // ============================================================
+    // REALTIME OPTIMIZATION: Chuyen tu polling (60s) sang realtime listener
+    // DB.subscribe da duoc dang ky trong db.js initDatabase()
+    // Chi giu lai event bus handler de cap nhat UI
     // NÂNG CẤP: Event Bus handler cho menu_categories
     DB.on('menu_categories:*', function(event) {
         if (!event || !event.data) return;
@@ -874,16 +860,11 @@ function initRealtime() {
     // ============================================================
     // INGREDIENTS (polling 60s)
     // ============================================================
-    // Subscribe cũ: cập nhật window.ingredients
-    DB.subscribeWithPolling('ingredients', function(data) {
-        if (!data) return;
-        _debounceRealtime('ingredients', function() {
-            DB.getAll('ingredients').then(function(list) {
-                window.ingredients = list;
-                if (typeof _invalidateLookups === 'function') _invalidateLookups();
-            });
-        }, 200);
-    }, 60);
+    // INGREDIENTS (realtime via Firebase listener)
+    // ============================================================
+    // REALTIME OPTIMIZATION: Chuyen tu polling (60s) sang realtime listener
+    // DB.subscribe da duoc dang ky trong db.js initDatabase()
+    // Chi giu lai event bus handler de cap nhat UI
     // NÂNG CẤP: Event Bus handler cho ingredients
     DB.on('ingredients:*', function(event) {
         if (!event || !event.data) return;
@@ -1011,10 +992,12 @@ function initRealtime() {
     });
 
     // ============================================================
-    // MESSAGES (polling 30s)
+    // MESSAGES (realtime via Firebase listener)
     // ============================================================
-    // Subscribe cũ: cập nhật messages
-    DB.subscribeWithPolling('messages', function(data) {
+    // REALTIME OPTIMIZATION: Chuyen tu polling (30s) sang realtime listener
+    // DB.subscribe da duoc dang ky trong db.js initDatabase()
+    // Chi giu lai event bus handler de cap nhat UI
+    DB.subscribe('messages', function(data) {
         if (!data) return;
         _debounceRealtime('messages', function() {
             if (typeof updateChatBadge === 'function') {
@@ -1029,7 +1012,7 @@ function initRealtime() {
                 checkNewMessages();
             }
         }, 200);
-    }, 30);
+    });
     // NÂNG CẤP: Event Bus handler cho messages
     DB.on('messages:*', function(event) {
         if (!event || !event.data) return;

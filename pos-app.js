@@ -170,6 +170,8 @@ function loadData() {
         });
         menuCategories = menuCatFromCache || [];
         customers = customersFromCache;
+        // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
+        if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         ingredients = ingredientsFromCache || [];
         // FIX: Load tables từ memoryCache (đã được smartSync cập nhật)
         if (tablesFromCache) {
@@ -234,6 +236,8 @@ function loadData() {
         });
         menuCategories = results[1] || [];
         customers = results[2] || [];
+        // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
+        if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         // Load shop info từ IndexedDB (ưu tiên)
         var shopInfoList = results[3] || [];
         if (shopInfoList.length > 0) {
@@ -448,6 +452,10 @@ function switchTab(tabId) {
             if (typeof applyExpenseRoleRestrictions === 'function') applyExpenseRoleRestrictions();
         } else if (tabId === 'manager') {
             if (typeof managerApplyFilter === 'function') managerApplyFilter();
+        } else if (tabId === 'admin') {
+            if (typeof loadAdminDashboard === 'function') {
+                setTimeout(loadAdminDashboard, 50);
+            }
         } else if (tabId === 'settings') {
             if (typeof initSettingsTab === 'function') {
                 initSettingsTab();

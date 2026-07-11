@@ -1,18 +1,18 @@
-﻿// ========== db.js ES5 - TÆ°Æ¡ng thÃ­ch Android 6, iOS 16 ==========
+// [Comment removed - encoding error]
 (function() {
     // Polyfill CustomEvent
     if (typeof window.CustomEvent !== "function") {
-        function CustomEvent(event, params) {
-            params = params || { bubbles: false, cancelable: false, detail: null };
+        window.CustomEvent = function(event, params) {
+            params = params || { bubbles: false, cancelable: false, detail: undefined };
             var evt = document.createEvent('CustomEvent');
             evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
             return evt;
-        }
-        window.CustomEvent = CustomEvent;
+        };
+        window.CustomEvent.prototype = window.Event.prototype;
     }
 
     // ========== MASTER-SLAVE FIREBASE CONFIG ==========
-    // Firebase Master (luôn tồn tại - project posmilano)
+    // [Comment removed - encoding error]
     var MASTER_CONFIG = {
         apiKey: "AIzaSyCQFIzj8m3kpsE_x354xxJ8MTAuRG9eCx4",
         authDomain: "posmilano.firebaseapp.com",
@@ -23,32 +23,32 @@
         appId: "1:34185947554:web:925f29864d3b17b8d46afb",
         measurementId: "G-J3MX8EL1C8"
     };
-    // Khởi tạo DEFAULT app trước để tương thích với các file cũ (telegram.js, employees.js, ...)
-    // vẫn gọi firebase.database(), firebase.auth() mà không có app name
-    // Sau đó lấy reference đến masterApp (có thể là DEFAULT app nếu không tạo được app riêng)
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var masterApp, masterDb, auth;
     try {
-        // Thử tạo DEFAULT app trước
+        // Th? t?o DEFAULT app tru?c
         firebase.initializeApp(MASTER_CONFIG);
         masterApp = firebase.app(); // DEFAULT app
         masterDb = masterApp.database();
         auth = firebase.auth();
     } catch(e) {
-        // Nếu DEFAULT app đã tồn tại (do script load lại), dùng nó luôn
+        // [Comment removed - encoding error]
         masterApp = firebase.app();
         masterDb = masterApp.database();
         auth = firebase.auth();
     }
     
-    // Firebase Slave (chỉ tồn tại nếu POS có config riêng)
+    // [Comment removed - encoding error]
     var slaveApp = null;
     var slaveDb = null;
     var slaveConfig = null;
     
-    // Biến db cũ giữ để tương thích ngược, trỏ về masterDb
+    // [Comment removed - encoding error]
     var db = masterDb;
     
-    // Collection LUÔN ở Master (staff, registry, firebase_config)
+    // [Comment removed - encoding error]
     var MASTER_ONLY_COLLECTIONS = {
         staffs: true,
         shop_registry: true,
@@ -56,46 +56,63 @@
         master_admins: true
     };
     
-    // Helper: trả về đúng DB instance dựa trên collection
+    // [Comment removed - encoding error]
     function _getDb(collection) {
         if (MASTER_ONLY_COLLECTIONS[collection]) return masterDb;
-        return slaveDb || masterDb; // Fallback về Master nếu không có Slave
+        return slaveDb || masterDb; // [Comment removed - encoding error]
     }
     
-    // Helper: khởi tạo/hủy Slave Firebase App
+    // Helper: kh?i t?o/h?y Slave Firebase App
     function _initSlaveApp(shopId, fbConfig) {
         var appName = 'slave_' + shopId;
-        // Hủy Slave cũ nếu có
+        
+        // [Comment removed - encoding error]
+        var chain = Promise.resolve();
+        
+        // [Comment removed - encoding error]
         if (slaveApp) {
+            chain = chain.then(function() {
+                var _oldApp = slaveApp;
+                slaveApp = null;
+                slaveDb = null;
+                slaveConfig = null;
+                try {
+                    return _oldApp.delete();
+                } catch(e) {
+                    return Promise.resolve();
+                }
+            });
+        }
+        
+        // [Comment removed - encoding error]
+        chain = chain.then(function() {
             try {
-                var oldName = slaveApp.name;
-                slaveApp.delete();
-            } catch(e) {}
-            slaveApp = null;
-            slaveDb = null;
-            slaveConfig = null;
-        }
-        // Kiểm tra nếu app đã tồn tại (do lỗi)
-        try {
-            var existing = firebase.app(appName);
-            if (existing) {
-                try { existing.delete(); } catch(e) {}
+                var existing = firebase.app(appName);
+                if (existing) {
+                    try { return existing.delete(); } catch(e) { return Promise.resolve(); }
+                }
+            } catch(e) {
+                // App chua t?n t?i
             }
-        } catch(e) {
-            // App chưa tồn tại, tạo mới
-        }
-        try {
-            slaveApp = firebase.initializeApp(fbConfig, appName);
-            slaveDb = slaveApp.database();
-            slaveConfig = fbConfig;
             return Promise.resolve();
-        } catch(e) {
-            console.error('[db.js] Lỗi khởi tạo Slave Firebase:', e);
-            return Promise.reject(e);
-        }
+        });
+        
+        // Bu?c 3: Kh?i t?o Slave App m?i
+        chain = chain.then(function() {
+            try {
+                slaveApp = firebase.initializeApp(fbConfig, appName);
+                slaveDb = slaveApp.database();
+                slaveConfig = fbConfig;
+            } catch(e) {
+                console.error('[db.js] L?i kh?i t?o Slave Firebase:', e);
+                throw e;
+            }
+        });
+        
+        return chain;
     }
     
-    // Helper: huỷ tất cả Firebase listeners
+    // Helper: hu? t?t c? Firebase listeners
     function _destroyAllListeners() {
         for (var collection in listeners) {
             if (listeners.hasOwnProperty(collection)) {
@@ -113,15 +130,17 @@
         listeners = {};
     }
     
-    // Config hash để phát hiện thay đổi Firebase config
+    // [Comment removed - encoding error]
     var CONFIG_HASH_KEY = 'pos_firebase_config_hash';
     function _getConfigHash(fbConfig) {
         if (!fbConfig) return 'master';
         return fbConfig.databaseURL || fbConfig.apiKey || 'custom';
     }
 
-    // Helper: di chuyển dữ liệu từ Master DB sang Slave DB khi đổi Firebase config
-    // Chỉ migrate các collection không phải MASTER_ONLY (staffs, shop_registry, firebase_config, master_admins)
+    // Helper: di chuy?n d? li?u t? Master DB sang Slave DB khi d?i Firebase config
+    // [Comment removed - encoding error]
+        // Helper: di chuy?n d? li?u t? Master DB sang Slave DB khi d?i Firebase config
+    // [Comment removed - encoding error]
     function _migrateData(shopId, oldDb, newDb) {
         var collections = [];
         for (var c in MASTER_COLLECTIONS) {
@@ -134,59 +153,54 @@
                 collections.push(c);
             }
         }
-        // Thêm các collection đặc biệt
+        // [Comment removed - encoding error]
         collections.push('messages');
         collections.push('admin_cost_categories');
         collections.push('cost_transactions_admin');
 
-        var chain = Promise.resolve();
         var migratedCount = 0;
 
-        for (var i = 0; i < collections.length; i++) {
-            chain = chain.then((function(collection) {
-                return function() {
-                    return oldDb.ref(shopId + '/' + collection).once('value').then(function(snapshot) {
-                        if (!snapshot.exists()) return;
-                        var data = snapshot.val();
-                        var updates = {};
-                        for (var key in data) {
-                            if (data.hasOwnProperty(key)) {
-                                updates[key] = data[key];
-                            }
-                        }
-                        if (Object.keys(updates).length > 0) {
-                            return newDb.ref(shopId + '/' + collection).update(updates).then(function() {
-                                migratedCount++;
-                                console.log('  📦 Migrated', collection, ':', Object.keys(updates).length, 'items');
-                            });
-                        }
-                    }).catch(function(err) {
-                        console.warn('  ⚠️ Migration warning for', collection, ':', err.message);
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
+        var promises = collections.map(function(collection) {
+            return oldDb.ref(shopId + '/' + collection).once('value').then(function(snapshot) {
+                if (!snapshot.exists()) return;
+                var data = snapshot.val();
+                var updates = {};
+                for (var key in data) {
+                    if (data.hasOwnProperty(key)) {
+                        updates[key] = data[key];
+                    }
+                }
+                if (Object.keys(updates).length > 0) {
+                    return newDb.ref(shopId + '/' + collection).update(updates).then(function() {
+                        migratedCount++;
+                        console.log('  ?? Migrated', collection, ':', Object.keys(updates).length, 'items');
                     });
-                };
-            })(collections[i]));
-        }
+                }
+            }).catch(function(err) {
+                console.warn('  ?? Migration warning for', collection, ':', err.message);
+            });
+        });
 
-        return chain.then(function() {
-            console.log('✅ Migration completed:', migratedCount, 'collections migrated');
+        return Promise.all(promises).then(function() {
+            console.log('? Migration completed:', migratedCount, 'collections migrated');
             return migratedCount;
         });
-    }
-
-    // Constants
+    }// Constants
     var STORE_NAME = 'pos_data';
     
-    // Biáº¿n lÆ°u thÃ´ng tin user hiá»‡n táº¡i
+    // Biến lưu thông tin user hiện tại
     var currentUser = null;
-    // Äá»c session tá»« localStorage náº¿u cÃ³
+    // Đọc session từ localStorage nếu có
     var savedSession = localStorage.getItem('pos_session');
     if (savedSession) {
         try { currentUser = JSON.parse(savedSession); } catch(e) { localStorage.removeItem('pos_session'); }
     }
     
-    // Äá»c shopId tá»« localStorage, máº·c Ä‘á»‹nh 'shop_default' náº¿u chÆ°a cÃ³
-    // FIX: Náº¿u current_shop_id khÃ´ng cÃ³ trong localStorage (do xÃ³a browser DB)
-    // nhÆ°ng pos_session váº«n cÃ²n, khÃ´i phá»¥c shopId tá»« session
+    // Đọc shopId từ localStorage, mặc định 'shop_default' nếu chưa có
+    // FIX: Nếu current_shop_id không có trong localStorage (do xóa browser DB)
+    // nhưng pos_session vẫn còn, khôi phục shopId từ session
     var CURRENT_SHOP_ID = localStorage.getItem('current_shop_id');
     if (!CURRENT_SHOP_ID) {
         if (currentUser && currentUser.shopId) {
@@ -196,6 +210,45 @@
             CURRENT_SHOP_ID = 'shop_default';
         }
     }
+    // [Comment removed - encoding error]
+    var _slaveInitPromise = null;
+    // [Comment removed - encoding error]
+    // Khi F5/reload, session du?c restore t? localStorage nhung slaveApp/slaveDb = null
+    // [Comment removed - encoding error]
+    if (currentUser && currentUser.hasCustomConfig && currentUser.shopId && currentUser.shopId !== 'master') {
+        var _shopId = currentUser.shopId;
+        // FIX: Đọc firebaseConfig từ shop_registry (nơi Admin Master lưu)
+        // [Comment removed - encoding error]
+        _slaveInitPromise = masterDb.ref('shop_registry/' + currentUser.shopCode).once('value').then(function(registrySnap) {
+            var registryData = registrySnap.val() || {};
+            var fbConfig = registryData.firebaseConfig || null;
+            
+            // [Comment removed - encoding error]
+            if (!fbConfig) {
+                return masterDb.ref('firebase_config/' + _shopId).once('value').then(function(configSnapshot) {
+                    return configSnapshot.val() || null;
+                });
+            }
+            return fbConfig;
+        }).then(function(fbConfig) {
+            if (fbConfig) {
+                console.log('[db.js] Khoi phuc Slave Firebase cho', _shopId);
+                return _initSlaveApp(_shopId, fbConfig).then(function() {
+                    var newHash = _getConfigHash(fbConfig);
+                    localStorage.setItem(CONFIG_HASH_KEY, newHash);
+                    console.log('[db.js] Da khoi phuc Slave Firebase:', fbConfig.databaseURL);
+                });
+            } else {
+                console.warn('[db.js] User co hasCustomConfig=true nhung khong tim thay firebaseConfig cho', _shopId);
+                // [Comment removed - encoding error]
+                currentUser.hasCustomConfig = false;
+                localStorage.setItem('pos_session', JSON.stringify(currentUser));
+            }
+        }).catch(function(err) {
+            console.error('[db.js] Loi khoi phuc Slave Firebase:', err);
+        });
+    }
+    
     var CURRENT_DEVICE_ID = localStorage.getItem('device_id') || ('device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
     localStorage.setItem('device_id', CURRENT_DEVICE_ID);
 
@@ -206,15 +259,15 @@
     var listeners = {};
     
     // ========== SYNC META ==========
-    // sync_meta lưu trong IndexedDB để biết trạng thái đồng bộ của từng collection
-    // Cấu trúc: { collection: 'transactions', lastSyncAt: timestamp, maxVersion: 42, dateKeys: ['2026-06-01','2026-06-02',...] }
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var SYNC_META_STORE = 'sync_meta';
     var syncMetaCache = {}; // memory cache cho sync_meta
     
-    // Hằng số: 30 ngày tính bằng milliseconds
+    // [Comment removed - encoding error]
     var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     
-    // Danh sách collection có dateKey (cần giới hạn 30 ngày khi fullSync)
+    // [Comment removed - encoding error]
     var DATE_BASED_COLLECTIONS = {
         transactions: true,
         daily_balances: true,
@@ -229,7 +282,7 @@
         notifications: true
     };
     
-    // Danh sách collection master (tải toàn bộ khi fullSync)
+    // [Comment removed - encoding error]
     var MASTER_COLLECTIONS = {
         tables: true,
         customers: true,
@@ -238,10 +291,11 @@
         ingredients: true,
         staffs: true,
         cost_categories: true,
-        info: true
+        info: true,
+        messages: true
     };
     
-    // OPTIMIZE: Debounce processSyncQueue - trÃ¡nh gá»i sync sau má»—i DB.update riÃªng láº»
+    // OPTIMIZE: Debounce processSyncQueue - tránh gọi sync sau mỗi DB.update riêng lẻ
     var _syncTimer = null;
     var _syncPending = false;
     function _debouncedProcessSyncQueue() {
@@ -255,20 +309,20 @@
         }, 100);
     }
     
-    // OPTIMIZE: Memory cache layer - trÃ¡nh Ä‘á»c IndexedDB liÃªn tá»¥c
+    // OPTIMIZE: Memory cache layer - tránh đọc IndexedDB liên tục
     var memoryCache = {};
     var cacheVersion = {};
     
-    // FIX: Local callbacks - notify UI ngay sau khi ghi local, khÃ´ng chá» Firebase
+    // FIX: Local callbacks - notify UI ngay sau khi ghi local, không chờ Firebase
     var _localCallbacks = {};
     
-    // NÃ‚NG Cáº¤P: Event Bus - Reactive Layer Giai Ä‘oáº¡n 1
-    // Cho phÃ©p UI subscribe vÃ o cÃ¡c sá»± kiá»‡n cá»¥ thá»ƒ thay vÃ¬ nháº­n toÃ n bá»™ collection
+    // NÂNG CẤP: Event Bus - Reactive Layer Giai đoạn 1
+    // Cho phép UI subscribe vào các sự kiện cụ thể thay vì nhận toàn bộ collection
     // Event types: 'collection:added', 'collection:changed', 'collection:removed'
-    // VÃ­ dá»¥: 'tables:added', 'tables:changed', 'tables:removed'
+    // Ví dụ: 'tables:added', 'tables:changed', 'tables:removed'
     var _eventBus = {};
     
-    // ÄÄƒng kÃ½ listener cho má»™t event type
+    // Đăng ký listener cho một event type
     function _on(eventType, callback) {
         if (!_eventBus[eventType]) _eventBus[eventType] = [];
         _eventBus[eventType].push(callback);
@@ -277,7 +331,7 @@
         };
     }
     
-    // Há»§y Ä‘Äƒng kÃ½ listener
+    // Hủy đăng ký listener
     function _off(eventType, callback) {
         var cbs = _eventBus[eventType];
         if (!cbs) return;
@@ -288,42 +342,42 @@
         }
     }
     
-    // PhÃ¡t sá»± kiá»‡n - gá»i táº¥t cáº£ listeners Ä‘Ã£ Ä‘Äƒng kÃ½
+    // Phát sự kiện - gọi tất cả listeners đã đăng ký
     function _emit(eventType, data) {
         var cbs = _eventBus[eventType];
         if (cbs) {
             for (var i = 0; i < cbs.length; i++) {
-                try { cbs[i](data); } catch(e) { console.error('[EventBus] Lá»—i handler ' + eventType + ':', e); }
+                try { cbs[i](data); } catch(e) { console.error('[EventBus] Lỗi handler ' + eventType + ':', e); }
             }
         }
-        // Wildcard listener: 'collection:*' nháº­n táº¥t cáº£ events cá»§a collection Ä‘Ã³
+        // Wildcard listener: 'collection:*' nhận tất cả events của collection đó
         var parts = eventType.split(':');
         if (parts.length === 2) {
             var wildcard = parts[0] + ':*';
             var wildcardCbs = _eventBus[wildcard];
             if (wildcardCbs) {
                 for (var i = 0; i < wildcardCbs.length; i++) {
-                    try { wildcardCbs[i]({ type: parts[1], collection: parts[0], data: data }); } catch(e) { console.error('[EventBus] Lá»—i wildcard handler ' + wildcard + ':', e); }
+                    try { wildcardCbs[i]({ type: parts[1], collection: parts[0], data: data }); } catch(e) { console.error('[EventBus] Lỗi wildcard handler ' + wildcard + ':', e); }
                 }
             }
         }
     }
     
-    // OPTIMIZE: CÆ¡ cháº¿ suppress realtime notifications khi batch operations
-    // Khi _suppressRealtime > 0, _notifyLocal sáº½ khÃ´ng gá»i callbacks
-    // DÃ¹ng cho thanh toÃ¡n, nháº­p hÃ ng loáº¡t, etc.
-    // NÂNG CẤP: Component Registry + Fine Render API (Giai đoạn 3)
-    // Cho phép UI components đăng ký với 1 collection + 1 selector function
-    // Chỉ re-render khi dữ liệu thay đổi, tránh re-render toàn bộ
+    // OPTIMIZE: Cơ chế suppress realtime notifications khi batch operations
+    // Khi _suppressRealtime > 0, _notifyLocal sẽ không gọi callbacks
+    // Dùng cho thanh toán, nhập hàng loạt, etc.
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var _componentRegistry = {};  // { collection: [ { id, selector, renderFn, lastData } ] }
     var _componentIdCounter = 0;
 
-    // Đăng ký 1 component: renderFn(data) sẽ được gọi khi collection thay đổi
-    // selector nhận (oldData, newData) và trả về true nếu cần re-render
-    // selector có thể là:
-    //   - function(oldData, newData): return true nếu cần render lại
-    //   - null/undefined: luôn render lại khi có change event
-    // Trả về hàm unsubscribe
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    //   - function(oldData, newData): return true n?u c?n render l?i
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     function _renderOn(collection, selector, renderFn) {
         if (!_componentRegistry[collection]) {
             _componentRegistry[collection] = [];
@@ -336,7 +390,7 @@
             lastData: null
         };
         _componentRegistry[collection].push(entry);
-        // Gọi render ngay lập tức với dữ liệu hiện tại
+        // G?i render ngay l?p t?c v?i d? li?u hi?n t?i
         if (memoryCache[collection]) {
             var data = [];
             for (var key in memoryCache[collection]) {
@@ -345,9 +399,9 @@
                 }
             }
             entry.lastData = data;
-            try { renderFn(data); } catch(e) { console.error('[ComponentRegistry] Lỗi render lần đầu:', e); }
+            try { renderFn(data); } catch(e) { console.error('[ComponentRegistry] L?i render l?n d?u:', e); }
         }
-        // Trả về hàm hủy đăng ký
+        // [Comment removed - encoding error]
         return function() {
             var entries = _componentRegistry[collection];
             if (!entries) return;
@@ -360,7 +414,7 @@
         };
     }
 
-    // Thông báo cho tất cả components của 1 collection
+    // [Comment removed - encoding error]
     function _notifyComponents(collection, changeInfo) {
         var entries = _componentRegistry[collection];
         if (!entries || entries.length === 0) return;
@@ -380,14 +434,14 @@
                 try {
                     shouldRender = entry.selector(entry.lastData, newData, changeInfo);
                 } catch(e) {
-                    console.error('[ComponentRegistry] Lỗi selector:', e);
+                    console.error('[ComponentRegistry] L?i selector:', e);
                     shouldRender = true;
                 }
             }
             if (shouldRender) {
                 entry.lastData = newData;
                 try { entry.renderFn(newData, changeInfo); } catch(e) {
-                    console.error('[ComponentRegistry] Lỗi render:', e);
+                    console.error('[ComponentRegistry] L?i render:', e);
                 }
             }
         }
@@ -396,11 +450,11 @@
     var _suppressRealtime = 0;
     var _pendingNotifyCollections = {};
 
-    // Helper: toDateKey - dÃ¹ng giá» Ä‘á»‹a phÆ°Æ¡ng (getFullYear/getMonth/getDate) thay vÃ¬ UTC
+    // Helper: toDateKey - dùng giờ địa phương (getFullYear/getMonth/getDate) thay vì UTC
     function toDateKey(value) {
         if (!value) return '';
         if (typeof value === 'string') {
-            // FIX TIMEZONE: Náº¿u lÃ  ISO string (cÃ³ 'T', 'Z', hoáº·c timezone +/-), pháº£i parse Ä‘á»ƒ láº¥y local date
+            // [Comment removed - encoding error]
             if (value.indexOf('T') >= 0 || value.indexOf('Z') >= 0 || value.indexOf('+') >= 0) {
                 var parsed = Date.parse(value);
                 if (!isNaN(parsed)) {
@@ -411,7 +465,7 @@
                     return y + '-' + m + '-' + day;
                 }
             }
-            // Náº¿u Ä‘Ã£ lÃ  Ä‘á»‹nh dáº¡ng YYYY-MM-DD (10 kÃ½ tá»±), dÃ¹ng trá»±c tiáº¿p
+            // [Comment removed - encoding error]
             if (value.length >= 10 && value[4] === '-' && value[7] === '-') return value.slice(0, 10);
             var parsed = Date.parse(value);
             if (!isNaN(parsed)) {
@@ -445,18 +499,18 @@
         return norm;
     }
 
-    // FIX: Notify local subscribers ngay láº­p tá»©c tá»« memoryCache
-    // OPTIMIZE: Callback nháº­n full data array (tÆ°Æ¡ng thÃ­ch ngÆ°á»£c)
-    // NgoÃ i ra, changeInfo Ä‘Æ°á»£c lÆ°u vÃ o _lastChangeInfo Ä‘á»ƒ UI cÃ³ thá»ƒ dÃ¹ng náº¿u cáº§n
+    // FIX: Notify local subscribers ngay lập tức từ memoryCache
+    // OPTIMIZE: Callback nhận full data array (tương thích ngược)
+    // Ngoài ra, changeInfo được lưu vào _lastChangeInfo để UI có thể dùng nếu cần
     var _lastChangeInfo = {};
     function _notifyLocal(collection, changeInfo) {
-        // OPTIMIZE: Náº¿u Ä‘ang suppress, ghi nháº­n collection cáº§n notify sau
+        // OPTIMIZE: Nếu đang suppress, ghi nhận collection cần notify sau
         if (_suppressRealtime > 0) {
             _pendingNotifyCollections[collection] = true;
             return;
         }
-        // NÃ‚NG Cáº¤P: PhÃ¡t sá»± kiá»‡n Event Bus trÆ°á»›c, sau Ä‘Ã³ má»›i gá»i callbacks cÅ©
-        // Äáº£m báº£o UI nháº­n Ä‘Æ°á»£c changeInfo chi tiáº¿t
+        // NÂNG CẤP: Phát sự kiện Event Bus trước, sau đó mới gọi callbacks cũ
+        // Đảm bảo UI nhận được changeInfo chi tiết
         if (changeInfo && changeInfo.type) {
             var eventType = collection + ':' + changeInfo.type;
             _emit(eventType, {
@@ -467,7 +521,7 @@
             });
         }
         
-        // NÂNG CẤP: Thông báo cho Component Registry (Giai đoạn 3)
+        // [Comment removed - encoding error]
         _notifyComponents(collection, changeInfo);
         
         var cbs = _localCallbacks[collection];
@@ -480,18 +534,18 @@
                 }
             }
         }
-        // LÆ°u changeInfo Ä‘á»ƒ UI cÃ³ thá»ƒ tra cá»©u sau (tÆ°Æ¡ng thÃ­ch ngÆ°á»£c)
+        // Lưu changeInfo để UI có thể tra cứu sau (tương thích ngược)
         if (changeInfo) {
             _lastChangeInfo[collection] = changeInfo;
         }
-        // Gá»i callback vá»›i full data array (giá»¯ nguyÃªn tÆ°Æ¡ng thÃ­ch ngÆ°á»£c)
+        // Gọi callback với full data array (giữ nguyên tương thích ngược)
         for (var i = 0; i < cbs.length; i++) {
             try { cbs[i](data); } catch(e) { console.error('Local callback error:', e); }
         }
     }
     
-    // OPTIMIZE: Báº­t/táº¯t suppress realtime notifications
-    // DÃ¹ng cho batch operations (thanh toÃ¡n, nháº­p hÃ ng loáº¡t)
+    // OPTIMIZE: Bật/tắt suppress realtime notifications
+    // Dùng cho batch operations (thanh toán, nhập hàng loạt)
     function _setSuppressRealtime(suppress) {
         if (suppress) {
             _suppressRealtime++;
@@ -499,7 +553,7 @@
             _suppressRealtime--;
             if (_suppressRealtime <= 0) {
                 _suppressRealtime = 0;
-                // Flush táº¥t cáº£ cÃ¡c collection Ä‘ang pending
+                // Flush tất cả các collection đang pending
                 var collections = Object.keys(_pendingNotifyCollections);
                 _pendingNotifyCollections = {};
                 for (var i = 0; i < collections.length; i++) {
@@ -511,16 +565,18 @@
 
     // IndexedDB operations
     function saveToLocal(collection, data, changeType) {
-        return dbReady.then(function() {
+        // [Comment removed - encoding error]
+        var ready = dbReady || Promise.resolve();
+        return ready.then(function() {
             if (!localDB) throw new Error('DB not ready');
             if (!localDB.objectStoreNames.contains(collection)) throw new Error('Store ' + collection + ' not found');
-            // Cáº­p nháº­t memory cache ngay láº­p tá»©c (dÃ¹ng normalized data Ä‘á»ƒ cÃ³ dateKey, dateTypeKey)
+            // Cập nhật memory cache ngay lập tức (dùng normalized data để có dateKey, dateTypeKey)
             if (!memoryCache[collection]) memoryCache[collection] = {};
             var isNew = !memoryCache[collection][data.id];
             memoryCache[collection][data.id] = normalizeIndexedFields(collection, data);
             cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
-            // FIX: Notify local subscribers ngay, khÃ´ng chá» Firebase
-            // OPTIMIZE: Truyá»n thÃ´ng tin item thay Ä‘á»•i Ä‘á»ƒ UI khÃ´ng cáº§n xá»­ lÃ½ toÃ n bá»™
+            // FIX: Notify local subscribers ngay, không chờ Firebase
+            // OPTIMIZE: Truyền thông tin item thay đổi để UI không cần xử lý toàn bộ
             var type = changeType || (isNew ? 'added' : 'changed');
             _notifyLocal(collection, { type: type, item: data, collection: collection });
             return new Promise(function(resolve, reject) {
@@ -534,11 +590,13 @@
     }
 
     function loadFromLocal(collection, id) {
-        return dbReady.then(function() {
+        // [Comment removed - encoding error]
+        var ready = dbReady || Promise.resolve();
+        return ready.then(function() {
             if (!localDB) return id !== undefined ? null : [];
             if (!localDB.objectStoreNames.contains(collection)) return id !== undefined ? null : [];
             
-            // OPTIMIZE: Memory cache - trÃ¡nh Ä‘á»c IndexedDB liÃªn tá»¥c
+            // OPTIMIZE: Memory cache - tránh đọc IndexedDB liên tục
             if (id !== undefined && id !== null) {
                 if (memoryCache[collection] && memoryCache[collection][id] !== undefined) {
                     return memoryCache[collection][id];
@@ -586,16 +644,18 @@
     }
 
     function deleteFromLocal(collection, id) {
-        return dbReady.then(function() {
+        // [Comment removed - encoding error]
+        var ready = dbReady || Promise.resolve();
+        return ready.then(function() {
             if (!localDB) return;
             if (!localDB.objectStoreNames.contains(collection)) return;
-            // XÃ³a khá»i memory cache ngay
+            // Xóa khỏi memory cache ngay
             if (memoryCache[collection]) {
                 delete memoryCache[collection][id];
                 cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
             }
-            // FIX: Notify local subscribers ngay, khÃ´ng chá» Firebase
-            // OPTIMIZE: Truyá»n thÃ´ng tin item bá»‹ xÃ³a
+            // FIX: Notify local subscribers ngay, không chờ Firebase
+            // OPTIMIZE: Truyền thông tin item bị xóa
             _notifyLocal(collection, { type: 'removed', item: { id: id }, collection: collection });
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readwrite');
@@ -621,19 +681,19 @@
             timestamp: Date.now(),
             retryCount: 0,
             status: 'pending',
-            lastError: null,   // Lưu lỗi gần nhất để debug
-            dirtyAt: Date.now() // Thời điểm đánh dấu dirty
+            lastError: null,   // Luu l?i g?n nh?t d? debug
+            dirtyAt: Date.now() // [Comment removed - encoding error]
         };
         syncQueue.push(item);
         saveToLocal('sync_queue', item);
-        // Đánh dấu dirty flag cho collection để biết có dữ liệu chưa sync
+        // [Comment removed - encoding error]
         _markDirty(collection);
         if (isOnline) processSyncQueue();
         return item.id;
     }
     
-    // DIRTY FLAG: Đánh dấu collection có dữ liệu chưa được đồng bộ lên Firebase
-    // Dùng để ưu tiên sync các collection có dirty flag khi online trở lại
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var _dirtyCollections = {};
     function _markDirty(collection) {
         _dirtyCollections[collection] = true;
@@ -652,7 +712,7 @@
             }
         } catch (e) {}
     }
-    // Khôi phục dirty flags từ localStorage khi khởi động
+    // [Comment removed - encoding error]
     function _restoreDirtyFlags() {
         try {
             var stored = localStorage.getItem('dirty_collections_' + CURRENT_SHOP_ID);
@@ -670,8 +730,8 @@
         var pending = syncQueue.filter(function(q) { return q.status === 'pending'; });
         if (pending.length === 0) return Promise.resolve();
         
-        // OPTIMIZE: Batch cÃ¡c items cÃ¹ng collection thÃ nh 1 Firebase update
-        // Gom cÃ¡c pending items theo collection Ä‘á»ƒ batch
+        // OPTIMIZE: Batch các items cùng collection thành 1 Firebase update
+        // Gom các pending items theo collection để batch
         var batches = {};
         for (var i = 0; i < pending.length; i++) {
             var item = pending[i];
@@ -687,7 +747,7 @@
             chain = chain.then((function(batchItems) {
                 return function() {
                     if (batchItems.length === 1) {
-                        // Chá»‰ 1 item - sync bÃ¬nh thÆ°á»ng
+                        // Chỉ 1 item - sync bình thường
                         var item = batchItems[0];
                         return syncToFirebase(item).then(function() {
                             return _markItemSynced(item);
@@ -695,7 +755,7 @@
                             return _handleSyncError(item, err);
                         });
                     } else {
-                        // Nhiá»u items cÃ¹ng collection - batch thÃ nh 1 Firebase update
+                        // Nhiều items cùng collection - batch thành 1 Firebase update
                         return _batchSyncToFirebase(batchItems).then(function() {
                             var chain2 = Promise.resolve();
                             for (var j = 0; j < batchItems.length; j++) {
@@ -705,7 +765,7 @@
                             }
                             return chain2;
                         }).catch(function(err) {
-                            // Fallback: sync tá»«ng cÃ¡i náº¿u batch fail
+                            // Fallback: sync từng cái nếu batch fail
                             var chain3 = Promise.resolve();
                             for (var j = 0; j < batchItems.length; j++) {
                                 chain3 = chain3.then((function(item) {
@@ -728,8 +788,8 @@
         return chain;
     }
     
-    // OPTIMIZE: Batch sync nhiá»u items cÃ¹ng collection lÃªn Firebase trong 1 láº§n
-    // DÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave tÃ¹y theo collection
+    // OPTIMIZE: Batch sync nhiều items cùng collection lên Firebase trong 1 lần
+    // Dùng _getDb để chọn Master/Slave tùy theo collection
     function _batchSyncToFirebase(items) {
         if (items.length === 0) return Promise.resolve();
         var collection = items[0].collection;
@@ -759,8 +819,8 @@
         }).then(function() {
             var idx = syncQueue.findIndex(function(q) { return q.id === item.id; });
             if (idx !== -1) syncQueue.splice(idx, 1);
-            console.log('âœ… Synced:', item.action, item.collection, item.targetId);
-            // Kiểm tra nếu không còn pending items cho collection này thì clear dirty flag
+            console.log('✅ Synced:', item.action, item.collection, item.targetId);
+            // [Comment removed - encoding error]
             var hasPending = syncQueue.some(function(q) { return q.collection === item.collection && q.status === 'pending'; });
             if (!hasPending) {
                 _clearDirty(item.collection);
@@ -768,26 +828,26 @@
         });
     }
     
-    // FIX: Retry limit + exponential backoff + lưu retryCount vào IndexedDB
+    // [Comment removed - encoding error]
     function _handleSyncError(item, err) {
         item.retryCount = (item.retryCount || 0) + 1;
         item.lastError = err.message || String(err);
         var MAX_RETRY = 5;
         if (item.retryCount < MAX_RETRY) {
             item.status = 'pending';
-            // Lưu retryCount + lastError vào IndexedDB để không bị mất khi reload
+            // [Comment removed - encoding error]
             return saveToLocal('sync_queue', item).then(function() {
                 var delay = Math.min(2000 * Math.pow(2, item.retryCount - 1), 30000); // exponential backoff, max 30s
-                console.warn('  âš ï¸� Retry', item.retryCount, 'for', item.collection, item.targetId, 'in', delay + 'ms');
+                console.warn('  Retry', item.retryCount, 'for', item.collection, item.targetId, 'in', delay + 'ms');
                 return new Promise(function(r) { setTimeout(r, delay); });
             }).then(function() {
-                // Gọi lại processSyncQueue thay vì syncToFirebase trực tiếp
-                // để tận dụng batch mechanism
+                // [Comment removed - encoding error]
+                // d? t?n d?ng batch mechanism
                 return processSyncQueue();
             });
         } else {
             item.status = 'failed';
-            console.error('â�Œ Sync failed after ' + MAX_RETRY + ' retries:', item.action, item.collection, item.targetId, 'Error:', item.lastError);
+            console.error('Sync failed after ' + MAX_RETRY + ' retries:', item.action, item.collection, item.targetId, 'Error:', item.lastError);
             return saveToLocal('sync_queue', item);
         }
     }
@@ -807,11 +867,11 @@
     // CRUD Public
     function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 6); }
 
-    // FIX: Táº¡o idempotency key cho transaction Ä‘á»ƒ chá»‘ng trÃ¹ng khi Ä‘á»“ng bá»™ offline
-    // Káº¿t há»£p: deviceId + timestamp (giÃ¢y) + tableId + amount
+    // FIX: Tạo idempotency key cho transaction để chống trùng khi đồng bộ offline
+    // Kết hợp: deviceId + timestamp (giây) + tableId + amount
     function _generateIdempotencyKey(collection, data) {
         if (collection !== 'transactions') return null;
-        // DÃ¹ng tableId + amount + paymentMethod + timestamp (Ä‘á»™ phÃ¢n giáº£i giÃ¢y)
+        // Dùng tableId + amount + paymentMethod + timestamp (độ phân giải giây)
         var ts = Math.floor(Date.now() / 1000);
         var tableKey = data.tableId || data.tableName || 'unknown';
         var amt = Math.round(data.amount || 0);
@@ -819,7 +879,7 @@
         return CURRENT_DEVICE_ID + '|' + ts + '|' + tableKey + '|' + amt + '|' + method;
     }
 
-    // FIX: Kiá»ƒm tra transaction trÃ¹ng trong memory cache trÆ°á»›c khi táº¡o
+    // FIX: Kiểm tra transaction trùng trong memory cache trước khi tạo
     function _isDuplicateTransaction(data) {
         if (!data.tableId && !data.tableName) {
             return false;
@@ -837,7 +897,7 @@
             if (tx.refunded) continue;
             var txTableKey = tx.tableId || tx.tableName;
             if (txTableKey === tableKey && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
-                // Kiá»ƒm tra thá»i gian - náº¿u trong vÃ²ng 30 giÃ¢y thÃ¬ coi lÃ  trÃ¹ng
+                // Kiểm tra thời gian - nếu trong vòng 30 giây thì coi là trùng
                 var txTime = tx.createdAt || 0;
                 var dataTime = data.createdAt || Date.now();
                 if (Math.abs(txTime - dataTime) < 30000) {
@@ -849,9 +909,9 @@
     }
 
     function create(collection, data, customId) {
-        // FIX: Chá»‘ng trÃ¹ng transaction - kiá»ƒm tra trÆ°á»›c khi táº¡o
+        // FIX: Chống trùng transaction - kiểm tra trước khi tạo
         if (collection === 'transactions' && _isDuplicateTransaction(data)) {
-            console.warn('âš ï¸ Duplicate transaction detected, skipping:', data.tableName, data.amount);
+            console.warn('⚠️ Duplicate transaction detected, skipping:', data.tableName, data.amount);
             return Promise.resolve(null);
         }
         var id = customId || data.id || generateId();
@@ -861,13 +921,13 @@
         newData.createdBy = CURRENT_DEVICE_ID;
         newData.updatedAt = Date.now();
         newData._version = 1;
-        // FIX: LÆ°u idempotency key Ä‘á»ƒ kiá»ƒm tra khi nháº­n Firebase event
+        // FIX: Lưu idempotency key để kiểm tra khi nhận Firebase event
         if (collection === 'transactions') {
             newData._idempotencyKey = _generateIdempotencyKey(collection, data);
         }
         return saveToLocal(collection, newData).then(function() {
             addToSyncQueue('create', collection, newData, id);
-            // OPTIMIZE: Debounce sync - gom nhiá»u operations vÃ o 1 láº§n sync
+            // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
             if (isOnline) _debouncedProcessSyncQueue();
             return Promise.resolve();
         }).then(function() { return newData; });
@@ -884,15 +944,15 @@
             updated._version = (old._version || 0) + 1;
             return saveToLocal(collection, updated).then(function() {
                 addToSyncQueue('update', collection, updated, String(id));
-                // OPTIMIZE: Debounce sync - gom nhiá»u operations vÃ o 1 láº§n sync
+                // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
                 if (isOnline) _debouncedProcessSyncQueue();
                 return Promise.resolve();
             }).then(function() { return updated; });
         });
     }
 
-    // Batch update sortOrder - ghi vÃ o IndexedDB + Firebase 1 láº§n duy nháº¥t, ko qua sync queue
-    // @param {string} collection - TÃªn collection ('menu' hoáº·c 'menu_categories'), máº·c Ä‘á»‹nh 'menu'
+    // Batch update sortOrder - ghi vào IndexedDB + Firebase 1 lần duy nhất, ko qua sync queue
+    // @param {string} collection - Tên collection ('menu' hoặc 'menu_categories'), mặc định 'menu'
     function batchUpdateSortOrder(items, collection) {
         collection = collection || 'menu';
         return dbReady.then(function() {
@@ -903,13 +963,13 @@
             
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
-                // Cáº­p nháº­t memory cache - CHá»ˆ sá»­a sortOrder, giá»¯ nguyÃªn cÃ¡c field khÃ¡c
+                // Cập nhật memory cache - CHỈ sửa sortOrder, giữ nguyên các field khác
                 if (!memoryCache[collection]) memoryCache[collection] = {};
                 if (memoryCache[collection][item.id]) {
                     memoryCache[collection][item.id].sortOrder = item.sortOrder;
                 }
-                // Ghi vÃ o IndexedDB - CHá»ˆ cáº­p nháº­t sortOrder, ko ghi Ä‘Ã¨ toÃ n bá»™
-                // DÃ¹ng store.put vá»›i toÃ n bá»™ data cÅ© + sortOrder má»›i
+                // Ghi vào IndexedDB - CHỈ cập nhật sortOrder, ko ghi đè toàn bộ
+                // Dùng store.put với toàn bộ data cũ + sortOrder mới
                 var fullData = memoryCache[collection][item.id];
                 if (fullData) {
                     fullData.sortOrder = item.sortOrder;
@@ -920,7 +980,7 @@
             
             return new Promise(function(resolve, reject) {
                 tx.oncomplete = function() {
-                    // Sync 1 batch lÃªn Firebase - CHá»ˆ ghi Ä‘Ãºng field sortOrder, ko táº¡o node láº¡
+                    // Sync 1 batch lên Firebase - CHỈ ghi đúng field sortOrder, ko tạo node lạ
                     if (isOnline && CURRENT_SHOP_ID) {
                         var updates = {};
                         var firebasePath = (collection === 'menu_categories') ? 'menu_categories' : 'menu';
@@ -929,7 +989,7 @@
                             updates[key] = items[i].sortOrder;
                         }
                         masterDb.ref().update(updates).catch(function(err) {
-                            console.error('Lá»—i batch sync sortOrder cho ' + collection + ':', err);
+                            console.error('Lỗi batch sync sortOrder cho ' + collection + ':', err);
                         });
                     }
                     _notifyLocal(collection);
@@ -943,7 +1003,7 @@
     function remove(collection, id) {
         return deleteFromLocal(collection, String(id)).then(function() {
             addToSyncQueue('delete', collection, { id: id }, String(id));
-            // OPTIMIZE: Debounce sync - gom nhiá»u operations vÃ o 1 láº§n sync
+            // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
             if (isOnline) _debouncedProcessSyncQueue();
             return Promise.resolve();
         }).then(function() { return true; });
@@ -958,8 +1018,8 @@
         return loadFromLocal(collection).then(function(data) { return data || []; });
     }
 
-    // FIX: Tá»± Ä‘á»™ng sá»­a dateKey cho dá»¯ liá»‡u cÅ© bá»‹ sai do UTC vs Local time (+7)
-    // Kiá»ƒm tra náº¿u dateKey khÃ´ng khá»›p vá»›i createdAt (tÃ­nh theo local time), thÃ¬ cáº­p nháº­t láº¡i
+    // FIX: Tự động sửa dateKey cho dữ liệu cũ bị sai do UTC vs Local time (+7)
+    // Kiểm tra nếu dateKey không khớp với createdAt (tính theo local time), thì cập nhật lại
     function _fixDateKeyIfNeeded(tx) {
         if (!tx || !tx.id) return tx;
         var correctKey = toDateKey(tx.createdAt || tx.date || tx.updatedAt);
@@ -967,18 +1027,18 @@
             
             tx.dateKey = correctKey;
             tx.dateTypeKey = correctKey + '|' + (tx.type || 'unknown');
-            // Cáº­p nháº­t trong memoryCache vÃ  IndexedDB
+            // Cập nhật trong memoryCache và IndexedDB
             if (memoryCache.transactions) {
                 memoryCache.transactions[tx.id] = tx;
             }
-            // Ghi Ä‘Ã¨ vÃ o IndexedDB (fire & forget)
+            // Ghi đè vào IndexedDB (fire & forget)
             if (localDB) {
                 try {
                     var writeTx = localDB.transaction(['transactions'], 'readwrite');
                     var store = writeTx.objectStore('transactions');
                     store.put(tx);
                 } catch(e) {
-                    console.warn('KhÃ´ng thá»ƒ ghi fix dateKey vÃ o IndexedDB:', e.message);
+                    console.warn('Không thể ghi fix dateKey vào IndexedDB:', e.message);
                 }
             }
         }
@@ -991,7 +1051,7 @@
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
             
-            // Bước 1: Đọc từ local (memory cache hoặc IndexedDB)
+            // [Comment removed - encoding error]
             var localPromise;
             if (memoryCache.transactions) {
                 var allTx = [];
@@ -1037,16 +1097,16 @@
                 });
             }
             
-            // Bước 2: Nếu local không có dữ liệu cho ngày này, auto-fetch từ Firebase
+            // [Comment removed - encoding error]
             return localPromise.then(function(localData) {
                 if (localData && localData.length > 0) {
-                    return localData; // Đã có local, trả về ngay
+                    return localData; // [Comment removed - encoding error]
                 }
                 
-                // Không có local data → fetch từ Firebase
+                // [Comment removed - encoding error]
                 if (!isOnline) return [];
                 
-                console.log('📡 Auto-fetching transactions for date:', dateKey);
+                console.log('?? Auto-fetching transactions for date:', dateKey);
                 return syncCollectionByDate('transactions', dateKey).then(function(fetched) {
                     if (type !== 'all' && fetched) {
                         fetched = fetched.filter(function(t) { return t.type === type; });
@@ -1057,17 +1117,17 @@
         });
     }
 
-    // Deduplication cho getTransactionsByDateRange: tránh fetch cùng range nhiều lần
+    // [Comment removed - encoding error]
     var _fetchingRange = null;
     
     function getTransactionsByDateRange(startDateKey, endDateKey, options) {
         options = options || {};
         var type = options.type || 'all';
         
-        // Nếu đang fetch range khác, đợi nó xong rồi thử lại (dùng sync_meta để biết đã có data chưa)
+        // [Comment removed - encoding error]
         if (_fetchingRange) {
             return _fetchingRange.then(function() {
-                // Sau khi range trước xong, thử lại (lần này sẽ ít missing hơn hoặc hết)
+                // [Comment removed - encoding error]
                 return _doGetTransactionsByDateRange(startDateKey, endDateKey, type);
             });
         }
@@ -1087,7 +1147,7 @@
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
             
-            // Bước 1: Đọc từ local (memory cache hoặc IndexedDB)
+            // [Comment removed - encoding error]
             var localPromise;
             if (memoryCache.transactions) {
                 var allTx = [];
@@ -1134,10 +1194,10 @@
                 });
             }
             
-            // Bước 2: Kiểm tra ngày nào còn thiếu, fetch từ Firebase
-            // Dùng sync_meta.dateKeys để biết ngày nào đã được fetch (kể cả ko có data)
+            // [Comment removed - encoding error]
+            // [Comment removed - encoding error]
             return localPromise.then(function(localData) {
-                // Thu thập dateKeys đã có trong local data
+                // [Comment removed - encoding error]
                 var localDateKeys = {};
                 for (var i = 0; i < localData.length; i++) {
                     if (localData[i].dateKey) {
@@ -1145,14 +1205,14 @@
                     }
                 }
                 
-                // Kiểm tra sync_meta để biết ngày nào đã fetch rồi (dù ko có giao dịch)
+                // [Comment removed - encoding error]
                 return getSyncMeta('transactions').then(function(meta) {
                     var fetchedDateKeys = (meta && meta.dateKeys) || [];
                     for (var i = 0; i < fetchedDateKeys.length; i++) {
                         localDateKeys[fetchedDateKeys[i]] = true;
                     }
                     
-                    // Tìm ngày thiếu trong khoảng
+                    // [Comment removed - encoding error]
                     var allDateKeys = getDateKeysBetween(startDateKey, endDateKey);
                     var missingDateKeys = [];
                     for (var i = 0; i < allDateKeys.length; i++) {
@@ -1162,11 +1222,11 @@
                     }
                     
                     if (missingDateKeys.length === 0 || !isOnline) {
-                        return localData; // Đã có đủ dữ liệu
+                        return localData; // [Comment removed - encoding error]
                     }
                     
-                    // Fetch từng ngày thiếu từ Firebase
-                    console.log('📡 Auto-fetching missing dates:', missingDateKeys.length, 'days');
+                    // [Comment removed - encoding error]
+                    console.log('?? Auto-fetching missing dates:', missingDateKeys.length, 'days');
                     
                     var chain = Promise.resolve();
                     for (var i = 0; i < missingDateKeys.length; i++) {
@@ -1178,7 +1238,7 @@
                     }
                     
                     return chain.then(function() {
-                        // Đọc lại từ local sau khi đã fetch
+                        // [Comment removed - encoding error]
                         return loadFromLocal('transactions').then(function(allData) {
                             var result = [];
                             for (var i = 0; i < allData.length; i++) {
@@ -1198,15 +1258,15 @@
     }
 
    function subscribeToCollection(collection, callback, options) {
-    // FIX: ÄÄƒng kÃ½ local callback Ä‘á»ƒ UI nháº­n notify ngay sau ghi local
+    // FIX: Đăng ký local callback để UI nhận notify ngay sau ghi local
     if (callback) {
         if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
         _localCallbacks[collection].push(callback);
     }
     
-    // OPTIMIZE: Há»— trá»£ query options (limitToLast, orderByChild) Ä‘á»ƒ giáº£m dung lÆ°á»£ng download
-    // VÃ­ dá»¥: { limitToLast: 200, orderByChild: 'createdAt' } chá»‰ láº¥y 200 item má»›i nháº¥t
-    // DÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave tÃ¹y theo collection
+    // OPTIMIZE: Hỗ trợ query options (limitToLast, orderByChild) để giảm dung lượng download
+    // Ví dụ: { limitToLast: 200, orderByChild: 'createdAt' } chỉ lấy 200 item mới nhất
+    // Dùng _getDb để chọn Master/Slave tùy theo collection
     var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
     if (options && options.orderByChild) {
         var queryRef = ref.orderByChild(options.orderByChild);
@@ -1218,8 +1278,8 @@
         ref = ref.limitToLast(options.limitToLast);
     }
     
-    // FIX: Collection 'info' lÃ  special - chá»‰ cÃ³ 1 item config duy nháº¥t (shop_config)
-    // DÃ¹ng on('value') thay vÃ¬ child_* Ä‘á»ƒ nháº­n toÃ n bá»™ object, trÃ¡nh bá»‹ tÃ¡ch thÃ nh nhiá»u item riÃªng láº»
+    // FIX: Collection 'info' là special - chỉ có 1 item config duy nhất (shop_config)
+    // Dùng on('value') thay vì child_* để nhận toàn bộ object, tránh bị tách thành nhiều item riêng lẻ
     if (collection === 'info') {
         var updateScheduledInfo = false;
         var emitUpdateInfo = function() {
@@ -1238,7 +1298,7 @@
         var onValue = function(snapshot) {
             if (!snapshot.exists()) return;
             var src = snapshot.val() || {};
-            // Gá»™p toÃ n bá»™ object thÃ nh 1 item vá»›i id='shop_config'
+            // Gộp toàn bộ object thành 1 item với id='shop_config'
             var item = { id: 'shop_config' };
             for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
             saveToLocal(collection, item).then(emitUpdateInfo);
@@ -1251,8 +1311,8 @@
         };
     }
     
-    // P0: Táº¥t cáº£ collections Ä‘á»u dÃ¹ng child_* events thay vÃ¬ on('value')
-    // transactions/reports Ä‘Ã£ dÃ¹ng child_* tá»« trÆ°á»›c, giá» má»Ÿ rá»™ng cho táº¥t cáº£
+    // P0: Tất cả collections đều dùng child_* events thay vì on('value')
+    // transactions/reports đã dùng child_* từ trước, giờ mở rộng cho tất cả
     var updateScheduled = false;
     var emitUpdate = function() {
         if (updateScheduled) return;
@@ -1260,7 +1320,7 @@
         setTimeout(function() {
             updateScheduled = false;
             loadFromLocal(collection).then(function(localData) {
-                // FIX: Firebase callback - gá»i sau local callback, trÃ¡nh trÃ¹ng
+                // FIX: Firebase callback - gọi sau local callback, tránh trùng
                 if (callback) callback(localData);
                 var evt = document.createEvent('CustomEvent');
                 evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
@@ -1275,8 +1335,8 @@
         var item = { id: key };
         for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
         
-        // FIX: Chỉ skip _version check cho transactions (chống trùng khi offline sync)
-        // KHÔNG skip cho tables, customers, menu v.v. vì có thể bàn bị xóa rồi tạo lại
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
         if (collection !== 'tables') {
             var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
             if (localItem && (localItem._version || 0) >= (item._version || 0)) {
@@ -1284,21 +1344,21 @@
             }
         }
         
-        // FIX: Chá»‘ng trÃ¹ng transaction tá»« Firebase realtime
-        // Náº¿u transaction nÃ y Ä‘Ã£ tá»“n táº¡i trong local (do chÃ­nh mÃ¡y nÃ y táº¡o khi offline),
-        // thÃ¬ khÃ´ng ghi Ä‘Ã¨ - giá»¯ nguyÃªn báº£n local (cÃ³ _idempotencyKey vÃ  _version Ä‘áº§y Ä‘á»§)
+        // FIX: Chống trùng transaction từ Firebase realtime
+        // Nếu transaction này đã tồn tại trong local (do chính máy này tạo khi offline),
+        // thì không ghi đè - giữ nguyên bản local (có _idempotencyKey và _version đầy đủ)
         if (collection === 'transactions' && memoryCache.transactions && memoryCache.transactions[key]) {
             var localTx = memoryCache.transactions[key];
-            // Náº¿u local cÃ³ _version >= 1 vÃ  _syncedAt chÆ°a cÃ³, nghÄ©a lÃ  local chÆ°a sync
-            // Giá»¯ nguyÃªn báº£n local, khÃ´ng ghi Ä‘Ã¨ báº±ng Firebase data
+            // Nếu local có _version >= 1 và _syncedAt chưa có, nghĩa là local chưa sync
+            // Giữ nguyên bản local, không ghi đè bằng Firebase data
             if (localTx._version >= 1 && !localTx._syncedAt) {
-                console.log('⏭️ Skip Firebase overwrite for pending local transaction:', key);
+                console.log('?? Skip Firebase overwrite for pending local transaction:', key);
                 return;
             }
         }
         
-        // FIX: Kiá»ƒm tra idempotency - náº¿u transaction tá»« mÃ¡y khÃ¡c cÃ³ cÃ¹ng table+amount+method
-        // trong khoáº£ng thá»i gian ngáº¯n, kiá»ƒm tra xem cÃ³ pháº£i trÃ¹ng khÃ´ng
+        // FIX: Kiểm tra idempotency - nếu transaction từ máy khác có cùng table+amount+method
+        // trong khoảng thời gian ngắn, kiểm tra xem có phải trùng không
         if (collection === 'transactions' && item.tableId && item.amount) {
             var txCache = memoryCache.transactions;
             if (txCache) {
@@ -1312,10 +1372,10 @@
                     if (sameTable && sameAmount && sameMethod) {
                         var timeDiff = Math.abs((existing.createdAt || 0) - (item.createdAt || 0));
                         if (timeDiff < 30000 && timeDiff > 0) {
-                            // Transaction tá»« mÃ¡y khÃ¡c trÃ¹ng vá»›i local - Ä‘Ã¡nh dáº¥u refunded Ä‘á»ƒ áº©n
-                            console.warn('⚠️ Detected duplicate transaction from another device:', key, 'duplicates', ck);
+                            // Transaction từ máy khác trùng với local - đánh dấu refunded để ẩn
+                            console.warn('?? Detected duplicate transaction from another device:', key, 'duplicates', ck);
                             item.refunded = true;
-                            item.note = (item.note || '') + ' [Tá»± Ä‘á»™ng Ä‘Ã¡nh dáº¥u trÃ¹ng láº·p]';
+                            item.note = (item.note || '') + ' [Tự động đánh dấu trùng lặp]';
                             break;
                         }
                     }
@@ -1332,8 +1392,8 @@
         var item = { id: key };
         for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
         
-        // FIX: Chỉ skip _version check cho transactions
-        // KHÔNG skip cho tables vì có thể bàn bị xóa rồi tạo lại
+        // FIX: Ch? skip _version check cho transactions
+        // [Comment removed - encoding error]
         if (collection !== 'tables') {
             var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
             if (localItem && (localItem._version || 0) >= (item._version || 0)) {
@@ -1359,21 +1419,21 @@
     };
 }
 
-    // OPTIMIZE: Subscribe dùng once('value') + polling định kỳ cho collections ít thay đổi
-    // Giảm download dữ liệu: không giữ kết nối realtime, chỉ refresh mỗi X giây
-    // FIX: Chỉ load lần đầu + tạo pollTimer nếu chưa có (tránh trùng lặp)
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var _pollingTimers = {};
     function subscribeWithPolling(collection, callback, intervalSeconds) {
-        intervalSeconds = intervalSeconds || 60; // Mặc định 60 giây
-        // Đăng ký local callback
+        intervalSeconds = intervalSeconds || 60; // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
         if (callback) {
             if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
             _localCallbacks[collection].push(callback);
         }
         
-        // FIX: Nếu đã có pollTimer cho collection này, không tạo mới
-        // Nhưng gọi callback ngay với data hiện có để UI không phải chờ
-        // Nếu chưa có data (initial load chưa hoàn thành), đăng ký callback để chờ
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
         if (_pollingTimers[collection]) {
             if (callback) {
                 if (memoryCache[collection]) {
@@ -1386,15 +1446,15 @@
                     if (data.length > 0) {
                         try { callback(data); } catch(e) { console.error('Polling callback error:', e); }
                     } else {
-                        // FIX: memoryCache rỗng (initial load chưa hoàn thành)
-                        // Đăng ký callback để được gọi khi initial load hoàn thành qua _notifyLocal
-                        console.log('⏳ Polling ' + collection + ': memoryCache empty, registering callback for later');
+                        // [Comment removed - encoding error]
+                        // [Comment removed - encoding error]
+                        console.log('? Polling ' + collection + ': memoryCache empty, registering callback for later');
                         if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
                         _localCallbacks[collection].push(callback);
                     }
                 } else {
-                    // FIX: memoryCache chưa được khởi tạo, đăng ký callback để chờ
-                    console.log('⏳ Polling ' + collection + ': memoryCache not ready, registering callback for later');
+                    // [Comment removed - encoding error]
+                    console.log('? Polling ' + collection + ': memoryCache not ready, registering callback for later');
                     if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
                     _localCallbacks[collection].push(callback);
                 }
@@ -1405,16 +1465,16 @@
             };
         }
         
-        // DÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave tÃ¹y theo collection
+        // Dùng _getDb để chọn Master/Slave tùy theo collection
         var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
         
-        // Load lần đầu (chỉ 1 lần) — dùng deltaSync nếu đã có sync_meta
+        // [Comment removed - encoding error]
         getSyncMeta(collection).then(function(meta) {
             if (meta && meta.maxVersion > 0) {
-                // Đã có dữ liệu cũ, chỉ tải delta
+                // [Comment removed - encoding error]
                 deltaSync(collection);
             } else {
-                // Chưa có dữ liệu, tải toàn bộ
+                // [Comment removed - encoding error]
                 ref.once('value', function(snapshot) {
                     if (!snapshot.exists()) return;
                     var remote = snapshot.val() || {};
@@ -1432,12 +1492,12 @@
                         }
                     }
                     saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: [] });
-                    console.log('📥 Polling loaded ' + collection + ': ' + count + ' items');
+                    console.log('?? Polling loaded ' + collection + ': ' + count + ' items');
                 });
             }
         });
         
-        // Polling định kỳ — dùng delta query theo _version
+        // [Comment removed - encoding error]
         _pollingTimers[collection] = setInterval(function() {
             if (!isOnline) return;
             
@@ -1467,13 +1527,13 @@
                     
                     if (count > 0) {
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                        console.log('📥 Polling delta ' + collection + ': ' + count + ' new items');
+                        console.log('?? Polling delta ' + collection + ': ' + count + ' new items');
                     }
                 });
             });
             
-            // FIX: Polling cũng cần phát hiện deletions (item bị xóa trên Firebase không có _version)
-            // Chạy cleanupDeletedIds để xóa các item đã bị xóa khỏi local cache
+            // [Comment removed - encoding error]
+            // [Comment removed - encoding error]
             _cleanupDeletedIds(collection);
         }, intervalSeconds * 1000);
         
@@ -1483,29 +1543,18 @@
         };
     }
     
-    // Quick Sync: Hàm debounced để đồng bộ nhanh khi tab resume
-    // Dùng debounce 500ms để tránh gọi nhiều lần khi visibilitychange + focus cùng lúc
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     var _quickSyncTimer = null;
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
         _quickSyncTimer = setTimeout(function() {
             _quickSyncTimer = null;
             if (!isOnline) return;
-            console.log('📡 Quick sync on resume...');
-            // Tables luôn dùng fullSync để mirror chính xác
-            fullSync('tables');
-            // Các master collections khác dùng deltaSync
-            var masterKeys = Object.keys(MASTER_COLLECTIONS);
-            for (var i = 0; i < masterKeys.length; i++) {
-                if (masterKeys[i] !== 'tables') {
-                    deltaSync(masterKeys[i]);
-                }
-            }
-            // Date-based collections dùng deltaSync
-            var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
-            for (var j = 0; j < dateKeys.length; j++) {
-                deltaSync(dateKeys[j]);
-            }
+            console.log('?? Quick sync on resume...');
+            // FIX: Chi goi smartSync() 1 lan (khong tham so = sync tat ca)
+            // Truoc day goi trong vong lap N lan, gay N lan sync trung lap
+            smartSync();
         }, 500);
     }
     
@@ -1513,32 +1562,18 @@
     function initNetwork() {
         window.addEventListener('online', function() {
             isOnline = true;
-            showToast('📡 Đã kết nối mạng', 'success');
+            showToast('Da ket noi mang', 'success');
             processSyncQueue();
-            // FIX: Khi online trở lại, tables dùng fullSync để tải toàn bộ từ Firebase
-            // (tables chỉ ~20 items, đảm bảo dữ liệu luôn khớp với Firebase)
-            fullSync('tables');
-            // Các master collections khác dùng deltaSync (chỉ tải items có _version > localMaxVersion)
-            var masterKeys = Object.keys(MASTER_COLLECTIONS);
-            for (var i = 0; i < masterKeys.length; i++) {
-                if (masterKeys[i] !== 'tables') {
-                    deltaSync(masterKeys[i]);
-                }
-            }
-            // Date-based collections dùng deltaSync (chỉ tải giao dịch mới, không tải lại lịch sử)
-            var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
-            for (var j = 0; j < dateKeys.length; j++) {
-                deltaSync(dateKeys[j]);
-            }
+            // FIX: Chi goi smartSync() 1 lan (khong tham so = sync tat ca)
+            // Truoc day goi trong vong lap N lan, gay N lan sync trung lap
+            smartSync();
         });
         window.addEventListener('offline', function() {
             isOnline = false;
-            showToast('⚠️ Mất kết nối', 'warning');
+            showToast('?? M?t k?t n?i', 'warning');
         });
         
         // QUICK SYNC: Khi tab resume (visibilitychange + focus)
-        // Giải quyết vấn đề: user chuyển tab khác, quay lại thì dữ liệu đã thay đổi
-        // trên Firebase (từ máy khác) nhưng chưa được đồng bộ
         document.addEventListener('visibilitychange', function() {
             if (document.visibilityState === 'visible') {
                 _quickSync();
@@ -1549,6 +1584,34 @@
         });
         
         isOnline = navigator.onLine;
+        
+        // FIX: Theo doi Firebase connection state thuc te
+        // .info/connected cho biet SDK co ket noi duoc den Firebase server hay khong
+        // Tranh truong hop navigator.onLine = true nhung Firebase bi mat ket noi
+        _monitorFirebaseConnection();
+    }
+    
+    // FIX: Theo doi Firebase connection state
+    var _firebaseConnected = false;
+    function _monitorFirebaseConnection() {
+        try {
+            var connectedRef = masterDb.ref('.info/connected');
+            connectedRef.on('value', function(snapshot) {
+                var wasConnected = _firebaseConnected;
+                _firebaseConnected = snapshot.val() === true;
+                if (_firebaseConnected && !wasConnected) {
+                    // Vua ket noi lai Firebase - can sync lai du lieu
+                    console.log('?? Firebase reconnected - syncing data...');
+                    if (isOnline) {
+                        smartSync();
+                    }
+                } else if (!_firebaseConnected && wasConnected) {
+                    console.warn('?? Firebase disconnected - will auto-sync when reconnected');
+                }
+            });
+        } catch(e) {
+            console.warn('?? Could not monitor Firebase connection:', e);
+        }
     }
 
     // ========== SYNC META OPERATIONS ==========
@@ -1556,13 +1619,13 @@
     // Key prefix cho localStorage
     var LS_SYNC_META_PREFIX = 'sync_meta_';
     
-    // Đọc sync_meta cho 1 collection từ localStorage (có memory cache)
-    // Dùng localStorage thay vì IndexedDB để đảm bảo dữ liệu không bị mất khi F5
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     function getSyncMeta(collection) {
         if (syncMetaCache[collection]) {
             return Promise.resolve(syncMetaCache[collection]);
         }
-        // Đọc từ localStorage (synchronous, không bị mất khi F5)
+        // [Comment removed - encoding error]
         try {
             var lsKey = LS_SYNC_META_PREFIX + CURRENT_SHOP_ID + '_' + collection;
             var stored = localStorage.getItem(lsKey);
@@ -1574,9 +1637,9 @@
                 }
             }
         } catch (e) {
-            // localStorage không khả dụng, bỏ qua
+            // [Comment removed - encoding error]
         }
-        // Fallback: đọc từ IndexedDB (nếu localStorage không có)
+        // [Comment removed - encoding error]
         if (!dbReady) {
             return Promise.resolve(null);
         }
@@ -1592,7 +1655,7 @@
                     var meta = req.result || null;
                     if (meta) {
                         syncMetaCache[collection] = meta;
-                        // Sync lên localStorage cho lần sau
+                        // [Comment removed - encoding error]
                         try {
                             var lsKey = LS_SYNC_META_PREFIX + CURRENT_SHOP_ID + '_' + collection;
                             localStorage.setItem(lsKey, JSON.stringify(meta));
@@ -1605,10 +1668,10 @@
         });
     }
     
-    // Ghi sync_meta cho 1 collection vào localStorage (synchronous) + IndexedDB (async fallback)
+    // [Comment removed - encoding error]
     function saveSyncMeta(collection, meta) {
         syncMetaCache[collection] = meta;
-        // Ghi vào localStorage ngay lập tức (synchronous, không bị mất khi F5)
+        // [Comment removed - encoding error]
         try {
             var lsKey = LS_SYNC_META_PREFIX + CURRENT_SHOP_ID + '_' + collection;
             localStorage.setItem(lsKey, JSON.stringify({
@@ -1618,9 +1681,9 @@
                 dateKeys: meta.dateKeys || []
             }));
         } catch (e) {
-            // localStorage không khả dụng, bỏ qua
+            // [Comment removed - encoding error]
         }
-        // Ghi vào IndexedDB (async, fallback)
+        // [Comment removed - encoding error]
         if (!dbReady) return Promise.resolve();
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains(SYNC_META_STORE)) return;
@@ -1629,97 +1692,94 @@
                 var store = tx.objectStore(SYNC_META_STORE);
                 store.put({ id: collection, lastSyncAt: meta.lastSyncAt, maxVersion: meta.maxVersion, dateKeys: meta.dateKeys || [] });
                 tx.oncomplete = function() { resolve(); };
-                tx.onerror = function() { resolve(); }; // Không reject để tránh lỗi lan truyền
+                tx.onerror = function() { resolve(); }; // [Comment removed - encoding error]
             });
         });
     }
     
-    // Lấy maxVersion của 1 collection từ Firebase _meta node
+    // L?y maxVersion c?a 1 collection t? Firebase _meta node
     function getMaxVersionFromFirebase(collection) {
         if (!isOnline) return Promise.resolve(0);
-        // Dùng _getDb() để chọn Master/Slave tùy theo collection
+        // [Comment removed - encoding error]
         return _getDb(collection).ref(CURRENT_SHOP_ID + '/_meta/' + collection + '/maxVersion').once('value').then(function(snapshot) {
             return snapshot.val() || 0;
         }).catch(function() { return 0; });
     }
     
-    // Cập nhật maxVersion lên Firebase _meta node
+    // [Comment removed - encoding error]
     function updateMetaOnFirebase(collection, maxVersion) {
         if (!isOnline) return Promise.resolve();
-        // Dùng _getDb() để chọn Master/Slave tùy theo collection
+        // [Comment removed - encoding error]
         return _getDb(collection).ref(CURRENT_SHOP_ID + '/_meta/' + collection).update({
             maxVersion: maxVersion,
             lastUpdatedAt: firebase.database.ServerValue.TIMESTAMP
         }).catch(function(err) {
-            console.warn('⚠️ Could not update _meta for', collection, err);
+            console.warn('?? Could not update _meta for', collection, err);
         });
     }
     
     // ========== SMART SYNC ==========
     
-    // Promise toàn cục để các component có thể đợi smartSync hoàn thành
+    // [Comment removed - encoding error]
     var _syncPromise = null;
     
-    // Trả về promise để component đợi sync hoàn thành
+    // [Comment removed - encoding error]
     function whenSyncComplete() {
         if (_syncPromise) return _syncPromise;
         return Promise.resolve();
     }
     
-    // Xác định trạng thái thiết bị và thực hiện đồng bộ phù hợp
-    function smartSync() {
+    // FIX: smartSync nhan tham so collection de chi sync 1 collection cu the
+    // Khi duoc goi tu heartbeat, BroadcastChannel, hoac _quickSync
+    // Neu khong co tham so, sync tat ca collections (nhu cu)
+    function smartSync(collection) {
         if (!isOnline) {
             _syncPromise = Promise.resolve();
             return _syncPromise;
         }
         
-        console.log('🔄 Smart sync started...');
+        // FIX: Neu co tham so collection cu the, chi sync collection do
+        // Su dung _syncSingleCollection thay vi syncCollection (inner function)
+        // de tranh ReferenceError: syncResults is not defined
+        if (collection) {
+            console.log('?? Smart sync for single collection:', collection);
+            _syncPromise = _syncSingleCollection(collection).then(function() {
+                console.log('? Smart sync completed for:', collection);
+                return { full: [], delta: [collection], skipped: [] };
+            });
+            return _syncPromise;
+        }
         
-        // FIX: Chạy master collections TRƯỚC (tuần tự) để đảm bảo menu, ingredients được load ngay
-        // Sau đó mới chạy date-based collections (song song) để tránh quá tải IndexedDB
+        console.log('?? Smart sync started for all collections...');
+        
         var masterKeys = Object.keys(MASTER_COLLECTIONS);
         var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
         
         var syncResults = { full: [], delta: [], skipped: [] };
         
-        // Helper: sync một collection (fullSync hoặc deltaSync tùy theo sync_meta)
         function syncCollection(collection) {
-            // FIX: Tables luôn dùng fullSync để đảm bảo dữ liệu khớp 100% với Firebase
-            // (tables chỉ ~20 items, fullSync rất nhẹ)
-            // Tránh trường hợp tables bị xóa trên Firebase nhưng local vẫn còn
             if (collection === 'tables') {
                 syncResults.full.push(collection);
                 return fullSync(collection);
             }
             
             return getSyncMeta(collection).then(function(meta) {
-                // FIX: Kiểm tra nếu IndexedDB rỗng (memoryCache không có data) thì force fullSync
-                // Trường hợp: user xóa dữ liệu thiết bị (IndexedDB bị clear) nhưng sync_meta
-                // vẫn còn trong localStorage -> deltaSync chỉ tải items có _version > localMaxVersion
-                // mà không tải lại toàn bộ dữ liệu -> menu, danh mục, nguyên liệu bị thiếu
-                // Cải tiến: kiểm tra trực tiếp IndexedDB (loadFromLocal) thay vì chỉ dựa vào memoryCache
-                // vì smartSync() chạy trước khi memoryCache được load từ IndexedDB
                 var isLocalEmpty = !memoryCache[collection] || Object.keys(memoryCache[collection]).length === 0;
                 
                 if (!meta || isLocalEmpty) {
-                    // Nếu memoryCache rỗng, kiểm tra thêm IndexedDB để tránh fullSync không cần thiết
-                    // (trường hợp memoryCache chưa được load nhưng IndexedDB đã có dữ liệu)
                     if (isLocalEmpty) {
                         return loadFromLocal(collection).then(function(localData) {
                             var hasLocalData = localData && (Array.isArray(localData) ? localData.length > 0 : Object.keys(localData).length > 0);
                             if (hasLocalData) {
-                                // IndexedDB có dữ liệu -> load vào memoryCache và dùng deltaSync
                                 if (!memoryCache[collection]) memoryCache[collection] = {};
                                 for (var i = 0; i < localData.length; i++) {
                                     memoryCache[collection][localData[i].id] = localData[i];
                                 }
-                                // Nếu có sync_meta, dùng deltaSync
                                 if (meta) {
                                     syncResults.delta.push(collection);
                                     return deltaSync(collection);
                                 }
                             }
-                            // IndexedDB thực sự rỗng -> force fullSync
                             syncResults.full.push(collection);
                             return fullSync(collection);
                         });
@@ -1741,17 +1801,15 @@
             });
         }
         
-        // Bước 1: Chạy master collections tuần tự (quan trọng: menu, ingredients, tables, customers)
-        var masterChain = Promise.resolve();
+        // OPTIMIZE: Ch?y master collections SONG SONG d? gi?m th?i gian
+        var masterPromises = [];
         for (var m = 0; m < masterKeys.length; m++) {
             (function(collection) {
-                masterChain = masterChain.then(function() {
-                    return syncCollection(collection);
-                });
+                masterPromises.push(syncCollection(collection));
             })(masterKeys[m]);
         }
         
-        // Bước 2: Sau khi master collections hoàn thành, chạy date-based collections song song
+        // Date-based collections cung ch?y song song
         var datePromises = [];
         for (var d = 0; d < dateKeys.length; d++) {
             (function(collection) {
@@ -1759,35 +1817,65 @@
             })(dateKeys[d]);
         }
         
-        // Lưu promise để các component có thể đợi smartSync hoàn thành
-        _syncPromise = masterChain.then(function() {
-            return Promise.all(datePromises);
-        }).then(function() {
-            console.log('✅ Smart sync completed. Full:', syncResults.full.length, 'Delta:', syncResults.delta.length, 'Skipped:', syncResults.skipped.length);
+        _syncPromise = Promise.all(masterPromises.concat(datePromises)).then(function() {
+            console.log('? Smart sync completed. Full:', syncResults.full.length, 'Delta:', syncResults.delta.length, 'Skipped:', syncResults.skipped.length);
             return syncResults;
         });
         return _syncPromise;
     }
     
-    // FULL SYNC: Tải toàn bộ dữ liệu từ Firebase
-    // - Master collections: tải tất cả
-    // - Date-based collections: chỉ tải 30 ngày gần nhất
+    // FIX: Ham rieng de sync 1 collection, khong phu thuoc vao syncResults
+    // Tra ve Promise, khong can ket qua chi tiet
+    function _syncSingleCollection(collection) {
+        if (collection === 'tables') {
+            return fullSync(collection);
+        }
+        return getSyncMeta(collection).then(function(meta) {
+            var isLocalEmpty = !memoryCache[collection] || Object.keys(memoryCache[collection]).length === 0;
+            if (!meta || isLocalEmpty) {
+                if (isLocalEmpty) {
+                    return loadFromLocal(collection).then(function(localData) {
+                        var hasLocalData = localData && (Array.isArray(localData) ? localData.length > 0 : Object.keys(localData).length > 0);
+                        if (hasLocalData) {
+                            if (!memoryCache[collection]) memoryCache[collection] = {};
+                            for (var i = 0; i < localData.length; i++) {
+                                memoryCache[collection][localData[i].id] = localData[i];
+                            }
+                            if (meta) {
+                                return deltaSync(collection);
+                            }
+                        }
+                        return fullSync(collection);
+                    });
+                }
+                return fullSync(collection);
+            }
+            var now = Date.now();
+            var timeSinceLastSync = now - (meta.lastSyncAt || 0);
+            if (timeSinceLastSync > THIRTY_DAYS_MS) {
+                return fullSync(collection);
+            }
+            return deltaSync(collection);
+        });
+    }
+    // - Master collections: t?i t?t c?
+    // [Comment removed - encoding error]
     function fullSync(collection) {
         if (!isOnline) return Promise.resolve();
         
-        // FIX: Kiểm tra collection hợp lệ (master hoặc date-based)
+        // FIX: Ki?m tra collection h?p l? (master ho?c date-based)
         var isDateBased = DATE_BASED_COLLECTIONS[collection];
         var isMaster = MASTER_COLLECTIONS[collection];
         if (!isMaster && !isDateBased) {
-            console.warn('  ⚠️ Unknown collection, skipping fullSync:', collection);
+            console.warn('  ?? Unknown collection, skipping fullSync:', collection);
             return Promise.resolve();
         }
         
         return new Promise(function(resolve, reject) {
-            // DÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave tÃ¹y theo collection
+            // Dùng _getDb để chọn Master/Slave tùy theo collection
             var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
             
-            // Nếu là date-based, chỉ lấy 30 ngày gần nhất
+            // [Comment removed - encoding error]
             if (isDateBased) {
                 var thirtyDaysAgo = Date.now() - THIRTY_DAYS_MS;
                 ref = ref.orderByChild('createdAt').startAt(thirtyDaysAgo);
@@ -1795,7 +1883,7 @@
             
             ref.once('value', function(snapshot) {
                 if (!snapshot.exists()) {
-                    // Ghi sync_meta với maxVersion = 0
+                    // Ghi sync_meta v?i maxVersion = 0
                     saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: 0, dateKeys: [] });
                     resolve();
                     return;
@@ -1806,19 +1894,19 @@
                 var maxVersion = 0;
                 var dateKeys = [];
                 
-                // NÂNG CẤP: Suppress realtime trong fullSync để tránh hàng loạt event added riêng lẻ
-                // Sau khi ghi xong tất cả, phát 1 event synced duy nhất
+                // [Comment removed - encoding error]
+                // [Comment removed - encoding error]
                 _setSuppressRealtime(true);
                 
-                // Xóa local cache trước (chỉ cho master collections)
+                // [Comment removed - encoding error]
                 if (isMaster && memoryCache[collection]) {
                     memoryCache[collection] = {};
                 }
                 
-                // MIRROR SYNC: Với master collections, xóa toàn bộ dữ liệu cũ trong IndexedDB trước
-                // để tránh items đã xóa trên Firebase vẫn còn trong local
-                // Dùng store.clear() để xóa sạch object store, sau đó ghi dữ liệu mới từ Firebase
-                // Áp dụng cho TẤT CẢ master collections (tables, menu, menu_categories, ingredients, customers, staffs, cost_categories, info)
+                // [Comment removed - encoding error]
+                // [Comment removed - encoding error]
+                // [Comment removed - encoding error]
+                // [Comment removed - encoding error]
                 var preClear = Promise.resolve();
                 if (isMaster) {
                     preClear = new Promise(function(clearResolve) {
@@ -1830,7 +1918,7 @@
                     });
                 }
                 
-                // Collection 'info' là special
+                // [Comment removed - encoding error]
                 if (collection === 'info') {
                     var infoItem = { id: 'shop_config' };
                     for (var pk in remote) {
@@ -1841,16 +1929,16 @@
                     if (infoItem._version === undefined) infoItem._version = 1;
                     saveToLocal(collection, infoItem).then(function() {
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: infoItem._version || 1, dateKeys: [] });
-                        // Phát 1 event synced duy nhất
+                        // [Comment removed - encoding error]
                         _setSuppressRealtime(false);
                         _emit(collection + ':synced', { collection: collection, count: 1, timestamp: Date.now() });
-                        console.log('  📥 Full synced info: 1 item');
+                        console.log('  ?? Full synced info: 1 item');
                         resolve();
                     });
                     return;
                 }
                 
-                // Ghi từng item từ Firebase vào local (sau khi đã clear nếu là tables)
+                // [Comment removed - encoding error]
                 var saveChain = preClear;
                 for (var key in remote) {
                     if (remote.hasOwnProperty(key)) {
@@ -1866,7 +1954,7 @@
                                 if (item._version === undefined) item._version = 1;
                                 if (item._version > maxVersion) maxVersion = item._version;
                                 
-                                // Thu thập dateKeys cho date-based collections
+                                // Thu th?p dateKeys cho date-based collections
                                 if (isDateBased && item.dateKey && dateKeys.indexOf(item.dateKey) < 0) {
                                     dateKeys.push(item.dateKey);
                                 }
@@ -1881,26 +1969,26 @@
                 return saveChain.then(function() {
                     // Ghi sync_meta
                     saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
-                    // Cập nhật maxVersion lên Firebase _meta
+                    // [Comment removed - encoding error]
                     updateMetaOnFirebase(collection, maxVersion);
-                    // NÂNG CẤP: Phát 1 event synced duy nhất thay vì hàng loạt added
+                    // [Comment removed - encoding error]
                     _setSuppressRealtime(false);
                     _emit(collection + ':synced', { collection: collection, count: count, timestamp: Date.now() });
                     resolve();
                 }).catch(function(err) {
-                    console.error('  ❌ Error full syncing ' + collection + ': ', err);
+                    console.error('  ? Error full syncing ' + collection + ': ', err);
                     _setSuppressRealtime(false);
                     resolve();
                 });
             }, function(err) {
-                console.error('  ❌ Firebase read error for ' + collection + ': ', err);
+                console.error('  ? Firebase read error for ' + collection + ': ', err);
                 _setSuppressRealtime(false);
                 resolve();
             });
         });
     }
     
-    // DELTA SYNC: Chỉ tải những item có _version > localMaxVersion
+    // [Comment removed - encoding error]
     function deltaSync(collection) {
         if (!isOnline) return Promise.resolve();
         
@@ -1908,8 +1996,8 @@
             var localMaxVersion = (meta && meta.maxVersion) || 0;
             
             return new Promise(function(resolve, reject) {
-                // Query Firebase: lấy items có _version > localMaxVersion
-                // Dùng _getDb() để chọn Master/Slave tùy theo collection
+                // [Comment removed - encoding error]
+                // [Comment removed - encoding error]
                 var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
                 var queryRef = ref.orderByChild('_version').startAt(localMaxVersion + 1);
                 
@@ -1920,7 +2008,7 @@
                     var dateKeys = (meta && meta.dateKeys) || [];
                     var isDateBased = DATE_BASED_COLLECTIONS[collection];
                     
-                    // Collection 'info' là special
+                    // [Comment removed - encoding error]
                     if (collection === 'info') {
                         var infoItem = { id: 'shop_config' };
                         for (var pk in remote) {
@@ -1951,7 +2039,7 @@
                                     if (item._version === undefined) item._version = 1;
                                     if (item._version > newMaxVersion) newMaxVersion = item._version;
                                     
-                                    // Thu thập dateKeys
+                                    // Thu th?p dateKeys
                                     if (isDateBased && item.dateKey && dateKeys.indexOf(item.dateKey) < 0) {
                                         dateKeys.push(item.dateKey);
                                     }
@@ -1964,35 +2052,38 @@
                     }
                     
                     return saveChain.then(function() {
-                        // FIX: Sau khi delta sync, so sánh danh sách ID để phát hiện deletions
-                        // (khi máy khác xóa item lúc máy này offline, delta sync không phát hiện được vì deletion không có _version)
+                        // [Comment removed - encoding error]
+                        // [Comment removed - encoding error]
                         return _cleanupDeletedIds(collection).then(function() {
                             saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
                             updateMetaOnFirebase(collection, newMaxVersion);
                             resolve();
                         });
                     }).catch(function(err) {
-                        console.error('  ❌ Error delta syncing ' + collection + ': ', err);
+                        console.error('  ? Error delta syncing ' + collection + ': ', err);
                         resolve();
                     });
                 }, function(err) {
-                    console.error('  ❌ Firebase query error for ' + collection + ': ', err);
+                    console.error('  ? Firebase query error for ' + collection + ': ', err);
                     resolve();
                 });
             });
         });
     }
     
-    // FIX: So sánh danh sách ID local vs Firebase để xóa các item đã bị xóa trên Firebase
-    // Chỉ áp dụng cho master collections (date-based collections có cơ chế dateKey riêng)
+    // FIX: Chi cleanup deletedIds cho master collections nho (tables, menu, menu_categories, ingredients)
+    // Bo qua date-based collections (transactions, cost_transactions) vi qua lon, gay ton bandwidth
+    var _SMALL_MASTER_COLLECTIONS = { tables: true, menu: true, menu_categories: true, ingredients: true, customers: true, notifications: true, daily_balances: true, cost_categories: true };
     function _cleanupDeletedIds(collection) {
         var isMaster = MASTER_COLLECTIONS[collection];
         if (!isMaster) return Promise.resolve();
         if (!isOnline) return Promise.resolve();
         
-        // FIX: Nếu memoryCache chưa được khởi tạo, load từ IndexedDB trước
-        // Tránh trường hợp _cleanupDeletedIds return sớm vì memoryCache rỗng
-        // trong khi IndexedDB vẫn còn items cũ (đã bị xóa trên Firebase)
+        // FIX: Chi chay cho collection nho, bo qua collection lon (transactions, cost_transactions)
+        if (!_SMALL_MASTER_COLLECTIONS[collection]) {
+            return Promise.resolve();
+        }
+        
         var loadMemory = Promise.resolve();
         if (!memoryCache[collection]) {
             loadMemory = loadFromLocal(collection).then(function(data) {
@@ -2008,14 +2099,11 @@
             var localIds = Object.keys(memoryCache[collection]);
             if (localIds.length === 0) return;
         
-            // Query Firebase để lấy tất cả keys hiện tại (chỉ lấy keys, không lấy data - nhẹ)
-            // Dùng _getDb() để chọn Master/Slave tùy theo collection
             var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
             return ref.once('value').then(function(snapshot) {
                 var remoteData = snapshot.val() || {};
                 var remoteIds = Object.keys(remoteData);
                 
-                // Tìm ID có trong local nhưng không trong remote (= đã bị xóa)
                 var deletedIds = [];
                 for (var i = 0; i < localIds.length; i++) {
                     if (remoteIds.indexOf(localIds[i]) === -1) {
@@ -2025,7 +2113,7 @@
                 
                 if (deletedIds.length === 0) return;
                 
-                // Xóa từng ID khỏi local
+                // [Comment removed - encoding error]
                 var deleteChain = Promise.resolve();
                 for (var d = 0; d < deletedIds.length; d++) {
                     (function(delId) {
@@ -2036,45 +2124,45 @@
                 }
                 return deleteChain;
             }).catch(function(err) {
-                // Fallback: nếu lỗi thì vẫn tiếp tục, không block sync
-                console.warn('  ⚠️ Could not check deleted IDs for', collection, ':', err.message);
+                // [Comment removed - encoding error]
+                console.warn('  ?? Could not check deleted IDs for', collection, ':', err.message);
             });
         });
     }
     
-    // SNAPSHOT RECONCILE: Kết hợp _cleanupDeletedIds() + fullSync() cho master collections
-    // Giải quyết triệt để vấn đề: dữ liệu local lệch với Firebase do:
-    // 1. Items bị xóa trên Firebase nhưng local chưa được cleanup
-    // 2. Items được cập nhật trên Firebase nhưng local chưa sync
-    // 3. sync_meta bị lệch (maxVersion sai) dẫn đến deltaSync bỏ sót items
-    // Dùng khi: online trở lại, tab resume, hoặc phát hiện dữ liệu bất thường
+    // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
+    // Gi?i quy?t tri?t d? v?n d?: d? li?u local l?ch v?i Firebase do:
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     function reconcileSnapshot(collection) {
         if (!isOnline) return Promise.resolve();
         var isMaster = MASTER_COLLECTIONS[collection];
         if (!isMaster) {
-            // Date-based collections không cần reconcile (dùng dateKey)
+            // [Comment removed - encoding error]
             return Promise.resolve();
         }
-        console.log('🔄 Reconcile snapshot for:', collection);
-        // Bước 1: Xóa các items đã bị xóa trên Firebase
+        console.log('?? Reconcile snapshot for:', collection);
+        // [Comment removed - encoding error]
         return _cleanupDeletedIds(collection).then(function() {
-            // Bước 2: Reset sync_meta để force fullSync tải lại toàn bộ
-            // Xóa maxVersion để fullSync() không bị giới hạn bởi version cũ
+            // [Comment removed - encoding error]
+            // [Comment removed - encoding error]
             return saveSyncMeta(collection, { lastSyncAt: 0, maxVersion: 0, dateKeys: [] });
         }).then(function() {
-            // Bước 3: FullSync tải toàn bộ dữ liệu mới từ Firebase
+            // [Comment removed - encoding error]
             return fullSync(collection);
         });
     }
     
-    // Deduplication: tránh fetch cùng 1 dateKey nhiều lần khi nhiều component cùng gọi
+    // [Comment removed - encoding error]
     var _fetchingDateKeys = {};
     
-    // SYNC COLLECTION BY DATE: Tải transactions cho 1 ngày cụ thể từ Firebase
+    // [Comment removed - encoding error]
     function syncCollectionByDate(collection, dateKey) {
         if (!isOnline) return Promise.resolve([]);
         
-        // Nếu đang fetch dateKey này rồi, đợi nó hoàn thành
+        // [Comment removed - encoding error]
         var fetchKey = collection + '|' + dateKey;
         if (_fetchingDateKeys[fetchKey]) {
             return _fetchingDateKeys[fetchKey];
@@ -2083,7 +2171,7 @@
         var promise = _doSyncCollectionByDate(collection, dateKey);
         _fetchingDateKeys[fetchKey] = promise;
         
-        // Xóa khỏi dedup cache sau khi hoàn thành
+        // [Comment removed - encoding error]
         return promise.then(function(result) {
             delete _fetchingDateKeys[fetchKey];
             return result;
@@ -2097,9 +2185,9 @@
         return getSyncMeta(collection).then(function(meta) {
             var dateKeys = (meta && meta.dateKeys) || [];
             
-            // Nếu đã có dateKey này trong sync_meta, không cần tải lại
+            // [Comment removed - encoding error]
             if (dateKeys.indexOf(dateKey) >= 0) {
-                // Nhưng vẫn đọc từ local để trả về
+                // Nhung v?n d?c t? local d? tr? v?
                 return loadFromLocal(collection).then(function(data) {
                     var filtered = [];
                     for (var i = 0; i < data.length; i++) {
@@ -2109,21 +2197,21 @@
                 });
             }
             
-            // Chưa có dateKey → tải từ Firebase
-            console.log('  📥 Fetching', collection, 'for date:', dateKey);
+            // [Comment removed - encoding error]
+            console.log('  ?? Fetching', collection, 'for date:', dateKey);
             
             return new Promise(function(resolve, reject) {
-                // Dùng _getDb() để chọn Master/Slave tùy theo collection
+                // [Comment removed - encoding error]
                 var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
                 ref.orderByChild('dateKey').equalTo(dateKey).once('value', function(snapshot) {
                     if (!snapshot.exists()) {
-                        // Không có dữ liệu cho ngày này, nhưng vẫn lưu dateKey vào sync_meta
-                        // để lần sau không fetch lại ngày này nữa
+                        // [Comment removed - encoding error]
+                        // [Comment removed - encoding error]
                         if (dateKeys.indexOf(dateKey) < 0) {
                             dateKeys.push(dateKey);
                         }
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: (meta && meta.maxVersion) || 0, dateKeys: dateKeys });
-                        console.log('  📥 Fetched', collection, 'for', dateKey, ': 0 items (no data)');
+                        console.log('  ?? Fetched', collection, 'for', dateKey, ': 0 items (no data)');
                         resolve([]);
                         return;
                     }
@@ -2154,27 +2242,27 @@
                     }
                     
                     return saveChain.then(function() {
-                        // Cập nhật dateKeys
+                        // C?p nh?t dateKeys
                         if (dateKeys.indexOf(dateKey) < 0) {
                             dateKeys.push(dateKey);
                         }
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
                         updateMetaOnFirebase(collection, maxVersion);
-                        console.log('  📥 Fetched', collection, 'for', dateKey, ':', items.length, 'items');
+                        console.log('  ?? Fetched', collection, 'for', dateKey, ':', items.length, 'items');
                         resolve(items);
                     }).catch(function(err) {
-                        console.error('  ❌ Error fetching', collection, 'by date:', err);
+                        console.error('  ? Error fetching', collection, 'by date:', err);
                         resolve([]);
                     });
                 }, function(err) {
-                    console.error('  ❌ Firebase query error:', err);
+                    console.error('  ? Firebase query error:', err);
                     resolve([]);
                 });
             });
         });
     }
     
-    // Lấy danh sách dateKeys giữa 2 ngày (dùng để kiểm tra thiếu ngày nào)
+    // [Comment removed - encoding error]
     function getDateKeysBetween(startDateKey, endDateKey) {
         var keys = [];
         var start = new Date(startDateKey + 'T00:00:00');
@@ -2221,13 +2309,13 @@
                         console.log('Created store:', stores[i]);
                     }
                 }
-                // FIX: Kiá»ƒm tra transaction tá»“n táº¡i trÆ°á»›c khi táº¡o index
-                // TrÃ¡nh lá»—i khi database vá»«a Ä‘Æ°á»£c táº¡o má»›i (sau khi xÃ³a)
+                // FIX: Kiểm tra transaction tồn tại trước khi tạo index
+                // Tránh lỗi khi database vừa được tạo mới (sau khi xóa)
                 try {
                     var tx = e.target.transaction;
                     
-                    // FIX: XÃ³a dá»¯ liá»‡u cÅ© trong info store (cÃ¡c item láº» tá»« child_* events)
-                    // Sau khi chuyá»ƒn sang on('value'), chá»‰ cáº§n 1 item shop_config duy nháº¥t
+                    // FIX: Xóa dữ liệu cũ trong info store (các item lẻ từ child_* events)
+                    // Sau khi chuyển sang on('value'), chỉ cần 1 item shop_config duy nhất
                     if (e.oldVersion < 17 && tx && tx.objectStoreNames.contains('info')) {
                         var infoStore = tx.objectStore('info');
                         infoStore.clear();
@@ -2256,26 +2344,26 @@
         req.onsuccess = function() { syncQueue = req.result || []; };
     }
 
-    // Seed dá»¯ liá»‡u cho POS máº·c Ä‘á»‹nh (shop_default) náº¿u chÆ°a cÃ³ shop_registry
-    // LUÃ”N ghi vÃ o Master DB
+    // Seed dữ liệu cho POS mặc định (shop_default) nếu chưa có shop_registry
+    // LUÔN ghi vào Master DB
     function seedDefaultShop() {
         return masterDb.ref('shop_registry/123123').once('value').then(function(snapshot) {
-            if (snapshot.exists()) return; // ÄÃ£ cÃ³ rá»“i, khÃ´ng cáº§n seed
+            if (snapshot.exists()) return; // Đã có rồi, không cần seed
             
-            console.log('ðŸŒ± Seeding default shop data...');
+            console.log('🌱 Seeding default shop data...');
             var staffId = 'staff_admin_' + Date.now().toString(36);
             var updates = {};
             
-            // Táº¡o shop_registry cho mÃ£ 123123 -> shop_default
+            // Tạo shop_registry cho mã 123123 -> shop_default
             updates['shop_registry/123123'] = {
                 shopId: 'shop_default',
-                shopName: 'MILANO COFFEE 259',
+                shopName: 'He Thong Ban Hang',
                 shopCode: '123123',
                 createdAt: Date.now(),
                 status: 'active'
             };
             
-            // Táº¡o staff admin cho shop_default
+            // Tạo staff admin cho shop_default
             updates['shop_default/staffs/' + staffId] = {
                 id: staffId,
                 username: 'admin123123',
@@ -2288,7 +2376,7 @@
             
             updates['shop_default/info'] = {
                 id: 'shop_config',
-                name: 'MILANO COFFEE 259',
+                name: 'He Thong Ban Hang',
                 code: '123123',
                 createdAt: Date.now(),
                 // Telegram config
@@ -2297,28 +2385,28 @@
                 telegramShiftCloseToken: '',
                 telegramWarningToken: '',
                 telegramExpenseToken: '',
-                // Lock password cho hoÃ n tÃ¡c
+                // Lock password cho hoàn tác
                 lockPassword: '28122020',
-                // Khung giá» khÃ³a toÃ n bá»™ bÃ n
+                // Khung giờ khóa toàn bộ bàn
                 lockStartHour: 22,
                 lockEndHour: 5,
                 lockEndMinute: 30,
-                // Thá»i gian ngá»“i tá»‘i Ä‘a trÆ°á»›c khi khÃ³a bÃ n (giá»)
+                // Thời gian ngồi tối đa trước khi khóa bàn (giờ)
                 tableLockHours: 5
             };
             
             return masterDb.ref().update(updates).then(function() {
-                console.log('âœ… Default shop seeded: mÃ£ 123123, user admin123123, pass 123123');
+                console.log('✅ Default shop seeded: mã 123123, user admin123123, pass 123123');
             });
         }).catch(function(err) {
             console.error('Seed error:', err);
         });
     }
 
-    // Tá»± Ä‘á»™ng táº¡o config fields cho shop hiá»‡n táº¡i náº¿u chÆ°a cÃ³
-    // DÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave tÃ¹y theo collection
+    // Tự động tạo config fields cho shop hiện tại nếu chưa có
+    // Dùng _getDb để chọn Master/Slave tùy theo collection
     function ensureShopConfig() {
-        // Äáº£m báº£o cÃ¡c config fields tá»“n táº¡i trong /info
+        // Đảm bảo các config fields tồn tại trong /info
         return _getDb('info').ref(CURRENT_SHOP_ID + '/info').once('value').then(function(snapshot) {
             var info = snapshot.val() || {};
             var needsUpdate = false;
@@ -2345,33 +2433,33 @@
                 }
             }
             if (needsUpdate) {
-                console.log('âš™ï¸ Adding missing config fields to shop info...');
+                console.log('⚙️ Adding missing config fields to shop info...');
                 return _getDb('info').ref(CURRENT_SHOP_ID + '/info').update(updates).then(function() {
-                    console.log('âœ… Shop config fields created');
+                    console.log('✅ Shop config fields created');
                 });
             }
         }).catch(function(err) {
-            console.error('âš ï¸ ensureShopConfig error:', err);
+            console.error('⚠️ ensureShopConfig error:', err);
         });
     }
 
     
     // ========== ENSURE COLLECTION ==========
-    // Kiá»ƒm tra náº¿u collection trá»‘ng trong local thÃ¬ force sync tá»« Firebase
-    // DÃ¹ng khi component cáº§n Ä‘áº£m báº£o dá»¯ liá»‡u Ä‘Ã£ Ä‘Æ°á»£c load trÆ°á»›c khi render
+    // Kiểm tra nếu collection trống trong local thì force sync từ Firebase
+    // Dùng khi component cần đảm bảo dữ liệu đã được load trước khi render
     function ensureCollection(collection) {
         if (!isOnline) return Promise.resolve([]);
         return loadFromLocal(collection).then(function(localData) {
             if (localData && Object.keys(localData).length > 0) {
-                // ÄÃ£ cÃ³ dá»¯ liá»‡u, tráº£ vá» dáº¡ng array
+                // Đã có dữ liệu, trả về dạng array
                 var arr = [];
                 for (var k in localData) {
                     if (localData.hasOwnProperty(k)) arr.push(localData[k]);
                 }
                 return arr;
             }
-            // Local trá»‘ng, cáº§n sync tá»« Firebase
-            console.log('  ðŸ“¦ Local empty for', collection, '- syncing from Firebase...');
+            // Local trống, cần sync từ Firebase
+            console.log('  📦 Local empty for', collection, '- syncing from Firebase...');
             return getSyncMeta(collection).then(function(meta) {
                 if (!meta) {
                     return fullSync(collection).then(function() {
@@ -2396,15 +2484,15 @@
             });
         });
     }
-// ========== FORCE SYNC Tá»ª FIREBASE ==========
-    // DÃ¹ng khi phÃ¡t hiá»‡n IndexedDB bá»‹ xÃ³a (local rá»—ng) - force táº£i láº¡i tá»« Firebase
+// ========== FORCE SYNC TỪ FIREBASE ==========
+    // Dùng khi phát hiện IndexedDB bị xóa (local rỗng) - force tải lại từ Firebase
     function forceSyncFromFirebase() {
         if (!isOnline) {
-            console.warn('âš ï¸ Offline, cannot force sync from Firebase');
+            console.warn('⚠️ Offline, cannot force sync from Firebase');
             return Promise.reject(new Error('Offline'));
         }
-        // OPTIMIZE: Chỉ sync các collection thực sự tồn tại trong Firebase
-        // Bỏ: reports, cost_transactions_admin, admin_cost_categories (không tồn tại)
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
         var collections = [
             'tables', 'customers', 'menu', 'menu_categories',
             'ingredients', 'transactions',
@@ -2416,16 +2504,16 @@
             'messages'
         ];
         
-        console.log('ðŸ”„ Force syncing all collections from Firebase...');
+        console.log('🔄 Force syncing all collections from Firebase...');
         
-        // XÃ³a sync_meta cache Ä‘á»ƒ fullSync cháº¡y láº¡i tá»« Ä‘áº§u
+        // Xóa sync_meta cache để fullSync chạy lại từ đầu
         syncMetaCache = {};
         
         var chain = Promise.resolve();
         for (var c = 0; c < collections.length; c++) {
             chain = chain.then((function(collection) {
                 return function() {
-                    // XÃ³a local cache trÆ°á»›c khi fullSync
+                    // Xóa local cache trước khi fullSync
                     if (memoryCache[collection]) {
                         memoryCache[collection] = {};
                     }
@@ -2434,202 +2522,84 @@
             })(collections[c]));
         }
         
-        // LÆ°u promise Ä‘á»ƒ cÃ¡c component cÃ³ thá»ƒ Ä‘á»£i force sync hoÃ n thÃ nh
+        // Lưu promise để các component có thể đợi force sync hoàn thành
         _syncPromise = chain.then(function() {
-            console.log('âœ… Force sync completed');
+            console.log('✅ Force sync completed');
         });
         return _syncPromise;
     }
 
     // Init Database
     function initDatabase() {
-        // Khôi phục dirty flags từ localStorage để biết collection nào chưa sync
+        // [Comment removed - encoding error]
         _restoreDirtyFlags();
-        return initLocalDB().then(function() {
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
+        var slaveReady = _slaveInitPromise || Promise.resolve();
+        return slaveReady.then(function() {
+            return initLocalDB();
+        }).then(function() {
             initNetwork();
             if (isOnline) return smartSync();
             return Promise.resolve();
         }).then(function() {
-            // Seed dá»¯ liá»‡u máº·c Ä‘á»‹nh náº¿u chÆ°a cÃ³
+            // Seed dữ liệu mặc định nếu chưa có
             return seedDefaultShop();
         }).then(function() {
-            // Tá»± Ä‘á»™ng táº¡o config fields cho shop hiá»‡n táº¡i náº¿u chÆ°a cÃ³
+            // Tự động tạo config fields cho shop hiện tại nếu chưa có
             return ensureShopConfig();
         }).then(function() {
-            // Subscribe cÃ¡c collections cáº§n thiáº¿t cho POS
+            // Subscribe các collections cần thiết cho POS
             // tables, customers, menu, menu_categories, transactions, notifications
-            // Bá»: ingredients, cost_categories, cost_transactions, cost_transactions_admin,
+            // Bỏ: ingredients, cost_categories, cost_transactions, cost_transactions_admin,
             //      admin_cost_categories, reports
-            // OPTIMIZE: transactions dÃ¹ng limitToLast(200) Ä‘á»ƒ chá»‰ láº¥y 200 giao dá»‹ch gáº§n nháº¥t
-            // Giáº£m dung lÆ°á»£ng download tá»« hÃ ng ngÃ n item xuá»‘ng 200 item
+            // OPTIMIZE: transactions dùng limitToLast(200) để chỉ lấy 200 giao dịch gần nhất
+            // Giảm dung lượng download từ hàng ngàn item xuống 200 item
             subscribeToCollection('tables');
             // FIX: Cleanup deleted IDs ngay sau khi subscribe tables
-            // Đảm bảo IndexedDB không chứa items cũ đã bị xóa trên Firebase
-            // trước khi loadData() đọc tables
-            // QUAN TRỌNG: Không dùng return ở đây để tránh làm hỏng luồng code
-            // Các polling timers và code phía sau vẫn cần được thực thi
+            // [Comment removed - encoding error]
+            // tru?c khi loadData() d?c tables
+            // [Comment removed - encoding error]
+            // [Comment removed - encoding error]
             _cleanupDeletedIds('tables').then(function() {
                 subscribeToCollection('customers');
                 subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
                 subscribeToCollection('notifications');
                 subscribeToCollection('info');
                 subscribeToCollection('daily_balances');
-                // FIX: ThÃªm subscribe cho cost_categories vÃ  cost_transactions
-                // Ä‘á»ƒ loadExpenseData() vÃ  managerApplyFilter() cÃ³ dá»¯ liá»‡u
+                // FIX: Thêm subscribe cho cost_categories và cost_transactions
+                // để loadExpenseData() và managerApplyFilter() có dữ liệu
                 subscribeToCollection('cost_categories');
                 subscribeToCollection('cost_transactions');
-
-                // OPTIMIZE: CÃ¡c collection Ã­t thay Ä‘á»•i dÃ¹ng polling thay vÃ¬ realtime
-                // menu, menu_categories, ingredients, messages: refresh má»—i 60s
-                // FIX: KhÃ´ng gá»i subscribeWithPolling vá»›i callback null á»Ÿ Ä‘Ã¢y
-                // VÃ¬ subscribeWithPolling sáº½ Ä‘Æ°á»£c gá»i tá»« initRealtime() vá»›i callback tháº­t
-                // Náº¿u gá»i vá»›i null trÆ°á»›c, láº§n gá»i sau tá»« initRealtime() sáº½ hit early return
-                // vÃ  cÃ³ thá»ƒ bá» lá»¡ callback náº¿u memoryCache chÆ°a sáºµn sÃ ng
-                // Thay vÃ o Ä‘Ã³, chá»‰ khá»Ÿi táº¡o polling timer náº¿u chÆ°a cÃ³
-                // WATCHDOG: Polling riêng cho tables (30s) để phát hiện thay đổi từ máy khác
-                // Tables là collection quan trọng nhất, cần độ trễ thấp nhất
-                if (!_pollingTimers['tables']) {
-                    _pollingTimers['tables'] = setInterval(function() {
-                        if (!isOnline) return;
-                        // Dùng _cleanupDeletedIds trước để xóa bàn đã bị xóa trên Firebase
-                        _cleanupDeletedIds('tables').then(function() {
-                            // Sau đó deltaSync để lấy các bàn mới hoặc đã cập nhật
-                            return deltaSync('tables');
-                        });
-                    }, 30000);
+                // REALTIME OPTIMIZATION: Chuyen menu, menu_categories, ingredients, messages
+                // tu polling (60s) sang realtime Firebase listeners
+                // Giup da thiet bi thay thay doi ngay lap tuc thay vi cho 60s
+                subscribeToCollection('menu');
+                subscribeToCollection('menu_categories');
+                subscribeToCollection('ingredients');
+                subscribeToCollection('messages');
+                // REALTIME OPTIMIZATION: Khoi tao BroadcastChannel va Heartbeat
+                _initBroadcastChannel();
+                // FIX: Khoi tao lastSyncTimestamps cho cac collection da subscribe
+                // de heartbeat khong bao sai staffs, admin_logs, etc.
+                var subscribedCollections = [
+                    'tables', 'customers', 'transactions', 'notifications', 'info',
+                    'daily_balances', 'cost_categories', 'cost_transactions',
+                    'menu', 'menu_categories', 'ingredients', 'messages'
+                ];
+                var now = Date.now();
+                for (var _si = 0; _si < subscribedCollections.length; _si++) {
+                    _lastSyncTimestamps[subscribedCollections[_si]] = now;
                 }
-                
-                if (!_pollingTimers['menu']) {
-                    _pollingTimers['menu'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb('menu').ref(CURRENT_SHOP_ID + '/menu');
-                        getSyncMeta('menu').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['menu'] ? memoryCache['menu'][key] : null;
-                                        saveToLocal('menu', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('menu', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                // FIX: Polling cũng cần phát hiện deletions
-                                _cleanupDeletedIds('menu');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['menu_categories']) {
-                    _pollingTimers['menu_categories'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb('menu_categories').ref(CURRENT_SHOP_ID + '/menu_categories');
-                        getSyncMeta('menu_categories').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['menu_categories'] ? memoryCache['menu_categories'][key] : null;
-                                        saveToLocal('menu_categories', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('menu_categories', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                // FIX: Polling cũng cần phát hiện deletions
-                                _cleanupDeletedIds('menu_categories');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['ingredients']) {
-                    _pollingTimers['ingredients'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb('ingredients').ref(CURRENT_SHOP_ID + '/ingredients');
-                        getSyncMeta('ingredients').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['ingredients'] ? memoryCache['ingredients'][key] : null;
-                                        saveToLocal('ingredients', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('ingredients', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                // FIX: Polling cũng cần phát hiện deletions
-                                _cleanupDeletedIds('ingredients');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['messages']) {
-                    _pollingTimers['messages'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb('messages').ref(CURRENT_SHOP_ID + '/messages');
-                        getSyncMeta('messages').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['messages'] ? memoryCache['messages'][key] : null;
-                                        saveToLocal('messages', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('messages', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                // FIX: Polling cũng cần phát hiện deletions
-                                _cleanupDeletedIds('messages');
-                            });
-                        });
-                    }, 60000);
-                }
-                console.log('âœ… Database ready, device:', CURRENT_DEVICE_ID);
+                _initHeartbeat();
+                console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
                 return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
             });
         });
     }
 
-    // Helper showToast (dÃ¹ng chung)
+    // Helper showToast (dùng chung)
     function showToast(msg, type) {
         var container = document.getElementById('toastContainer');
         if (!container) { console.log(msg); return; }
@@ -2640,16 +2610,161 @@
         setTimeout(function() { toast.remove(); }, 2500);
     }
 
-    // ========== AUTH METHODS ==========
+        // ========== REALTIME OPTIMIZATION: BroadcastChannel cho Cross-Tab Sync ==========
+    // Cho phep cac tab tren cung thiet bi giao tiep truc tiep voi nhau
+    // Khi Tab A thay doi du lieu -> broadcast message -> Tab B cap nhat UI ngay lap tuc
+    // Ma khong can cho Firebase realtime listener fire
+    var _broadcastChannel = null;
+    var _broadcastSupported = (typeof BroadcastChannel !== 'undefined');
     
-    // XÃ³a toÃ n bá»™ dá»¯ liá»‡u local (IndexedDB + localStorage + memory cache) khi chuyá»ƒn POS
+    // Khoi tao BroadcastChannel
+    function _initBroadcastChannel() {
+        if (!_broadcastSupported) {
+            // Fallback: dung storage event cho cac trinh duyet cu
+            window.addEventListener('storage', function(e) {
+                if (e.key && e.key.indexOf('pos_broadcast_') === 0) {
+                    try {
+                        var msg = JSON.parse(e.newValue);
+                        _handleBroadcastMessage(msg);
+                    } catch(ex) {}
+                }
+            });
+            return;
+        }
+        try {
+            _broadcastChannel = new BroadcastChannel('pos_realtime_' + CURRENT_SHOP_ID);
+            _broadcastChannel.onmessage = function(event) {
+                _handleBroadcastMessage(event.data);
+            };
+        } catch(e) {
+            console.warn('BroadcastChannel not supported, using storage fallback');
+            _broadcastSupported = false;
+        }
+    }
+    
+    // Gui thong diep qua BroadcastChannel
+    function _broadcastChange(collection, type, itemId) {
+        var msg = {
+            collection: collection,
+            type: type,
+            itemId: itemId,
+            shopId: CURRENT_SHOP_ID,
+            deviceId: CURRENT_DEVICE_ID,
+            timestamp: Date.now()
+        };
+        if (_broadcastSupported && _broadcastChannel) {
+            try {
+                _broadcastChannel.postMessage(msg);
+            } catch(e) {}
+        }
+        // Fallback: dung localStorage de trigger storage event
+        try {
+            var key = 'pos_broadcast_' + Date.now();
+            localStorage.setItem(key, JSON.stringify(msg));
+            // Xoa ngay de tranh day localStorage
+            setTimeout(function() { localStorage.removeItem(key); }, 100);
+        } catch(e) {}
+    }
+    
+    // Xu ly thong diep nhan duoc
+    function _handleBroadcastMessage(msg) {
+        if (!msg || !msg.collection || msg.deviceId === CURRENT_DEVICE_ID) return;
+        // Chi xu ly neu cung shop
+        if (msg.shopId !== CURRENT_SHOP_ID) return;
+        
+        console.log('[Broadcast] Nhan thong diep tu tab khac:', msg.collection, msg.type);
+        
+        // Kich hoat smartSync cho collection do de cap nhat du lieu
+        if (isOnline) {
+            smartSync(msg.collection);
+        }
+    }
+    
+    // Goi _initBroadcastChannel ngay sau khi khoi tao
+    // (se duoc goi tu initDatabase)
+    // ========== REALTIME OPTIMIZATION: Heartbeat & Connection Indicator ==========
+    // Muc dich: Phat hien stale collections de tu dong smartSync
+    // Indicator chi hien thi trang thai online/offline, khong bao sai khi ko co du lieu thay doi
+    var _lastSyncTimestamps = {};
+    var _heartbeatInterval = null;
+    var _lastHeartbeatTime = 0;
+    
+    // Cap nhat lastSyncTimestamp cho collection
+    function _updateLastSyncTime(collection) {
+        _lastSyncTimestamps[collection] = Date.now();
+        _updateSyncIndicator();
+    }
+    
+    // Khoi tao heartbeat timer
+    function _initHeartbeat() {
+        if (_heartbeatInterval) clearInterval(_heartbeatInterval);
+        _lastHeartbeatTime = Date.now();
+        _heartbeatInterval = setInterval(function() {
+            var now = Date.now();
+            var staleCollections = [];
+            for (var col in _lastSyncTimestamps) {
+                if (_lastSyncTimestamps.hasOwnProperty(col)) {
+                    var elapsed = now - _lastSyncTimestamps[col];
+                    // Neu qua 120s khong co sync, danh dau la stale
+                    // Tang len 120s de tranh bao sai khi khong co du lieu thay doi
+                    if (elapsed > 120000 && isOnline) {
+                        staleCollections.push(col);
+                    }
+                }
+            }
+            if (staleCollections.length > 0 && isOnline) {
+                // Tu dong smartSync cho cac collection bi stale (khong warning)
+                for (var i = 0; i < staleCollections.length; i++) {
+                    smartSync(staleCollections[i]);
+                }
+            }
+            // Cap nhat indicator: online = xanh, offline = do
+            _lastHeartbeatTime = now;
+            _updateSyncIndicator();
+        }, 30000); // Kiem tra moi 30s
+    }
+    
+    // Cap nhat sync indicator tren UI - doi mau ten nhan vien theo trang thai online/offline
+    function _updateSyncIndicator() {
+        var staffEl = document.getElementById('staffName');
+        if (!staffEl) return;
+        if (!isOnline) {
+            staffEl.className = 'staff-name staff-offline';
+            return;
+        }
+        staffEl.className = 'staff-name staff-online';
+    }
+    
+    // Patch _notifyLocal de cap nhat lastSyncTime va broadcast sang tab khac
+    var _origNotifyLocal = _notifyLocal;
+    _notifyLocal = function(collection, changeInfo) {
+        _updateLastSyncTime(collection);
+        // REALTIME OPTIMIZATION: Broadcast thay doi sang cac tab khac tren cung thiet bi
+        if (changeInfo && changeInfo.type) {
+            _broadcastChange(collection, changeInfo.type, changeInfo.id || null);
+        }
+        return _origNotifyLocal(collection, changeInfo);
+    };
+// ========== AUTH METHODS ==========
+    
+    // Xóa toàn bộ dữ liệu local (IndexedDB + localStorage + memory cache) khi chuyển POS
     function clearLocalData() {
-        // XÃ³a memory cache
+        // FIX: Huy tat ca Firebase listeners de tranh memory leak va double callback
+        _destroyAllListeners();
+        
+        // FIX: Xoa local callbacks, event bus, component registry
+        _localCallbacks = {};
+        _eventBus = {};
+        _componentRegistry = {};
+        _lastSyncTimestamps = {};
+        _pendingNotifyCollections = {};
+        
+        // Xóa memory cache
         memoryCache = {};
         cacheVersion = {};
         syncMetaCache = {};
         
-        // XÃ³a sync_meta trong localStorage
+        // Xóa sync_meta trong localStorage
         try {
             var lsPrefix = LS_SYNC_META_PREFIX + CURRENT_SHOP_ID + '_';
             var keysToRemove = [];
@@ -2664,7 +2779,7 @@
             }
         } catch (e) {}
         
-        // XÃ³a táº¥t cáº£ object stores trong IndexedDB
+        // Xóa tất cả object stores trong IndexedDB
         if (!localDB) return Promise.resolve();
         
         var storeNames = [];
@@ -2674,7 +2789,7 @@
         var promises = [];
         for (var i = 0; i < storeNames.length; i++) {
             var name = storeNames[i];
-            if (name === 'sync_queue') continue; // Giá»¯ láº¡i sync queue
+            if (name === 'sync_queue') continue; // Giữ lại sync queue
             promises.push(new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([name], 'readwrite');
                 var store = tx.objectStore(name);
@@ -2684,31 +2799,49 @@
             }));
         }
         return Promise.all(promises).then(function() {
-            console.log('ðŸ—‘ï¸ Cleared all local data for shop switch');
+            console.log('🗑️ Cleared all local data for shop switch');
         });
     }
     
-    // Äá»•i shopId (khi Ä‘Äƒng nháº­p vÃ o POS khÃ¡c)
+    // [Comment removed - encoding error]
     function setShopId(shopId) {
         if (!shopId) return;
         CURRENT_SHOP_ID = shopId;
         localStorage.setItem('current_shop_id', shopId);
-        console.log('ðŸ”„ Switched to shop:', shopId);
+        console.log('🔄 Switched to shop:', shopId);
     }
     
-    // Láº¥y shopId hiá»‡n táº¡i
+    // Lấy shopId hiện tại
     function getShopId() {
         return CURRENT_SHOP_ID;
     }
     
-    // ÄÄƒng nháº­p: kiá»ƒm tra shopCode -> láº¥y shopId -> verify staff credentials
-    // Há»— trá»£: master_admin (shopCode='master'), POS cÃ³ firebase_config riÃªng, migration tá»± Ä‘á»™ng
-    function login(shopCode, username, password) {
+    // FIX: Hàm helper set currentUser và lưu session, dùng chung cho cả 3 branch của login()
+    // Tránh bug login() trả về undefined ở branch có firebase_config riêng
+    function _setCurrentUserAndSession(foundStaff, shopId, shopCode, shopInfo, hasCustomConfig) {
+        currentUser = {
+            id: foundStaff.id,
+            username: foundStaff.username,
+            displayName: foundStaff.displayName || foundStaff.username,
+            role: foundStaff.role || 'staff',
+            shopId: shopId,
+            shopCode: shopCode,
+            shopName: shopInfo.shopName || '',
+            hasCustomConfig: hasCustomConfig
+        };
+        localStorage.setItem('pos_session', JSON.stringify(currentUser));
+        setShopId(shopId);
+        return currentUser;
+    }
+    
+    // Đăng nhập: kiểm tra shopCode -> lấy shopId -> verify staff credentials
+    // Hỗ trợ: master_admin (shopCode='master'), POS có firebase_config riêng, migration tự động
+        function login(shopCode, username, password) {
         if (!shopCode || !username || !password) {
-            return Promise.reject(new Error('Vui lÃ²ng nháº­p Ä‘áº§y Ä‘á»§ thÃ´ng tin'));
+            return Promise.reject(new Error('Vui long nhap day du thong tin'));
         }
 
-        // ===== TRÆ¯á»œNG Há»¢P 1: Master Admin login =====
+        // ===== TRU?NG H?P 1: Master Admin login =====
         if (shopCode === 'master') {
             return masterDb.ref('master_admins').once('value').then(function(snapshot) {
                 var admins = snapshot.val() || {};
@@ -2724,152 +2857,202 @@
                     }
                 }
                 if (!foundAdmin) {
-                    throw new Error('Sai tÃªn Ä‘Äƒng nháº­p hoáº·c máº­t kháº©u Master Admin');
+                    throw new Error('Sai ten dang nhap hoac mat khau Master Admin');
                 }
-                return clearLocalData().then(function() {
-                    currentUser = {
-                        id: foundAdmin.id,
-                        username: foundAdmin.username,
-                        displayName: foundAdmin.displayName || foundAdmin.username,
-                        role: 'master_admin',
-                        shopId: 'master',
-                        shopCode: 'master',
-                        shopName: 'Master Admin'
-                    };
-                    localStorage.setItem('pos_session', JSON.stringify(currentUser));
-                    setShopId('master');
-                    // Master admin khÃ´ng cáº§n Slave App
-                    if (slaveApp) {
-                        try { slaveApp.delete(); } catch(e) {}
-                        slaveApp = null;
-                        slaveDb = null;
-                        slaveConfig = null;
-                    }
-                    return currentUser;
-                });
+                // [Comment removed - encoding error]
+                currentUser = {
+                    id: foundAdmin.id,
+                    username: foundAdmin.username,
+                    displayName: foundAdmin.displayName || foundAdmin.username,
+                    role: 'master_admin',
+                    shopId: 'master',
+                    shopCode: 'master',
+                    shopName: 'Master Admin'
+                };
+                localStorage.setItem('pos_session', JSON.stringify(currentUser));
+                setShopId('master');
+                // [Comment removed - encoding error]
+                if (slaveApp) {
+                    try { slaveApp.delete(); } catch(e) {}
+                    slaveApp = null;
+                    slaveDb = null;
+                    slaveConfig = null;
+                }
+                return currentUser;
             });
         }
 
-        // ===== TRÆ¯á»œNG Há»¢P 2: POS login (shopCode bÃ¬nh thÆ°á»ng) =====
-        // Tra cá»©u shopCode trong shop_registry (LUÃ”N á»Ÿ Master)
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
         return masterDb.ref('shop_registry/' + shopCode).once('value').then(function(snapshot) {
             if (!snapshot.exists()) {
-                throw new Error('MÃ£ POS khÃ´ng tá»“n táº¡i');
+                throw new Error('Ma POS khong ton tai');
             }
             var shopInfo = snapshot.val();
             var shopId = shopInfo.shopId;
 
-            // Kiá»ƒm tra tráº¡ng thÃ¡i POS (locked/active)
+            // [Comment removed - encoding error]
             if (shopInfo.status === 'locked') {
-                throw new Error('POS nÃ y Ä‘Ã£ bá»‹ khÃ³a. Vui lÃ²ng liÃªn há»‡ Admin Master.');
+                throw new Error('POS nay da bi khoa. Vui long lien he Admin Master.');
             }
             if (shopInfo.status === 'deleted') {
-                throw new Error('POS nÃ y Ä‘Ã£ bá»‹ xÃ³a. Vui lÃ²ng liÃªn há»‡ Admin Master.');
+                throw new Error('POS nay da bi xoa. Vui long lien he Admin Master.');
             }
 
-            // Kiá»ƒm tra staff credentials (staff LUÃ”N á»Ÿ Master)
-            return masterDb.ref(shopId + '/staffs').once('value').then(function(staffSnapshot) {
-                var staffs = staffSnapshot.val() || {};
-                var foundStaff = null;
-                for (var key in staffs) {
-                    if (staffs.hasOwnProperty(key)) {
-                        var s = staffs[key];
-                        if (s.username === username && s.password === password) {
-                            foundStaff = s;
-                            foundStaff.id = key;
-                            break;
+            // [Comment removed - encoding error]
+            var fbConfig = shopInfo.firebaseConfig || null;
+            // [Comment removed - encoding error]
+            var _fbConfigFallback = null;
+            if (!fbConfig) {
+                _fbConfigFallback = masterDb.ref('firebase_config/' + shopId).once('value').then(function(configSnapshot) {
+                    fbConfig = configSnapshot.val() || null;
+                });
+            } else {
+                _fbConfigFallback = Promise.resolve();
+            }
+
+            return _fbConfigFallback.then(function() {
+                // [Comment removed - encoding error]
+                return masterDb.ref(shopId + '/staffs').once('value').then(function(staffSnapshot) {
+                    var staffs = staffSnapshot.val() || {};
+                    var foundStaff = null;
+                    for (var key in staffs) {
+                        if (staffs.hasOwnProperty(key)) {
+                            var s = staffs[key];
+                            if (s.username === username && s.password === password) {
+                                foundStaff = s;
+                                foundStaff.id = key;
+                                break;
+                            }
                         }
                     }
-                }
-                if (!foundStaff) {
-                    throw new Error('Sai tÃªn Ä‘Äƒng nháº­p hoáº·c máº­t kháº©u');
-                }
+                    if (!foundStaff) {
+                        throw new Error('Sai ten dang nhap hoac mat khau');
+                    }
 
-                // Äá»c firebase_config tá»« Master (náº¿u cÃ³)
-                return masterDb.ref('firebase_config/' + shopId).once('value').then(function(configSnapshot) {
-                    var fbConfig = configSnapshot.val() || null;
-                    var oldConfigHash = localStorage.getItem(CONFIG_HASH_KEY);
-                    var newConfigHash = _getConfigHash(fbConfig);
+                    // [Comment removed - encoding error]
+                    var oldShopId = localStorage.getItem('current_shop_id');
+                    var isSwitchingShop = oldShopId && oldShopId !== shopId;
+                    
+                    if (isSwitchingShop) {
+                        console.log('Phat hien chuyen POS tu', oldShopId, '->', shopId, 'dang clear cache cu...');
+                        // Clear memory cache ngay l?p t?c
+                        memoryCache = {};
+                        cacheVersion = {};
+                        syncMetaCache = {};
+                        // [Comment removed - encoding error]
+                        try {
+                            var oldLsPrefix = LS_SYNC_META_PREFIX + oldShopId + '_';
+                            var keysToRemove = [];
+                            for (var i = 0; i < localStorage.length; i++) {
+                                var key = localStorage.key(i);
+                                if (key && key.indexOf(oldLsPrefix) === 0) {
+                                    keysToRemove.push(key);
+                                }
+                            }
+                            for (var i = 0; i < keysToRemove.length; i++) {
+                                localStorage.removeItem(keysToRemove[i]);
+                            }
+                        } catch (e) {}
+                    }
 
-                    // XÃ³a dá»¯ liá»‡u local cÅ© trÆ°á»›c khi chuyá»ƒn POS
-                    return clearLocalData().then(function() {
-                        // Náº¿u cÃ³ firebase_config riÃªng
-                        if (fbConfig) {
-                            // PhÃ¡t hiá»‡n thay Ä‘á»•i config -> cáº§n migration
+                    var hasCustomConfig = !!fbConfig;
+                    _setCurrentUserAndSession(foundStaff, shopId, shopCode, shopInfo, hasCustomConfig);
+
+                    // [Comment removed - encoding error]
+                    // [Comment removed - encoding error]
+                    var _slaveInitPromiseForLogin = null;
+                    
+                    if (fbConfig) {
+                        // [Comment removed - encoding error]
+                        var oldConfigHash = localStorage.getItem(CONFIG_HASH_KEY);
+                        var newConfigHash = _getConfigHash(fbConfig);
+
+                        _slaveInitPromiseForLogin = _initSlaveApp(shopId, fbConfig).then(function() {
+                            // [Comment removed - encoding error]
                             if (oldConfigHash && oldConfigHash !== 'master' && oldConfigHash !== newConfigHash) {
-                                console.log('ðŸ”€ PhÃ¡t hiá»‡n thay Ä‘á»•i Firebase config, chuáº©n bá»‹ migration...');
-                                // Khá»Ÿi táº¡o Slave má»›i trÆ°á»›c
-                                return _initSlaveApp(shopId, fbConfig).then(function() {
-                                    // Migrate dá»¯ liá»‡u tá»« Master (DB cÅ©) sang Slave (DB má»›i)
-                                    return _migrateData(shopId, masterDb, slaveDb).then(function() {
-                                        localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
-                                        console.log('ðŸ”€ Migration hoÃ n táº¥t cho', shopId);
-                                    });
+                                console.log('Phat hien thay doi Firebase config, chuan bi migration...');
+                                return _migrateData(shopId, masterDb, slaveDb).then(function() {
+                                    localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
+                                    console.log('Migration hoan tat cho', shopId);
                                 });
                             } else {
-                                // Khá»Ÿi táº¡o Slave App vá»›i config má»›i
-                                return _initSlaveApp(shopId, fbConfig).then(function() {
-                                    localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
-                                });
+                                localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
                             }
-                        } else {
-                            // KhÃ´ng cÃ³ config riÃªng -> dÃ¹ng Master
-                            localStorage.setItem(CONFIG_HASH_KEY, 'master');
-                            // Há»§y Slave náº¿u Ä‘ang tá»“n táº¡i
-                            if (slaveApp) {
-                                try { slaveApp.delete(); } catch(e) {}
-                                slaveApp = null;
-                                slaveDb = null;
-                                slaveConfig = null;
-                            }
+                        }).catch(function(err) {
+                            console.error('?? L?i init Slave:', err);
+                        });
+                    } else {
+                        // [Comment removed - encoding error]
+                        localStorage.setItem(CONFIG_HASH_KEY, 'master');
+                        // H?y Slave n?u dang t?n t?i
+                        if (slaveApp) {
+                            try { slaveApp.delete(); } catch(e) {}
+                            slaveApp = null;
+                            slaveDb = null;
+                            slaveConfig = null;
                         }
+                        _slaveInitPromiseForLogin = Promise.resolve();
+                    }
 
-                        // LÆ°u session
-                        currentUser = {
-                            id: foundStaff.id,
-                            username: foundStaff.username,
-                            displayName: foundStaff.displayName || foundStaff.username,
-                            role: foundStaff.role || 'staff',
-                            shopId: shopId,
-                            shopCode: shopCode,
-                            shopName: shopInfo.shopName || '',
-                            hasCustomConfig: !!fbConfig
-                        };
-                        localStorage.setItem('pos_session', JSON.stringify(currentUser));
+                    // [Comment removed - encoding error]
+                    // [Comment removed - encoding error]
+                    if (isSwitchingShop) {
+                        // [Comment removed - encoding error]
+                        // [Comment removed - encoding error]
+                        return (_slaveInitPromiseForLogin || Promise.resolve()).then(function() {
+                            if (!localDB) return currentUser;
+                            var storeNames = [];
+                            for (var i = 0; i < localDB.objectStoreNames.length; i++) {
+                                storeNames.push(localDB.objectStoreNames[i]);
+                            }
+                            var promises = [];
+                            for (var i = 0; i < storeNames.length; i++) {
+                                var name = storeNames[i];
+                                if (name === 'sync_queue') continue;
+                                promises.push(new Promise(function(resolve, reject) {
+                                    var tx = localDB.transaction([name], 'readwrite');
+                                    var store = tx.objectStore(name);
+                                    var req = store.clear();
+                                    req.onsuccess = function() { resolve(); };
+                                    req.onerror = function() { reject(req.error); };
+                                }));
+                            }
+                            return Promise.all(promises).then(function() {
+                                console.log('??? Cleared IndexedDB data for shop switch to', shopId);
+                                return currentUser;
+                            });
+                        });
+                    }
 
-                        // Cáº­p nháº­t shopId
-                        setShopId(shopId);
-
-                        return currentUser;
-                    });
+                    // [Comment removed - encoding error]
+                    return currentUser;
                 });
             });
         });
-    }
-    
-    // ÄÄƒng kÃ½ POS má»›i (táº¡o shop + admin)
-    // Tham sá»‘ firebaseConfig (tÃ¹y chá»n): náº¿u cÃ³, POS sáº½ dÃ¹ng Firebase riÃªng
-    function registerShop(shopName, shopCode, adminUser, adminPass, firebaseConfig) {
+    }function registerShop(shopName, shopCode, adminUser, adminPass, firebaseConfig) {
         if (!shopName || !shopCode || !adminUser || !adminPass) {
-            return Promise.reject(new Error('Vui lÃ²ng nháº­p Ä‘áº§y Ä‘á»§ thÃ´ng tin'));
+            return Promise.reject(new Error('Vui lòng nhập đầy đủ thông tin'));
         }
         if (shopCode.length < 3) {
-            return Promise.reject(new Error('MÃ£ POS pháº£i cÃ³ Ã­t nháº¥t 3 kÃ½ tá»±'));
+            return Promise.reject(new Error('Mã POS phải có ít nhất 3 ký tự'));
         }
         if (adminPass.length < 4) {
-            return Promise.reject(new Error('Máº­t kháº©u pháº£i cÃ³ Ã­t nháº¥t 4 kÃ½ tá»±'));
+            return Promise.reject(new Error('Mật khẩu phải có ít nhất 4 ký tự'));
         }
         
-        // Kiá»ƒm tra shopCode Ä‘Ã£ tá»“n táº¡i chÆ°a (LUÃ”N á»Ÿ Master)
+        console.log('🔄 registerShop() - Đăng ký POS mới:', { shopName: shopName, shopCode: shopCode, adminUser: adminUser, hasCustomConfig: !!firebaseConfig });
+        
+        // Kiểm tra shopCode đã tồn tại chưa (LUÔN ở Master)
         return masterDb.ref('shop_registry/' + shopCode).once('value').then(function(snapshot) {
             if (snapshot.exists()) {
-                throw new Error('MÃ£ POS nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng kÃ½');
+                throw new Error('Mã POS này đã được đăng ký');
             }
             
-            // Táº¡o shopId
+            // Tạo shopId
             var shopId = 'shop_' + shopCode.toLowerCase();
             
-            // Táº¡o staff admin
+            // Tạo staff admin
             var staffId = 'staff_' + Date.now().toString(36);
             var staffData = {
                 id: staffId,
@@ -2881,17 +3064,18 @@
                 createdBy: 'system'
             };
             
-            // Táº¡o shop_registry entry
+            // Tạo shop_registry entry
             var registryData = {
                 shopId: shopId,
                 shopName: shopName,
                 shopCode: shopCode,
                 createdAt: Date.now(),
                 status: 'active',
-                hasCustomConfig: !!firebaseConfig
+                hasCustomConfig: !!firebaseConfig,
+                firebaseConfig: firebaseConfig || null
             };
             
-            // Batch write: shop_registry + shop data + staff (LUÃ”N á»Ÿ Master)
+            // Batch write: shop_registry + shop data + staff (LUÔN ở Master)
             var updates = {};
             updates['shop_registry/' + shopCode] = registryData;
             updates[shopId + '/staffs/' + staffId] = staffData;
@@ -2902,16 +3086,21 @@
                 createdAt: Date.now()
             };
             
-            // Náº¿u cÃ³ firebaseConfig, lÆ°u vÃ o firebase_config (LUÃ”N á»Ÿ Master)
+            // [Comment removed - encoding error]
+            var _slaveInitPromise = null;
             if (firebaseConfig) {
-                updates['firebase_config/' + shopId] = firebaseConfig;
+                _slaveInitPromise = _initSlaveApp(shopId, firebaseConfig).then(function() {
+                    return slaveDb.ref(shopId + '/staffs/' + staffId).set(staffData);
+                });
             }
-            
             return masterDb.ref().update(updates).then(function() {
-                // XÃ³a dá»¯ liá»‡u local cÅ© trÆ°á»›c khi chuyá»ƒn POS má»›i
+                console.log('✅ registerShop() - POS đã được tạo:', { shopId: shopId, shopCode: shopCode });
+                // Xóa dữ liệu local cũ trước khi chuyển POS mới
                 return clearLocalData();
             }).then(function() {
-                // Tá»± Ä‘á»™ng Ä‘Äƒng nháº­p sau khi Ä‘Äƒng kÃ½
+                if (_slaveInitPromise) return _slaveInitPromise;
+            }).then(function() {
+                // Tự động đăng nhập sau khi đăng ký
                 currentUser = {
                     id: staffId,
                     username: adminUser,
@@ -2929,13 +3118,13 @@
         });
     }
     
-    // Táº¡o nhÃ¢n viÃªn má»›i (chá»‰ admin) - staff LUÃ”N á»Ÿ Master
+    // Tạo nhân viên mới (chỉ admin)
     function createStaff(staffData) {
         if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'master_admin')) {
-            return Promise.reject(new Error('Chá»‰ admin má»›i cÃ³ thá»ƒ táº¡o nhÃ¢n viÃªn'));
+            return Promise.reject(new Error('Chỉ admin mới có thể tạo nhân viên'));
         }
         if (!staffData.username || !staffData.password) {
-            return Promise.reject(new Error('Vui lÃ²ng nháº­p tÃªn Ä‘Äƒng nháº­p vÃ  máº­t kháº©u'));
+            return Promise.reject(new Error('Vui lòng nhập tên đăng nhập và mật khẩu'));
         }
         
         var staffId = 'staff_' + Date.now().toString(36);
@@ -2949,24 +3138,30 @@
             createdBy: currentUser.id
         };
         
-        // Staff LUÃ”N ghi vÃ o Master
+        // Staff ghi vào Master (luôn) và Slave (nếu có custom config)
         var ref = masterDb.ref(CURRENT_SHOP_ID + '/staffs/' + staffId);
         return ref.set(data).then(function() {
-            // LÆ°u vÃ o IndexedDB local
+            // Nếu có custom Firebase config, ghi staff vào Slave Firebase
+            if (slaveDb && slaveConfig) {
+                return slaveDb.ref(CURRENT_SHOP_ID + '/staffs/' + staffId).set(data);
+            }
+        }).then(function() {
+            // Lưu vào IndexedDB local
             return saveToLocal('staffs', data);
         }).then(function() {
             return data;
         });
     }
     
-    // Láº¥y danh sÃ¡ch nhÃ¢n viÃªn - staff LUÃ”N á»Ÿ Master
+    // Lấy danh sách nhân viên
     function getStaffs() {
-        // Æ¯u tiÃªn Ä‘á»c tá»« local cache trÆ°á»›c
+        // Ưu tiên đọc từ local cache trước
         return getAll('staffs').then(function(localStaffs) {
-            // Náº¿u cÃ³ local cache, tráº£ vá» ngay
+            // Nếu có local cache, trả về ngay
             if (localStaffs && localStaffs.length > 0) {
-                // Ä&#x2018;á»“ng thá»i fetch Master Firebase Ä‘á»ƒ cáº­p nháº­t ná»n
-                masterDb.ref(CURRENT_SHOP_ID + '/staffs').once('value').then(function(snapshot) {
+                // [Comment removed - encoding error]
+                var _staffRef = masterDb.ref(CURRENT_SHOP_ID + '/staffs');
+                _staffRef.once('value').then(function(snapshot) {
                     var data = snapshot.val() || {};
                     for (var key in data) {
                         if (data.hasOwnProperty(key)) {
@@ -2976,12 +3171,13 @@
                         }
                     }
                 }).catch(function() {
-                    // Lá»—i Firebase, bá» qua
+                    // Lỗi Firebase, bỏ qua
                 });
                 return localStaffs;
             }
-            // KhÃ´ng cÃ³ local cache, fetch tá»« Master Firebase
-            return masterDb.ref(CURRENT_SHOP_ID + '/staffs').once('value').then(function(snapshot) {
+            // Không có local cache, fetch từ Firebase (Slave nếu có, Master nếu không)
+            var _staffRef = masterDb.ref(CURRENT_SHOP_ID + '/staffs');
+            return _staffRef.once('value').then(function(snapshot) {
                 var data = snapshot.val() || {};
                 var list = [];
                 for (var key in data) {
@@ -2991,52 +3187,52 @@
                         list.push(item);
                     }
                 }
-                // Cáº­p nháº­t local cache
+                // Cập nhật local cache
                 for (var i = 0; i < list.length; i++) {
                     saveToLocal('staffs', list[i]);
                 }
                 return list;
             }).catch(function() {
-                // Fallback: Ä‘á»c tá»« local
+                // Fallback: đọc từ local
                 return getAll('staffs');
             });
         });
     }
     
-    // ÄÄƒng xuáº¥t
+    // Đăng xuất
     function logout() {
         currentUser = null;
         localStorage.removeItem('pos_session');
         localStorage.removeItem(CONFIG_HASH_KEY);
-        // Reset vá» shop máº·c Ä‘á»‹nh
+        // Reset về shop mặc định
         CURRENT_SHOP_ID = 'shop_default';
         localStorage.setItem('current_shop_id', 'shop_default');
-        // Há»§y Slave App náº¿u cÃ³
+        // Hủy Slave App nếu có
         if (slaveApp) {
             try { slaveApp.delete(); } catch(e) {}
             slaveApp = null;
             slaveDb = null;
             slaveConfig = null;
         }
-        console.log('ðŸ‘‹ Logged out');
+        console.log('👋 Logged out');
     }
     
-    // Láº¥y thÃ´ng tin user hiá»‡n táº¡i
+    // Lấy thông tin user hiện tại
     function getCurrentUser() {
         return currentUser;
     }
     
-    // Kiá»ƒm tra Ä‘Ã£ Ä‘Äƒng nháº­p chÆ°a
+    // Kiểm tra đã đăng nhập chưa
     function isLoggedIn() {
         return currentUser !== null;
     }
     
-    // Kiá»ƒm tra cÃ³ pháº£i admin khÃ´ng
+    // Kiểm tra có phải admin không (bao gồm master_admin)
     function isAdmin() {
-        return currentUser && currentUser.role === 'admin';
+        return currentUser && (currentUser.role === 'admin' || currentUser.role === 'master_admin');
     }
 
-    // Äá»c shop config trá»±c tiáº¿p tá»« Firebase (dÃ¹ng _getDb Ä‘á»ƒ chá»n Master/Slave)
+    // Đọc shop config trực tiếp từ Firebase (dùng _getDb để chọn Master/Slave)
     function getShopConfig() {
         return dbReady.then(function() {
             if (!isOnline) return Promise.resolve({});
@@ -3048,8 +3244,8 @@
         });
     }
 
-    // OPTIMIZE: getMemoryCache - đọc trực tiếp từ memory cache thay vì IndexedDB
-    // Trả về array các items trong collection, hoặc null nếu collection chưa được cache
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
     function getMemoryCache(collection) {
         if (memoryCache[collection]) {
             var arr = [];
@@ -3061,6 +3257,178 @@
             return arr.length > 0 ? arr : null;
         }
         return null;
+    }
+
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    function getAllShops() {
+        return masterDb.ref('shop_registry').once('value').then(function(snapshot) {
+            var registry = snapshot.val() || {};
+            var shopCodes = Object.keys(registry);
+            var promises = shopCodes.map(function(code) {
+                return _getShopStaff(code, registry[code]);
+            });
+            return Promise.all(promises).then(function(shops) {
+                // S?p x?p theo th?i gian t?o m?i nh?t
+                shops.sort(function(a, b) { return b.createdAt - a.createdAt; });
+                return shops;
+            });
+        });
+    }
+    
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    function _getShopStaff(code, info) {
+        return _readStaffFromMaster(code, info);
+    }
+    
+    // Helper: d?c staff t? Master Firebase
+    function _readStaffFromMaster(code, info) {
+        return masterDb.ref(info.shopId + '/staffs').once('value').then(function(staffSnap) {
+            var staffs = staffSnap.val() || {};
+            var adminStaff = null;
+            for (var key in staffs) {
+                if (staffs.hasOwnProperty(key)) {
+                    var s = staffs[key];
+                    if (s.role === 'admin') {
+                        adminStaff = s;
+                        adminStaff.id = key;
+                        break;
+                    }
+                }
+            }
+            return {
+                shopCode: code,
+                shopId: info.shopId,
+                shopName: info.shopName || '',
+                status: info.status || 'active',
+                createdAt: info.createdAt || 0,
+                hasCustomConfig: !!info.hasCustomConfig,
+                adminUsername: adminStaff ? adminStaff.username : '',
+                adminPassword: adminStaff ? adminStaff.password : ''
+            };
+        }).catch(function() {
+            return {
+                shopCode: code,
+                shopId: info.shopId,
+                shopName: info.shopName || '',
+                status: info.status || 'active',
+                createdAt: info.createdAt || 0,
+                hasCustomConfig: !!info.hasCustomConfig,
+                adminUsername: '',
+                adminPassword: ''
+            };
+        });
+    }
+    // [Comment removed - encoding error]
+    function updateShopStatus(shopCode, newStatus) {
+        return masterDb.ref('shop_registry/' + shopCode + '/status').set(newStatus).then(function() {
+            return { success: true, shopCode: shopCode, status: newStatus };
+        });
+    }
+
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    function updateShopAdmin(shopCode, shopId, newUsername, newPassword) {
+        return _updateAdminInMaster(shopId, newUsername, newPassword).then(function() {
+            return { success: true, shopCode: shopCode };
+        });
+    }
+    
+    // [Comment removed - encoding error]
+    function _updateAdminInMaster(shopId, newUsername, newPassword) {
+        return masterDb.ref(shopId + '/staffs').once('value').then(function(snapshot) {
+            var staffs = snapshot.val() || {};
+            var adminId = null;
+            for (var key in staffs) {
+                if (staffs.hasOwnProperty(key)) {
+                    var s = staffs[key];
+                    if (s.role === 'admin') {
+                        adminId = key;
+                        break;
+                    }
+                }
+            }
+            if (!adminId) {
+                throw new Error('Khong tim thay tai khoan admin cua POS nay');
+            }
+            
+            var updates = {};
+            if (newUsername) updates[shopId + '/staffs/' + adminId + '/username'] = newUsername;
+            if (newPassword) updates[shopId + '/staffs/' + adminId + '/password'] = newPassword;
+            return masterDb.ref().update(updates);
+        });
+    }
+
+    // [Comment removed - encoding error]
+    // [Comment removed - encoding error]
+    function changePassword(shopId, staffId, newPassword) {
+        if (!currentUser) {
+            return Promise.reject(new Error('Chua dang nh?p'));
+        }
+        if (currentUser.role !== 'admin' && currentUser.role !== 'master_admin') {
+            return Promise.reject(new Error('Chi admin moi co the doi mat khau'));
+        }
+        if (!newPassword || newPassword.length < 4) {
+            return Promise.reject(new Error('Mat khau moi phai co it nhat 4 ky tu'));
+        }
+        
+        console.log('changePassword() - Doi mat khau cho staff:', { shopId: shopId, staffId: staffId });
+        
+        // [Comment removed - encoding error]
+        var masterUpdates = {};
+        masterUpdates[shopId + '/staffs/' + staffId + '/password'] = newPassword;
+        
+        return masterDb.ref().update(masterUpdates).then(function() {
+            // [Comment removed - encoding error]
+            if (slaveDb && slaveConfig) {
+                return slaveDb.ref(shopId + '/staffs/' + staffId + '/password').set(newPassword);
+            }
+        }).then(function() {
+            // C?p nh?t currentUser trong memory
+            if (currentUser) {
+                currentUser.password = newPassword;
+            }
+            // C?p nh?t session trong localStorage
+            var session = localStorage.getItem('pos_session');
+            if (session) {
+                try {
+                    var sessionData = JSON.parse(session);
+                    sessionData.password = newPassword;
+                    localStorage.setItem('pos_session', JSON.stringify(sessionData));
+                } catch(e) {}
+            }
+            console.log('changePassword() - Da doi mat khau thanh cong');
+            return { success: true };
+        });
+    }
+
+    // [Comment removed - encoding error]
+    function createMasterAdmin(username, password, displayName) {
+        if (!username || !password) {
+            return Promise.reject(new Error('Vui long nhap ten dang nhap va mat khau'));
+        }
+        if (password.length < 4) {
+            return Promise.reject(new Error('Mat khau phai co it nhat 4 ky tu'));
+        }
+        
+        console.log('?? createMasterAdmin() - T?o master admin m?i:', { username: username });
+        
+        var adminId = 'master_' + Date.now().toString(36);
+        var adminData = {
+            id: adminId,
+            username: username,
+            password: password,
+            displayName: displayName || username,
+            role: 'master_admin',
+            createdAt: Date.now(),
+            createdBy: currentUser ? currentUser.id : 'system'
+        };
+        
+        return masterDb.ref('master_admins/' + adminId).set(adminData).then(function() {
+            console.log('createMasterAdmin() - Da tao master admin:', { adminId: adminId, username: username });
+            return adminData;
+        });
     }
 
     // Export
@@ -3085,7 +3453,7 @@
         // OPTIMIZE: Suppress realtime notifications cho batch operations
         suppressRealtime: function() { _setSuppressRealtime(true); },
         flushRealtime: function() { _setSuppressRealtime(false); },
-        // OPTIMIZE: getMemoryCache - đọc trực tiếp từ memory cache
+        // OPTIMIZE: getMemoryCache - d?c tr?c ti?p t? memory cache
         getMemoryCache: getMemoryCache,
         // Auth methods
         setShopId: setShopId,
@@ -3104,23 +3472,37 @@
         whenSyncComplete: whenSyncComplete,
         batchUpdateSortOrder: batchUpdateSortOrder,
         getShopConfig: getShopConfig,
-        // NÂNG CẤP: reconcileSnapshot - đồng bộ hoàn chỉnh 1 master collection
+        // [Comment removed - encoding error]
         reconcileSnapshot: reconcileSnapshot,
-        // NÂNG CẤP: getDirtyCollections - lấy danh sách collections chưa sync
+        // [Comment removed - encoding error]
         getDirtyCollections: function() { return Object.keys(_dirtyCollections); },
-        // NÂNG CẤP: Fine Render API - Component Registry (Giai đoạn 3)
-        // renderOn(collection, selector, renderFn) - đăng ký component tự động render
-        // selector: function(oldData, newData, changeInfo) => true nếu cần render lại
-        // Trả về hàm unsubscribe
+        // [Comment removed - encoding error]
+        // [Comment removed - encoding error]
+        // selector: function(oldData, newData, changeInfo) => true n?u c?n render l?i
+        // [Comment removed - encoding error]
         renderOn: function(collection, selector, renderFn) {
             return _renderOn(collection, selector, renderFn);
         },
-        // MULTI-FIREBASE: Lấy Master DB instance (dùng cho Admin Master)
+        // [Comment removed - encoding error]
         getMasterDb: function() { return masterDb; },
-        // MULTI-FIREBASE: Lấy Slave DB instance (dùng cho POS có config riêng)
-        getSlaveDb: function() { return slaveDb; }
+        // [Comment removed - encoding error]
+        getSlaveDb: function() { return slaveDb; },
+        // [Comment removed - encoding error]
+        getAllShops: getAllShops,
+        // [Comment removed - encoding error]
+        updateShopStatus: updateShopStatus,
+        // MASTER ADMIN: C?p nh?t username/password admin c?a POS
+        updateShopAdmin: updateShopAdmin,
+        // [Comment removed - encoding error]
+        createMasterAdmin: createMasterAdmin,
+        // [Comment removed - encoding error]
+        changePassword: changePassword
     };
 })();
+
+
+
+
 
 
 
