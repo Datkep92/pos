@@ -1534,7 +1534,7 @@
             
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
-            _reconcileDeletedIds(collection);
+            _cleanupDeletedIds(collection);
         }, intervalSeconds * 1000);
         
         return function() {
@@ -2054,7 +2054,7 @@
                     return saveChain.then(function() {
                         // [Comment removed - encoding error]
                         // [Comment removed - encoding error]
-                        return _reconcileDeletedIds(collection).then(function() {
+                        return _cleanupDeletedIds(collection).then(function() {
                             saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
                             updateMetaOnFirebase(collection, newMaxVersion);
                             resolve();
@@ -2071,15 +2071,16 @@
         });
     }
     
-    // FIX: T?o co ch? t?ng quát d? phát hi?n items dã b? xóa kh?i Firebase
-    // So sánh danh sách ID local v?i Firebase, xóa items th?a kh?i local
-    // Dùng limitToLast cho collection l?n (transactions) d? tránh t?i toàn b?
-    var _RECONCILE_LIMITS = {
-        transactions: 3000,
-        cost_transactions: 3000,
-        inventory_transactions: 3000
+    // Chi?n lu?c cleanup d? li?u dã xóa: ch? ch?y trên các collection nh?
+    // (tables, customers, menu, menu_categories, ingredients)
+    // Các collection l?n nhu transactions, cost_transactions không c?n cleanup
+    // vì realtime Firebase listener dã xu? lý child_removed
+    var _SMALL_MASTER_COLLECTIONS = {
+        tables: true, customers: true, menu: true, menu_categories: true, ingredients: true
     };
-    function _reconcileDeletedIds(collection) {
+    function _cleanupDeletedIds(collection) {
+        // Ch? cleanup cho small master collections
+        if (!_SMALL_MASTER_COLLECTIONS[collection]) return Promise.resolve();
         if (!isOnline) return Promise.resolve();
         
         var loadMemory = Promise.resolve();
@@ -2099,14 +2100,7 @@
             
             var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
             
-            // V?i collection l?n, ch? t?i N items g?n nh?t d? so sánh
-            var limit = _RECONCILE_LIMITS[collection];
-            var queryRef = ref;
-            if (limit) {
-                queryRef = ref.orderByChild('createdAt').limitToLast(limit);
-            }
-            
-            return queryRef.once('value').then(function(snapshot) {
+            return ref.once('value').then(function(snapshot) {
                 var remoteData = snapshot.val() || {};
                 var remoteIds = Object.keys(remoteData);
                 
@@ -2119,7 +2113,7 @@
                 
                 if (deletedIds.length === 0) return;
                 
-                console.log('[Reconcile] Phát hi?n', deletedIds.length, 'items dã b? xóa kh?i', collection);
+                console.log('[Cleanup] Phát hi?n', deletedIds.length, 'items dã b? xóa kh?i', collection);
                 
                 var deleteChain = Promise.resolve();
                 for (var d = 0; d < deletedIds.length; d++) {
@@ -2131,12 +2125,12 @@
                 }
                 return deleteChain;
             }).catch(function(err) {
-                console.warn('[Reconcile] L?i khi ki?m tra', collection, ':', err.message);
+                console.warn('[Cleanup] L?i khi ki?m tra', collection, ':', err.message);
             });
         });
     }
     
-    // SNAPSHOT RECONCILE: K?t h?p _reconcileDeletedIds() + fullSync() cho master collections
+    // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
     // Gi?i quy?t tri?t d? v?n d?: d? li?u local l?ch v?i Firebase do:
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
@@ -2151,7 +2145,7 @@
         }
         console.log('?? Reconcile snapshot for:', collection);
         // [Comment removed - encoding error]
-        return _reconcileDeletedIds(collection).then(function() {
+        return _cleanupDeletedIds(collection).then(function() {
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
             return saveSyncMeta(collection, { lastSyncAt: 0, maxVersion: 0, dateKeys: [] });
@@ -2568,12 +2562,11 @@
             // tru?c khi loadData() d?c tables
             // [Comment removed - encoding error]
             // [Comment removed - encoding error]
-            _reconcileDeletedIds('tables').then(function() {
+            _cleanupDeletedIds('tables').then(function() {
                 subscribeToCollection('customers');
-                // FIX: transactions dung limitToLast(3000) de dam bao du thong ke
-                // Safari iOS co the miss child_removed events, them polling du phong 30s
-                subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 3000 });
-                _startTransactionPolling();
+                // Transactions subscribe binh thuong, khong limitToLast
+                // Safari iOS miss child_removed la loi trinh duyet, bo qua
+                subscribeToCollection('transactions');
                 subscribeToCollection('notifications');
                 subscribeToCollection('info');
                 subscribeToCollection('daily_balances');
@@ -2744,31 +2737,6 @@
         staffEl.className = 'staff-name staff-online';
     }
     
-    // FIX: Polling d? phòng cho transactions (Safari iOS hay miss child_removed events)
-    // deltaSync KHÔNG th? phát hi?n xóa (ch? t?i item có _version > localMaxVersion)
-    // C?n co ch? so sánh ID local v?i Firebase d? phát hi?n giao d?ch dã b? xóa
-    var _transactionPollingTimer = null;
-    function _startTransactionPolling() {
-        if (_transactionPollingTimer) clearInterval(_transactionPollingTimer);
-        _transactionPollingTimer = setInterval(function() {
-            if (!isOnline) return;
-            _syncTransactionDeletions();
-        }, 30000);
-    }
-    
-    // So sánh danh sách ID transactions local v?i Firebase (ch? 200 items g?n nh?t)
-    // d? phát hi?n các giao d?ch dã b? xóa t? máy khác mà Safari iOS miss child_removed
-    function _syncTransactionDeletions() {
-        // Ch? d?nh k? 60s/l?n d? tránh ch?y liên t?c
-        var now = Date.now();
-        if (_lastSyncTimestamps['transactions'] && (now - _lastSyncTimestamps['transactions']) < 60000) {
-            return; // Real-time d dang ho?t d?ng t?t, b? qua
-        }
-        
-        // Dùng _reconcileDeletedIds dã d?u?c t?ng quát hóa d? so sánh ID local v?i Firebase
-        // _reconcileDeletedIds t? d?ng dùng limitToLast(200) cho transactions
-        _reconcileDeletedIds('transactions');
-    }
 
     // Patch _notifyLocal de cap nhat lastSyncTime va broadcast sang tab khac
     var _origNotifyLocal = _notifyLocal;
