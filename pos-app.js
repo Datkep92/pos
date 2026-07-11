@@ -362,8 +362,6 @@ function initEventListeners() {
     var nextDayBtn = document.getElementById('nextDayBtn');
     if (nextDayBtn) nextDayBtn.onclick = function() { changeHistoryDate(1); };
 
-    var historyFilter = document.getElementById('historyFilter');
-    if (historyFilter) historyFilter.onchange = function() { renderHistoryByDate(currentHistoryDate); };
 
     var reportPrevDayBtn = document.getElementById('reportPrevDayBtn');
     if (reportPrevDayBtn) reportPrevDayBtn.onclick = function() { changeReportDate(-1); };
@@ -432,6 +430,13 @@ function switchTab(tabId) {
         if (recentToast) recentToast.style.display = 'none';
 
         if (tabId === 'history') {
+            // Reset bộ lọc về "Tất cả" mỗi khi click tab Lịch sử
+            var allChips = document.querySelectorAll('.filter-chip');
+            for (var ci = 0; ci < allChips.length; ci++) {
+                allChips[ci].classList.remove('active');
+            }
+            var allChip = document.querySelector('.filter-chip[data-filter="all"]');
+            if (allChip) allChip.classList.add('active');
             renderHistoryByDate(currentHistoryDate);
         } else if (tabId === 'customers') {
             renderCustomerList();

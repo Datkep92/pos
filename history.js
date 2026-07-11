@@ -338,8 +338,10 @@ function _renderHistoryCore(dateStr) {
     dateEl.innerText = formatDateDisplay(dateStr);
     dateEl.setAttribute('data-date', dateStr);
     
-    var filterEl = document.getElementById('historyFilter');
-    var filter = filterEl.value;
+    // Đọc filter từ chip đang active (cả filter chips và staff chips)
+    var activeChip = document.querySelector('#historyFilterChips .filter-chip.active') ||
+                     document.querySelector('#historyStaffChips .filter-chip.active');
+    var filter = activeChip ? activeChip.getAttribute('data-filter') : 'all';
     
     DB.getTransactionsByDate(dateStr).then(function(transactions) {
         // Lấy danh sách tên nhân viên duy nhất từ các giao dịch
@@ -354,41 +356,38 @@ function _renderHistoryCore(dateStr) {
         }
         staffNames.sort();
         
-        // Động cập nhật dropdown: xóa các option staff cũ và separator, thêm option mới
-        // Giữ lại các option cố định (all, dinein, takeaway, ...)
-        var currentValue = filterEl.value;
-        // Xóa separator cũ (nếu có)
-        var oldSep = filterEl.querySelector('option[disabled].staff-separator');
-        if (oldSep) filterEl.removeChild(oldSep);
-        // Xóa các option staff cũ
-        var staffOptions = filterEl.querySelectorAll('option[data-staff]');
-        for (var i = staffOptions.length - 1; i >= 0; i--) {
-            filterEl.removeChild(staffOptions[i]);
-        }
-        // Thêm option staff mới
-        if (staffNames.length > 0) {
-            // Thêm separator disabled
-            var sep = document.createElement('option');
-            sep.disabled = true;
-            sep.className = 'staff-separator';
-            sep.textContent = '─── Nhân viên ───';
-            filterEl.appendChild(sep);
-            
+        // Cập nhật chips nhân viên động (dòng 2)
+        var staffContainer = document.getElementById('historyStaffChips');
+        if (staffContainer) {
+            staffContainer.innerHTML = '';
             for (var i = 0; i < staffNames.length; i++) {
-                var opt = document.createElement('option');
-                opt.value = 'staff:' + staffNames[i];
-                opt.textContent = '👤 ' + staffNames[i];
-                opt.setAttribute('data-staff', '1');
-                filterEl.appendChild(opt);
+                var chip = document.createElement('button');
+                chip.className = 'filter-chip filter-chip-staff';
+                chip.setAttribute('data-filter', 'staff:' + staffNames[i]);
+                chip.setAttribute('data-staff', '1');
+                chip.textContent = staffNames[i].charAt(0).toUpperCase();
+                chip.title = '👤 ' + staffNames[i];
+                chip.onclick = function() { onFilterChipClick(this); };
+                staffContainer.appendChild(chip);
             }
         }
-        // Khôi phục giá trị đã chọn (nếu vẫn còn)
-        if (filterEl.querySelector('option[value="' + currentValue + '"]')) {
-            filterEl.value = currentValue;
-        } else {
-            filterEl.value = 'all';
+        // Khôi phục active chip (nếu filter là staff và vẫn còn)
+        if (filter.indexOf('staff:') === 0) {
+            var chipsContainer = document.getElementById('historyFilterChips');
+            var staffChip = document.querySelector('#historyStaffChips .filter-chip[data-filter="' + filter + '"]');
+            if (staffChip) {
+                // Staff còn giao dịch -> set active cho nó
+                staffChip.classList.add('active');
+            } else {
+                // Staff không còn giao dịch -> về all
+                filter = 'all';
+                var allChip = chipsContainer.querySelector('.filter-chip[data-filter="all"]');
+                if (allChip) {
+                    chipsContainer.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+                    allChip.classList.add('active');
+                }
+            }
         }
-        filter = filterEl.value;
         
         if (filter !== 'all') {
             transactions = transactions.filter(function(t) {
@@ -399,12 +398,7 @@ function _renderHistoryCore(dateStr) {
                 if (filter === 'transfer') return t.paymentMethod === 'transfer';
                 if (filter === 'debt') return t.type === 'debt_payment' && t.paymentMethod === 'debt';
                 if (filter === 'debt_payment') return t.type === 'debt_payment' && t.paymentMethod !== 'debt';
-                if (filter === 'cancelled') return t.refunded === true;
-                if (filter === 'credit') return t.type === 'credit';
-                // FIX: Filter cho các type mới
-                if (filter === 'prepaid') return t.type === 'prepaid';
-                if (filter === 'change_in') return t.type === 'change_in';
-                if (filter === 'change_use') return t.type === 'change_use';
+                if (filter === 'delete_table') return t.type === 'delete_table';
                 // Filter staff: value là 'staff:TenNhanVien'
                 if (filter.indexOf('staff:') === 0) return t.createdByName === filter.substring(6);
                 return true;
@@ -1450,6 +1444,41 @@ function deleteTransaction(transactionId) {
 }
 
 // FIX 8: Export global cho tất cả hàm cần thiết
+// ========== FILTER CHIP CLICK HANDLER ==========
+function onFilterChipClick(chip) {
+    if (!chip) return;
+    // Xóa active tất cả chip ở cả 2 dòng
+    var allChips = document.querySelectorAll('.filter-chip');
+    for (var i = 0; i < allChips.length; i++) {
+        allChips[i].classList.remove('active');
+    }
+    chip.classList.add('active');
+    
+    // Re-render với filter mới
+    var dateEl = document.getElementById('historyDate');
+    var dateStr = dateEl ? dateEl.getAttribute('data-date') : '';
+    if (dateStr) {
+        _renderHistoryCore(dateStr);
+    }
+}
+
+// Gán sự kiện click cho các chip tĩnh (dòng 1)
+function _initFilterChips() {
+    var chips = document.querySelectorAll('#historyFilterChips .filter-chip');
+    for (var i = 0; i < chips.length; i++) {
+        (function(chip) {
+            chip.onclick = function() { onFilterChipClick(chip); };
+        })(chips[i]);
+    }
+}
+
+// Gọi _initFilterChips sau khi DOM sẵn sàng
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initFilterChips);
+} else {
+    _initFilterChips();
+}
+
 window.refundTransaction = refundTransaction;
 window.deleteTransaction = deleteTransaction;
 window.changeHistoryDate = changeHistoryDate;
@@ -1458,3 +1487,4 @@ window.printTransactionDetail = printTransactionDetail;
 window.renderHistoryByDateStr = renderHistoryByDateStr;
 window.renderHistoryByDate = renderHistoryByDate;
 window.exportTransactionPDF = exportTransactionPDF;
+window.onFilterChipClick = onFilterChipClick;
