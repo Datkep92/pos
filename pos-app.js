@@ -52,7 +52,13 @@ window.shopConfig = {
 document.addEventListener('DOMContentLoaded', function() {
     // OPTIMIZE: Khôi phục UI từ sessionStorage ngay lập tức (nếu có)
     // Giúp UI hiển thị ngay trong khi chờ DB.init() và loadData() hoàn tất
-    _restoreFromSessionCache();
+    var hasSessionCache = _restoreFromSessionCache();
+    
+    // OPTIMIZE: Neu co session cache, an loading screen som
+    // De nguoi dung thay UI ngay, khong can cho DB.init() hoan tat
+    if (hasSessionCache) {
+        _hideLoadingScreen();
+    }
     
     // FIX: Gọi DB.init() TRƯỚC, sau đó mới initRealtime()
     // Đảm bảo database đã sẵn sàng trước khi đăng ký subscriptions
@@ -80,8 +86,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }).then(function() {
         return loadDraftOrders();
     }).then(function() {
-        // Ẩn màn hình loading sau khi khởi tạo xong
-        _hideLoadingScreen();
+        // OPTIMIZE: Chi an loading screen neu chua an (truong hop ko co session cache)
+        if (!hasSessionCache) {
+            _hideLoadingScreen();
+        }
 
         // FIX: Khởi tạo realtime subscriptions SAU KHI DB đã sẵn sàng và data đã load
         // Tránh race condition: subscribeWithPolling gọi callback khi memoryCache còn rỗng
@@ -612,12 +620,12 @@ function _saveToSessionCache() {
 function _restoreFromSessionCache() {
     try {
         var cacheTime = sessionStorage.getItem('pos_cacheTime');
-        if (!cacheTime) return;
+        if (!cacheTime) return false;
         
         // Cache hết hạn sau 24h
         if (Date.now() - parseInt(cacheTime) > _SESSION_CACHE_TTL) {
             sessionStorage.clear();
-            return;
+            return false;
         }
         
         var menuData = sessionStorage.getItem('pos_menuItems');
@@ -650,9 +658,13 @@ function _restoreFromSessionCache() {
         
         // Hien thi recentToast ngay tu cache
         updateRecentToast();
+        
+        // Co du lieu session cache
+        return true;
     } catch(e) {
         // Lỗi parse JSON hoặc sessionStorage không khả dụng
         sessionStorage.clear();
+        return false;
     }
 }
 

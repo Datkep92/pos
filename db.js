@@ -1543,97 +1543,28 @@
         };
     }
     
-    // [Comment removed - encoding error]
-    // [Comment removed - encoding error]
+    // SIMPLIFIED QUICK SYNC: Khi tab resume, chi can kiem tra Firebase connection
+    // Neu Firebase con ket noi -> realtime listeners van hoat dong -> khong can lam gi
+    // Neu Firebase mat ket noi -> F5 de dam bao du lieu chinh xac
+    // Giai phap don gian, an toan, khong ton bang thong
     var _quickSyncTimer = null;
-    // WAKE DETECTION: Phat hien tab vua wake tu sleep
-    // Khi ngu > 60s, force fullSync('transactions') de dam bao UI chinh xac
-    // Vi deltaSync khong phat hien duoc deletions (transaction bi xoa, refund)
-    var _WAKE_THRESHOLD_MS = 60000; // 60s
-    // FIX: Thoi gian toi thieu giua 2 lan quick sync (tranh duplicate do visibilitychange + focus)
-    var _QUICK_SYNC_COOLDOWN_MS = 5000; // 5s
-    var _lastQuickSyncTime = 0;
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
         _quickSyncTimer = setTimeout(function() {
             _quickSyncTimer = null;
             
-            // FIX: Neu da quick sync trong vong 5s gan day, bo qua
-            // Tranh duplicate sync do visibilitychange + focus cung fire khi tab resume
-            if (Date.now() - _lastQuickSyncTime < _QUICK_SYNC_COOLDOWN_MS) {
-                console.log('?? QuickSync: skipped (cooldown)');
+            // Chi kiem tra Firebase connection state
+            // _firebaseConnected duoc cap nhat boi .info/connected listener
+            if (!_firebaseConnected) {
+                console.log('?? Firebase disconnected on resume - reloading to ensure data accuracy');
+                location.reload();
                 return;
             }
-            _lastQuickSyncTime = Date.now();
             
-            // FIX: Neu offline, khong bo qua ma cho Firebase ket noi lai (toi da 10s)
-            // Khi tab sleep lau, Firebase SDK can thoi gian reconnect
-            // Neu bo qua, UI se khong duoc cap nhat cho den lan sync tiep theo
-            if (!isOnline) {
-                console.log('?? QuickSync: offline, waiting for Firebase reconnection...');
-                var _waitStart = Date.now();
-                var _waitInterval = setInterval(function() {
-                    if (isOnline || (Date.now() - _waitStart) > 10000) {
-                        clearInterval(_waitInterval);
-                        if (isOnline) {
-                            console.log('?? QuickSync: Firebase reconnected, proceeding...');
-                            _doQuickSync();
-                        } else {
-                            console.warn('?? QuickSync: timeout waiting for reconnection, skipping');
-                        }
-                    }
-                }, 500);
-                return;
-            }
-            _doQuickSync();
+            // Firebase con ket noi -> realtime listeners van hoat dong
+            // Khong can lam gi them
+            console.log('?? Tab resumed, Firebase connected - realtime listeners active');
         }, 500);
-    }
-    
-    // FIX: Tach logic sync ra ham rieng de _quickSync co the goi lai sau khi cho ket noi
-    function _doQuickSync() {
-        // WAKE DETECTION: Tinh thoi gian ngu
-        var lastActive = 0;
-        try { lastActive = parseInt(sessionStorage.getItem('pos_lastActive') || '0'); } catch(e) {}
-        var now = Date.now();
-        var sleepDuration = now - lastActive;
-        // Luon cap nhat lastActive
-        try { sessionStorage.setItem('pos_lastActive', String(now)); } catch(e) {}
-        
-        if (sleepDuration > _WAKE_THRESHOLD_MS) {
-            console.log('?? Wake from sleep (' + Math.round(sleepDuration/1000) + 's) - delta + cleanup sync');
-            
-            // OPTIMIZE: Thay fullSync('transactions') bang deltaSync + cleanupDeletedIdsLight
-            // fullSync tai TOAN BO transactions (~300KB) -> ton bang thong
-            // deltaSync: chi tai items moi/update (version > localMaxVersion) -> vai KB
-            // cleanupDeletedIdsLight: chi tai danh sach keys tu Firebase -> vai KB
-            // Tong cong: ~5-10KB thay vi ~300KB!
-            var syncCollections = ['transactions', 'tables', 'menu', 'menu_categories', 'customers', 'ingredients'];
-            
-            // Chay song song tat ca collections de toi uu toc do
-            var promises = [];
-            for (var _sc = 0; _sc < syncCollections.length; _sc++) {
-                (function(col) {
-                    promises.push(
-                        // Buoc 1: Delta sync - chi lay ban ghi moi/update
-                        deltaSync(col).then(function() {
-                            // Buoc 2: Cleanup - xoa cac ID khong con tren Firebase (chi lay keys)
-                            return _cleanupDeletedIdsLight(col);
-                        })
-                    );
-                })(syncCollections[_sc]);
-            }
-            
-            Promise.all(promises).then(function() {
-                console.log('? Delta + cleanup sync after wake completed');
-                // Phat su kien de UI cap nhat
-                _emit('transactions:synced', { collection: 'transactions' });
-                _emit('tables:synced', { collection: 'tables' });
-                _emit('menu:synced', { collection: 'menu' });
-            });
-        } else {
-            console.log('?? Quick sync on resume...');
-            smartSync();
-        }
     }
     
     // Network listener
@@ -2223,82 +2154,6 @@
         });
     }
     
-    // FIX: Cleanup nhe - chi tai danh sach keys tu Firebase (khong tai toan bo data)
-    // Su dung cho _doQuickSync() khi tab wake tu sleep
-    // Chi tai keys (~1KB) thay vi tai toan bo data (~300KB cho transactions)
-    function _cleanupDeletedIdsLight(collection) {
-        if (!isOnline) return Promise.resolve();
-        
-        // Lay local keys tu memoryCache truoc, fallback ve IndexedDB
-        var getLocalKeys;
-        if (memoryCache[collection]) {
-            getLocalKeys = Promise.resolve(Object.keys(memoryCache[collection]));
-        } else {
-            getLocalKeys = loadFromLocal(collection).then(function(data) {
-                if (!data) return [];
-                if (Array.isArray(data)) {
-                    var keys = [];
-                    for (var _i = 0; _i < data.length; _i++) {
-                        keys.push(data[_i].id);
-                    }
-                    return keys;
-                }
-                return Object.keys(data);
-            });
-        }
-        
-        return getLocalKeys.then(function(localKeys) {
-            if (localKeys.length === 0) return;
-            
-            var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
-            
-            // FIX: Voi date-based collections (transactions), chi lay keys trong 30 ngay
-            // Tranh tai toan bo transactions (~10,000+ items) khi chi can 30 ngay
-            var isDateBased = DATE_BASED_COLLECTIONS[collection];
-            if (isDateBased) {
-                var thirtyDaysAgo = Date.now() - THIRTY_DAYS_MS;
-                ref = ref.orderByChild('createdAt').startAt(thirtyDaysAgo);
-            }
-            
-            return ref.once('value').then(function(snapshot) {
-                var remoteKeys = snapshot.exists() ? Object.keys(snapshot.val()) : [];
-                return _compareAndCleanup(collection, localKeys, remoteKeys);
-            }).catch(function(err) {
-                console.warn('[CleanupLight] L?i khi l?y keys cho', collection, ':', err);
-            });
-        });
-    }
-    
-    // So sanh local keys voi remote keys, xoa cac ID khong con tren Firebase
-    function _compareAndCleanup(collection, localKeys, remoteKeys) {
-        // Build remote set de O(1) lookup
-        var remoteSet = {};
-        for (var _r = 0; _r < remoteKeys.length; _r++) {
-            remoteSet[remoteKeys[_r]] = true;
-        }
-        
-        // Tim cac ID co trong local nhung khong co trong remote
-        var deleted = [];
-        for (var _l = 0; _l < localKeys.length; _l++) {
-            if (!remoteSet[localKeys[_l]]) {
-                deleted.push(localKeys[_l]);
-            }
-        }
-        
-        if (deleted.length === 0) return Promise.resolve();
-        
-        console.log('[Cleanup] X?a', deleted.length, 'items kh?i', collection);
-        var chain = Promise.resolve();
-        for (var _d = 0; _d < deleted.length; _d++) {
-            (function(id) {
-                chain = chain.then(function() {
-                    return deleteFromLocal(collection, id);
-                });
-            })(deleted[_d]);
-        }
-        return chain;
-    }
-    
     // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
     // Gi?i quy?t tri?t d? v?n d?: d? li?u local l?ch v?i Firebase do:
     // [Comment removed - encoding error]
@@ -2710,46 +2565,37 @@
             return initLocalDB();
         }).then(function() {
             initNetwork();
-            if (isOnline) return smartSync();
-            return Promise.resolve();
+            // OPTIMIZE: Chay smartSync, seedDefaultShop, ensureShopConfig SONG SONG
+            // Vi chung khong phu thuoc lan nhau, co the chay dong thoi de giam thoi gian
+            var syncPromise = isOnline ? smartSync() : Promise.resolve();
+            var seedPromise = seedDefaultShop();
+            var configPromise = ensureShopConfig();
+            return Promise.all([syncPromise, seedPromise, configPromise]);
         }).then(function() {
-            // Seed dữ liệu mặc định nếu chưa có
-            return seedDefaultShop();
-        }).then(function() {
-            // Tự động tạo config fields cho shop hiện tại nếu chưa có
-            return ensureShopConfig();
-        }).then(function() {
-            // Subscribe các collections cần thiết cho POS
-            // tables, customers, menu, menu_categories, transactions, notifications
-            // Bỏ: ingredients, cost_categories, cost_transactions, cost_transactions_admin,
-            //      admin_cost_categories, reports
-            // OPTIMIZE: transactions dùng limitToLast(200) để chỉ lấy 200 giao dịch gần nhất
-            // Giảm dung lượng download từ hàng ngàn item xuống 200 item
+            // OPTIMIZE: Subscribe tat ca collections SONG SONG bang Promise.all
+            // Thay vi subscribe tung cai mot (tu truoc den gio mat ~12 buoc)
+            // Giam thoi gian khoi tao dong bo listeners
+            var subscribePromises = [];
+            
+            // tables: can cleanupDeletedIds truoc
             subscribeToCollection('tables');
-            // FIX: Cleanup deleted IDs ngay sau khi subscribe tables
-            // [Comment removed - encoding error]
-            // tru?c khi loadData() d?c tables
-            // [Comment removed - encoding error]
-            // [Comment removed - encoding error]
-            _cleanupDeletedIds('tables').then(function() {
-                subscribeToCollection('customers');
-                // Transactions subscribe binh thuong, khong limitToLast
-                // Safari iOS miss child_removed la loi trinh duyet, bo qua
-                subscribeToCollection('transactions');
-                subscribeToCollection('notifications');
-                subscribeToCollection('info');
-                subscribeToCollection('daily_balances');
-                // FIX: Thêm subscribe cho cost_categories và cost_transactions
-                // để loadExpenseData() và managerApplyFilter() có dữ liệu
-                subscribeToCollection('cost_categories');
-                subscribeToCollection('cost_transactions');
-                // REALTIME OPTIMIZATION: Chuyen menu, menu_categories, ingredients, messages
-                // tu polling (60s) sang realtime Firebase listeners
-                // Giup da thiet bi thay thay doi ngay lap tuc thay vi cho 60s
-                subscribeToCollection('menu');
-                subscribeToCollection('menu_categories');
-                subscribeToCollection('ingredients');
-                subscribeToCollection('messages');
+            subscribePromises.push(
+                _cleanupDeletedIds('tables').then(function() {
+                    subscribeToCollection('customers');
+                    subscribeToCollection('transactions');
+                    subscribeToCollection('notifications');
+                    subscribeToCollection('info');
+                    subscribeToCollection('daily_balances');
+                    subscribeToCollection('cost_categories');
+                    subscribeToCollection('cost_transactions');
+                    subscribeToCollection('menu');
+                    subscribeToCollection('menu_categories');
+                    subscribeToCollection('ingredients');
+                    subscribeToCollection('messages');
+                })
+            );
+            
+            return Promise.all(subscribePromises).then(function() {
                 // REALTIME OPTIMIZATION: Khoi tao BroadcastChannel va Heartbeat
                 _initBroadcastChannel();
                 // FIX: Khoi tao lastSyncTimestamps cho cac collection da subscribe
