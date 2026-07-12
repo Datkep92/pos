@@ -1546,16 +1546,66 @@
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
     var _quickSyncTimer = null;
+    // WAKE DETECTION: Phat hien tab vua wake tu sleep
+    // Khi ngu > 60s, force fullSync('transactions') de dam bao UI chinh xac
+    // Vi deltaSync khong phat hien duoc deletions (transaction bi xoa, refund)
+    var _WAKE_THRESHOLD_MS = 60000; // 60s
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
         _quickSyncTimer = setTimeout(function() {
             _quickSyncTimer = null;
-            if (!isOnline) return;
-            console.log('?? Quick sync on resume...');
-            // FIX: Chi goi smartSync() 1 lan (khong tham so = sync tat ca)
-            // Truoc day goi trong vong lap N lan, gay N lan sync trung lap
-            smartSync();
+            
+            // FIX: Neu offline, khong bo qua ma cho Firebase ket noi lai (toi da 10s)
+            // Khi tab sleep lau, Firebase SDK can thoi gian reconnect
+            // Neu bo qua, UI se khong duoc cap nhat cho den lan sync tiep theo
+            if (!isOnline) {
+                console.log('?? QuickSync: offline, waiting for Firebase reconnection...');
+                var _waitStart = Date.now();
+                var _waitInterval = setInterval(function() {
+                    if (isOnline || (Date.now() - _waitStart) > 10000) {
+                        clearInterval(_waitInterval);
+                        if (isOnline) {
+                            console.log('?? QuickSync: Firebase reconnected, proceeding...');
+                            _doQuickSync();
+                        } else {
+                            console.warn('?? QuickSync: timeout waiting for reconnection, skipping');
+                        }
+                    }
+                }, 500);
+                return;
+            }
+            _doQuickSync();
         }, 500);
+    }
+    
+    // FIX: Tach logic sync ra ham rieng de _quickSync co the goi lai sau khi cho ket noi
+    function _doQuickSync() {
+        // WAKE DETECTION: Tinh thoi gian ngu
+        var lastActive = 0;
+        try { lastActive = parseInt(sessionStorage.getItem('pos_lastActive') || '0'); } catch(e) {}
+        var now = Date.now();
+        var sleepDuration = now - lastActive;
+        // Luon cap nhat lastActive
+        try { sessionStorage.setItem('pos_lastActive', String(now)); } catch(e) {}
+        
+        if (sleepDuration > _WAKE_THRESHOLD_MS) {
+            console.log('?? Wake from sleep (' + Math.round(sleepDuration/1000) + 's) - forcing fullSync transactions');
+            // FIX: Doi fullSync('transactions') xong MOI goi smartSync()
+            // Tranh race condition: fullSync ghi toan bo transactions vao IndexedDB
+            // Trong khi deltaSync (trong smartSync) cung ghi transactions
+            // Neu chay song song, deltaSync co the ghi de du lieu cu sau khi fullSync da ghi moi
+            fullSync('transactions').then(function() {
+                // Phat su kien de UI cap nhat
+                _emit('transactions:synced', { collection: 'transactions', timestamp: Date.now() });
+                // Chi smartSync cac collection con lai (khong bao gom transactions)
+                // Vi transactions da duoc fullSync o tren
+                // Su dung excludeCollections de tranh sync transactions lan 2
+                smartSync(null, ['transactions']);
+            });
+        } else {
+            console.log('?? Quick sync on resume...');
+            smartSync();
+        }
     }
     
     // Network listener
@@ -1732,7 +1782,9 @@
     // FIX: smartSync nhan tham so collection de chi sync 1 collection cu the
     // Khi duoc goi tu heartbeat, BroadcastChannel, hoac _quickSync
     // Neu khong co tham so, sync tat ca collections (nhu cu)
-    function smartSync(collection) {
+    // Tham so thu 2 (excludeCollections): mang cac collection can bo qua
+    // Vi du: smartSync(null, ['transactions']) -> sync tat ca tru transactions
+    function smartSync(collection, excludeCollections) {
         if (!isOnline) {
             _syncPromise = Promise.resolve();
             return _syncPromise;
@@ -1755,9 +1807,22 @@
         var masterKeys = Object.keys(MASTER_COLLECTIONS);
         var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
         
+        // FIX: Loc bo cac collection trong excludeCollections
+        var _exclude = excludeCollections || [];
+        function _isExcluded(col) {
+            for (var _e = 0; _e < _exclude.length; _e++) {
+                if (_exclude[_e] === col) return true;
+            }
+            return false;
+        }
+        
         var syncResults = { full: [], delta: [], skipped: [] };
         
         function syncCollection(collection) {
+            if (_isExcluded(collection)) {
+                syncResults.skipped.push(collection);
+                return Promise.resolve();
+            }
             if (collection === 'tables') {
                 syncResults.full.push(collection);
                 return fullSync(collection);
