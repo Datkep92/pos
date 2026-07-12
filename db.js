@@ -1589,18 +1589,35 @@
         try { sessionStorage.setItem('pos_lastActive', String(now)); } catch(e) {}
         
         if (sleepDuration > _WAKE_THRESHOLD_MS) {
-            console.log('?? Wake from sleep (' + Math.round(sleepDuration/1000) + 's) - forcing fullSync transactions');
-            // FIX: Doi fullSync('transactions') xong MOI goi smartSync()
-            // Tranh race condition: fullSync ghi toan bo transactions vao IndexedDB
-            // Trong khi deltaSync (trong smartSync) cung ghi transactions
-            // Neu chay song song, deltaSync co the ghi de du lieu cu sau khi fullSync da ghi moi
-            fullSync('transactions').then(function() {
+            console.log('?? Wake from sleep (' + Math.round(sleepDuration/1000) + 's) - delta + cleanup sync');
+            
+            // OPTIMIZE: Thay fullSync('transactions') bang deltaSync + cleanupDeletedIdsLight
+            // fullSync tai TOAN BO transactions (~300KB) -> ton bang thong
+            // deltaSync: chi tai items moi/update (version > localMaxVersion) -> vai KB
+            // cleanupDeletedIdsLight: chi tai danh sach keys tu Firebase -> vai KB
+            // Tong cong: ~5-10KB thay vi ~300KB!
+            var syncCollections = ['transactions', 'tables', 'menu', 'menu_categories', 'customers', 'ingredients'];
+            
+            // Chay song song tat ca collections de toi uu toc do
+            var promises = [];
+            for (var _sc = 0; _sc < syncCollections.length; _sc++) {
+                (function(col) {
+                    promises.push(
+                        // Buoc 1: Delta sync - chi lay ban ghi moi/update
+                        deltaSync(col).then(function() {
+                            // Buoc 2: Cleanup - xoa cac ID khong con tren Firebase (chi lay keys)
+                            return _cleanupDeletedIdsLight(col);
+                        })
+                    );
+                })(syncCollections[_sc]);
+            }
+            
+            Promise.all(promises).then(function() {
+                console.log('? Delta + cleanup sync after wake completed');
                 // Phat su kien de UI cap nhat
-                _emit('transactions:synced', { collection: 'transactions', timestamp: Date.now() });
-                // Chi smartSync cac collection con lai (khong bao gom transactions)
-                // Vi transactions da duoc fullSync o tren
-                // Su dung excludeCollections de tranh sync transactions lan 2
-                smartSync(null, ['transactions']);
+                _emit('transactions:synced', { collection: 'transactions' });
+                _emit('tables:synced', { collection: 'tables' });
+                _emit('menu:synced', { collection: 'menu' });
             });
         } else {
             console.log('?? Quick sync on resume...');
@@ -2193,6 +2210,82 @@
                 console.warn('[Cleanup] L?i khi ki?m tra', collection, ':', err.message);
             });
         });
+    }
+    
+    // FIX: Cleanup nhe - chi tai danh sach keys tu Firebase (khong tai toan bo data)
+    // Su dung cho _doQuickSync() khi tab wake tu sleep
+    // Chi tai keys (~1KB) thay vi tai toan bo data (~300KB cho transactions)
+    function _cleanupDeletedIdsLight(collection) {
+        if (!isOnline) return Promise.resolve();
+        
+        // Lay local keys tu memoryCache truoc, fallback ve IndexedDB
+        var getLocalKeys;
+        if (memoryCache[collection]) {
+            getLocalKeys = Promise.resolve(Object.keys(memoryCache[collection]));
+        } else {
+            getLocalKeys = loadFromLocal(collection).then(function(data) {
+                if (!data) return [];
+                if (Array.isArray(data)) {
+                    var keys = [];
+                    for (var _i = 0; _i < data.length; _i++) {
+                        keys.push(data[_i].id);
+                    }
+                    return keys;
+                }
+                return Object.keys(data);
+            });
+        }
+        
+        return getLocalKeys.then(function(localKeys) {
+            if (localKeys.length === 0) return;
+            
+            var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
+            
+            // FIX: Voi date-based collections (transactions), chi lay keys trong 30 ngay
+            // Tranh tai toan bo transactions (~10,000+ items) khi chi can 30 ngay
+            var isDateBased = DATE_BASED_COLLECTIONS[collection];
+            if (isDateBased) {
+                var thirtyDaysAgo = Date.now() - THIRTY_DAYS_MS;
+                ref = ref.orderByChild('createdAt').startAt(thirtyDaysAgo);
+            }
+            
+            return ref.once('value').then(function(snapshot) {
+                var remoteKeys = snapshot.exists() ? Object.keys(snapshot.val()) : [];
+                return _compareAndCleanup(collection, localKeys, remoteKeys);
+            }).catch(function(err) {
+                console.warn('[CleanupLight] L?i khi l?y keys cho', collection, ':', err);
+            });
+        });
+    }
+    
+    // So sanh local keys voi remote keys, xoa cac ID khong con tren Firebase
+    function _compareAndCleanup(collection, localKeys, remoteKeys) {
+        // Build remote set de O(1) lookup
+        var remoteSet = {};
+        for (var _r = 0; _r < remoteKeys.length; _r++) {
+            remoteSet[remoteKeys[_r]] = true;
+        }
+        
+        // Tim cac ID co trong local nhung khong co trong remote
+        var deleted = [];
+        for (var _l = 0; _l < localKeys.length; _l++) {
+            if (!remoteSet[localKeys[_l]]) {
+                deleted.push(localKeys[_l]);
+            }
+        }
+        
+        if (deleted.length === 0) return Promise.resolve();
+        
+        console.log('[Cleanup] X?a', deleted.length, 'items kh?i', collection);
+        var chain = Promise.resolve();
+        for (var _d = 0; _d < deleted.length; _d++) {
+            (function(id) {
+                chain = chain.then(function() {
+                    return deleteFromLocal(collection, id);
+                });
+            })(deleted[_d]);
+        }
+        return chain;
     }
     
     // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
