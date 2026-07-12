@@ -1550,10 +1550,21 @@
     // Khi ngu > 60s, force fullSync('transactions') de dam bao UI chinh xac
     // Vi deltaSync khong phat hien duoc deletions (transaction bi xoa, refund)
     var _WAKE_THRESHOLD_MS = 60000; // 60s
+    // FIX: Thoi gian toi thieu giua 2 lan quick sync (tranh duplicate do visibilitychange + focus)
+    var _QUICK_SYNC_COOLDOWN_MS = 5000; // 5s
+    var _lastQuickSyncTime = 0;
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
         _quickSyncTimer = setTimeout(function() {
             _quickSyncTimer = null;
+            
+            // FIX: Neu da quick sync trong vong 5s gan day, bo qua
+            // Tranh duplicate sync do visibilitychange + focus cung fire khi tab resume
+            if (Date.now() - _lastQuickSyncTime < _QUICK_SYNC_COOLDOWN_MS) {
+                console.log('?? QuickSync: skipped (cooldown)');
+                return;
+            }
+            _lastQuickSyncTime = Date.now();
             
             // FIX: Neu offline, khong bo qua ma cho Firebase ket noi lai (toi da 10s)
             // Khi tab sleep lau, Firebase SDK can thoi gian reconnect
