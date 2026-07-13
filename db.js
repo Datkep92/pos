@@ -557,7 +557,10 @@
                 var collections = Object.keys(_pendingNotifyCollections);
                 _pendingNotifyCollections = {};
                 for (var i = 0; i < collections.length; i++) {
-                    _notifyLocal(collections[i]);
+                    // FIX: Truy?n changeInfo { type: 'synced' } d? _emit du?c g?i
+                    // Gi?p DB.on('collection:*') trong realtime-pos.js ch?y
+                    // d? c?p nh?t UI sau fullSync
+                    _notifyLocal(collections[i], { type: 'synced', collection: collections[i] });
                 }
             }
         }
@@ -1355,11 +1358,15 @@
         var item = { id: key };
         for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
         
-        // [Comment removed - encoding error]
-        // [Comment removed - encoding error]
-        if (collection !== 'tables') {
-            var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-            if (localItem && (localItem._version || 0) >= (item._version || 0)) {
+        // FIX: Chống trùng UI x2 - Nếu item đã tồn tại trong memoryCache với _version >= incoming
+        // thì skip hoàn toàn. Trường hợp này xảy ra khi fullSync() clear rồi re-add items,
+        // sau đó _resumeListeners() khiến Firebase gửi lại child_added cho tất cả items.
+        // Check này áp dụng cho TẤT CẢ collections (không loại trừ tables như trước).
+        var existingItem = memoryCache[collection] ? memoryCache[collection][key] : null;
+        if (existingItem) {
+            var existingVer = existingItem._version || 0;
+            var incomingVer = item._version || 0;
+            if (existingVer >= incomingVer) {
                 return;
             }
         }
@@ -1416,11 +1423,12 @@
         var item = { id: key };
         for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
         
-        // FIX: Ch? skip _version check cho transactions
-        // [Comment removed - encoding error]
-        if (collection !== 'tables') {
-            var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-            if (localItem && (localItem._version || 0) >= (item._version || 0)) {
+        // FIX: Chống trùng UI x2 - Check tương tự onAdded
+        var existingItem = memoryCache[collection] ? memoryCache[collection][key] : null;
+        if (existingItem) {
+            var existingVer = existingItem._version || 0;
+            var incomingVer = item._version || 0;
+            if (existingVer >= incomingVer) {
                 return;
             }
         }
@@ -1570,10 +1578,13 @@
         };
     }
     
-    // ENHANCED QUICK SYNC: Khi tab resume, chu dong dong bo du lieu
-    // Tables: fullSync de dam bao chinh xac (quan trong nhat)
-    // Cac collection khac: deltaSync de lay items moi
-    // Khong chi check Firebase connection nhu phien ban cu
+    // OPTIMIZED QUICK SYNC: Khi tab resume, KHONG fullSync/deltaSync
+    // Firebase realtime listener (subscribeToCollection) da tu dong ket noi lai
+    // va tu dong cap nhat UI khi co thay doi tu Firebase
+    // Chi can cleanupDeletedIds de phat hien deletions tu may khac
+    // Tranh render lai toan bo UI khong can thiet
+    // Dung force=true de cleanup TAT CA collections (ke ca transactions, cost_transactions)
+    // dam bao khong con du lieu cu khi Firebase da xoa
     var _quickSyncTimer = null;
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
@@ -1582,18 +1593,17 @@
             
             if (!isOnline) return;
             
-            console.log('?? Tab resumed - quick syncing data...');
+            console.log('?? Tab resumed - checking for deleted items across all collections...');
             
-            // Tables: fullSync de dam bao chinh xac tuyet doi
-            // Tables la collection quan trong nhat, can dong bo hoan chinh
-            fullSync('tables');
+            // Cleanup tat ca collections voi force=true
+            // Bao gom ca transactions, cost_transactions de tranh du lieu cu
+            var allCollections = ['tables', 'customers', 'menu', 'menu_categories',
+                'ingredients', 'notifications', 'daily_balances', 'messages',
+                'transactions', 'cost_transactions', 'cost_categories', 'info'];
             
-            // Cac collection khac: deltaSync de lay items moi
-            deltaSync('customers');
-            deltaSync('transactions');
-            deltaSync('notifications');
-            deltaSync('info');
-            deltaSync('daily_balances');
+            for (var ci = 0; ci < allCollections.length; ci++) {
+                _cleanupDeletedIds(allCollections[ci], true);
+            }
         }, 500);
     }
     
@@ -1935,10 +1945,27 @@
                 ref = ref.orderByChild('createdAt').startAt(thirtyDaysAgo);
             }
             
+            // FIX: Unsubscribe listener tam thoi de tranh onAdded xu ly song song
+            // Khi fullSync clear store va them lai, onAdded cung nhan child_added events
+            // Gay ra UI bi double render (x2) do ca 2 luong cung goi saveToLocal
+            var _tempUnsub = null;
+            if (listeners[collection] && listeners[collection].length > 0) {
+                var _ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
+                var colListeners = listeners[collection];
+                for (var _ui = 0; _ui < colListeners.length; _ui++) {
+                    var _l = colListeners[_ui];
+                    if (_l.added) _ref.off('child_added', _l.added);
+                    if (_l.changed) _ref.off('child_changed', _l.changed);
+                    if (_l.removed) _ref.off('child_removed', _l.removed);
+                }
+            }
+            
             ref.once('value', function(snapshot) {
                 if (!snapshot.exists()) {
                     // Ghi sync_meta v?i maxVersion = 0
                     saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: 0, dateKeys: [] });
+                    // Subscribe lai listener
+                    _resumeListeners(collection);
                     resolve();
                     return;
                 }
@@ -1952,8 +1979,10 @@
                 // [Comment removed - encoding error]
                 _setSuppressRealtime(true);
                 
-                // [Comment removed - encoding error]
-                if (isMaster && memoryCache[collection]) {
+                // FIX: Clear memoryCache cho TAT CA collections (khong chi master)
+                // Tranh tinh trang onAdded listener (da bi unsubscribe nhung event pending)
+                // van con trong queue va them item vao memoryCache cu
+                if (memoryCache[collection]) {
                     memoryCache[collection] = {};
                 }
                 
@@ -1984,8 +2013,8 @@
                     saveToLocal(collection, infoItem).then(function() {
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: infoItem._version || 1, dateKeys: [] });
                         // [Comment removed - encoding error]
+                        _resumeListeners(collection);
                         _setSuppressRealtime(false);
-                        _emit(collection + ':synced', { collection: collection, count: 1, timestamp: Date.now() });
                         console.log('  ?? Full synced info: 1 item');
                         resolve();
                     });
@@ -2026,20 +2055,40 @@
                     // [Comment removed - encoding error]
                     updateMetaOnFirebase(collection, maxVersion);
                     // [Comment removed - encoding error]
+                    // FIX: Goi _resumeListeners truoc, de onAdded nhan child_added events
+                    // trong luc _suppressRealtime > 0 (chua flush)
+                    _resumeListeners(collection);
+                    // FIX: _setSuppressRealtime(false) flush chi goi _notifyLocal 1 lan duy nhat
+                    // Handler 'collection:synced' trong realtime-pos.js la redundant
+                    // vi _notifyLocal da thong bao thay doi qua db_update + event bus roi
                     _setSuppressRealtime(false);
-                    _emit(collection + ':synced', { collection: collection, count: count, timestamp: Date.now() });
                     resolve();
                 }).catch(function(err) {
                     console.error('  ? Error full syncing ' + collection + ': ', err);
+                    _resumeListeners(collection);
                     _setSuppressRealtime(false);
                     resolve();
                 });
             }, function(err) {
                 console.error('  ? Firebase read error for ' + collection + ': ', err);
                 _setSuppressRealtime(false);
+                _resumeListeners(collection);
                 resolve();
             });
         });
+    }
+    
+    // Helper: Subscribe lai listeners sau khi fullSync hoan tat
+    function _resumeListeners(collection) {
+        if (!listeners[collection] || listeners[collection].length === 0) return;
+        var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
+        var colListeners = listeners[collection];
+        for (var _ri = 0; _ri < colListeners.length; _ri++) {
+            var _l2 = colListeners[_ri];
+            if (_l2.added) ref.on('child_added', _l2.added);
+            if (_l2.changed) ref.on('child_changed', _l2.changed);
+            if (_l2.removed) ref.on('child_removed', _l2.removed);
+        }
     }
     
     // [Comment removed - encoding error]
@@ -2125,19 +2174,34 @@
         });
     }
     
-    // Chi?n lu?c cleanup d? li?u dã xóa: ch? ch?y trên các collection nh?
+    // Chi?n lu?c cleanup d? li?u dã xóa: mac d?nh ch? ch?y trên các collection nh?
     // (tables, customers, menu, menu_categories, ingredients, notifications, daily_balances, messages)
-    // Các collection l?n nhu transactions, cost_transactions không c?n cleanup
+    // Các collection l?n nhu transactions, cost_transactions không c?n cleanup thu?ng xuyên
     // vì realtime Firebase listener dã xu? lý child_removed
+    // Tuy nhiên, khi tab resume (_quickSync) ho?c force=true, cleanup t?t c? d? d?m b?o chính xác
     var _SMALL_MASTER_COLLECTIONS = {
         tables: true, customers: true, menu: true, menu_categories: true,
         ingredients: true, notifications: true, daily_balances: true, messages: true
     };
-    function _cleanupDeletedIds(collection) {
-        // Ch? cleanup cho small master collections
-        if (!_SMALL_MASTER_COLLECTIONS[collection]) return Promise.resolve();
+    
+    // Debounce map de tranh cleanup trung lap cho cung 1 collection
+    // Khi nhieu listener (onAdded, onChanged, initDatabase) cung goi cleanup
+    // Chi chay that su 1 lan trong khoang thoi gian ngan
+    var _cleanupDebounceMap = {};
+    function _cleanupDeletedIds(collection, force) {
+        // Mac dinh chi cleanup small master collections
+        // Neu force=true, cleanup tat ca (ke ca transactions, cost_transactions)
+        if (!force && !_SMALL_MASTER_COLLECTIONS[collection]) return Promise.resolve();
         if (!isOnline) return Promise.resolve();
         
+        // Debounce: neu da co cleanup dang chay cho collection nay, bo qua
+        // Tranh spam Firebase requests khi nhieu listener cung goi
+        var debounceKey = collection + '|' + (force ? 'force' : 'normal');
+        if (_cleanupDebounceMap[debounceKey]) {
+            return _cleanupDebounceMap[debounceKey];
+        }
+        
+        // Luu promise de debounce
         var loadMemory = Promise.resolve();
         if (!memoryCache[collection]) {
             loadMemory = loadFromLocal(collection).then(function(data) {
@@ -2147,7 +2211,7 @@
             });
         }
         
-        return loadMemory.then(function() {
+        var cleanupPromise = loadMemory.then(function() {
             if (!memoryCache[collection]) return;
             
             var localIds = Object.keys(memoryCache[collection]);
@@ -2230,7 +2294,18 @@
             }).catch(function(err) {
                 console.warn('[Cleanup] L?i khi ki?m tra', collection, ':', err.message);
             });
+        }).then(function() {
+            // Xoa debounce sau khi hoan tat
+            delete _cleanupDebounceMap[debounceKey];
+        }, function(err) {
+            // Xoa debounce ca khi loi
+            delete _cleanupDebounceMap[debounceKey];
         });
+        
+        // Luu promise vao debounce map
+        _cleanupDebounceMap[debounceKey] = cleanupPromise;
+        
+        return cleanupPromise;
     }
     
     // SNAPSHOT RECONCILE: K?t h?p _cleanupDeletedIds() + fullSync() cho master collections
@@ -2632,79 +2707,128 @@
         return _syncPromise;
     }
 
+    // Gioi han 30 ngay cho transactions - chi tai transactions trong 30 ngay gan nhat
+    // Cac ngay cu hon se duoc load khi can qua getTransactionsByDateRange()
+    var _MAX_TRANSACTION_DAYS = 30;
+    
+    // Cleanup transactions cu hon 30 ngay de giam dung luong IndexedDB
+    // Chi xoa transactions, khong xoa cost_transactions (can luu lau hon)
+    function _cleanupOldTransactions() {
+        var cutoff = Date.now() - _MAX_TRANSACTION_DAYS * 24 * 60 * 60 * 1000;
+        var cutoffKey = toDateKey(cutoff);
+        
+        return loadFromLocal('transactions').then(function(allTx) {
+            if (!allTx || allTx.length === 0) return;
+            
+            var toDelete = [];
+            for (var i = 0; i < allTx.length; i++) {
+                var tx = allTx[i];
+                var dateKey = tx.dateKey || toDateKey(tx.createdAt || tx.date);
+                if (dateKey < cutoffKey) {
+                    toDelete.push(tx.id);
+                }
+            }
+            
+            if (toDelete.length === 0) {
+                console.log('[Cleanup] Khong co transactions nao cu hon', _MAX_TRANSACTION_DAYS, 'ngay');
+                return;
+            }
+            
+            console.log('[Cleanup] Dang xoa', toDelete.length, 'transactions cu hon', _MAX_TRANSACTION_DAYS, 'ngay...');
+            
+            var chain = Promise.resolve();
+            for (var d = 0; d < toDelete.length; d++) {
+                (function(delId) {
+                    chain = chain.then(function() {
+                        return deleteFromLocal('transactions', delId);
+                    });
+                })(toDelete[d]);
+            }
+            return chain.then(function() {
+                console.log('[Cleanup] Da xoa', toDelete.length, 'transactions cu');
+            });
+        }).catch(function(err) {
+            // Khong block neu cleanup that bai
+            console.warn('[Cleanup] Loi khi cleanup transactions cu:', err.message);
+        });
+    }
+    
     // Init Database
     function initDatabase() {
-        // [Comment removed - encoding error]
         _restoreDirtyFlags();
-        // [Comment removed - encoding error]
-        // [Comment removed - encoding error]
-        // [Comment removed - encoding error]
+        
         var slaveReady = _slaveInitPromise || Promise.resolve();
         return slaveReady.then(function() {
             return initLocalDB();
         }).then(function() {
             initNetwork();
-            // OPTIMIZE: Chay smartSync, seedDefaultShop, ensureShopConfig SONG SONG
-            // Vi chung khong phu thuoc lan nhau, co the chay dong thoi de giam thoi gian
-            var syncPromise = isOnline ? smartSync() : Promise.resolve();
+            
+            // SUBSCRIBE NGAY LAP TUC - Khong doi smartSync/seed/config
+            // Firebase realtime listener bat dau dong bo tu dong
+            // Dieu nay giup may Admin/Slave nhan duoc realtime ngay khi vao lai trang
+            subscribeToCollection('tables');
+            subscribeToCollection('customers');
+            subscribeToCollection('transactions');
+            subscribeToCollection('notifications');
+            subscribeToCollection('info');
+            subscribeToCollection('daily_balances');
+            subscribeToCollection('cost_categories');
+            subscribeToCollection('cost_transactions');
+            subscribeToCollection('menu');
+            subscribeToCollection('menu_categories');
+            subscribeToCollection('ingredients');
+            subscribeToCollection('messages');
+            
+            // cleanupDeletedIds voi force=true de dam bao khong con du lieu cu
+            // Chay song song voi seed + config
+            _cleanupDeletedIds('tables', true);
+            _cleanupDeletedIds('customers', true);
+            _cleanupDeletedIds('menu', true);
+            _cleanupDeletedIds('menu_categories', true);
+            _cleanupDeletedIds('ingredients', true);
+            _cleanupDeletedIds('notifications', true);
+            _cleanupDeletedIds('daily_balances', true);
+            _cleanupDeletedIds('messages', true);
+            
+            // Khoi tao BroadcastChannel va Heartbeat
+            _initBroadcastChannel();
+            
+            var subscribedCollections = [
+                'tables', 'customers', 'transactions', 'notifications', 'info',
+                'daily_balances', 'cost_categories', 'cost_transactions',
+                'menu', 'menu_categories', 'ingredients', 'messages'
+            ];
+            var now = Date.now();
+            for (var _si = 0; _si < subscribedCollections.length; _si++) {
+                _lastSyncTimestamps[subscribedCollections[_si]] = now;
+            }
+            _initHeartbeat();
+            
+            // KHONG goi smartSync() o day - Firebase realtime listener da tu dong dong bo
+            // smartSync chi can thiet khi online -> offline -> online lai (da co trong initNetwork)
+            // Tranh ton bang thong va render lai UI khong can thiet
+            
+            // Chay seed + config song song (khong block subscribe)
             var seedPromise = seedDefaultShop();
             var configPromise = ensureShopConfig();
-            return Promise.all([syncPromise, seedPromise, configPromise]);
-        }).then(function() {
-            // OPTIMIZE: Subscribe tat ca collections SONG SONG bang Promise.all
-            // Thay vi subscribe tung cai mot (tu truoc den gio mat ~12 buoc)
-            // Giam thoi gian khoi tao dong bo listeners
-            var subscribePromises = [];
             
-            // tables: can cleanupDeletedIds truoc
-            subscribeToCollection('tables');
-            subscribePromises.push(
-                _cleanupDeletedIds('tables').then(function() {
-                    subscribeToCollection('customers');
-                    subscribeToCollection('transactions');
-                    subscribeToCollection('notifications');
-                    subscribeToCollection('info');
-                    subscribeToCollection('daily_balances');
-                    subscribeToCollection('cost_categories');
-                    subscribeToCollection('cost_transactions');
-                    subscribeToCollection('menu');
-                    subscribeToCollection('menu_categories');
-                    subscribeToCollection('ingredients');
-                    subscribeToCollection('messages');
-                })
-            );
+            // WATCHDOG: Polling rieng cho tables (10s) de phat hien thay doi tu may khac
+            // Tables la collection quan trong nhat, can do tre thap nhat
+            // Dam bao phat hien duoc ca deletions (xoa ban tu may khac)
+            // Polling la fallback khi realtime Firebase listener bi miss (tab background, suppress, etc.)
+            if (!_pollingTimers['tables']) {
+                _pollingTimers['tables'] = setInterval(function() {
+                    if (!isOnline) return;
+                    _cleanupDeletedIds('tables').then(function() {
+                        return deltaSync('tables');
+                    });
+                }, 10000);
+            }
             
-            return Promise.all(subscribePromises).then(function() {
-                // REALTIME OPTIMIZATION: Khoi tao BroadcastChannel va Heartbeat
-                _initBroadcastChannel();
-                // FIX: Khoi tao lastSyncTimestamps cho cac collection da subscribe
-                // de heartbeat khong bao sai staffs, admin_logs, etc.
-                var subscribedCollections = [
-                    'tables', 'customers', 'transactions', 'notifications', 'info',
-                    'daily_balances', 'cost_categories', 'cost_transactions',
-                    'menu', 'menu_categories', 'ingredients', 'messages'
-                ];
-                var now = Date.now();
-                for (var _si = 0; _si < subscribedCollections.length; _si++) {
-                    _lastSyncTimestamps[subscribedCollections[_si]] = now;
-                }
-                _initHeartbeat();
-                
-                // WATCHDOG: Polling rieng cho tables (10s) de phat hien thay doi tu may khac
-                // Tables la collection quan trong nhat, can do tre thap nhat
-                // Dam bao phat hien duoc ca deletions (xoa ban tu may khac)
-                // Polling la fallback khi realtime Firebase listener bi miss (tab background, suppress, etc.)
-                if (!_pollingTimers['tables']) {
-                    _pollingTimers['tables'] = setInterval(function() {
-                        if (!isOnline) return;
-                        // cleanupDeletedIds truoc de xoa ban da bi xoa tren Firebase
-                        _cleanupDeletedIds('tables').then(function() {
-                            // deltaSync de lay ban moi hoac da cap nhat
-                            return deltaSync('tables');
-                        });
-                    }, 10000);
-                }
-                
+            // Cleanup transactions cu hon 30 ngay (khong block)
+            _cleanupOldTransactions();
+            
+            return Promise.all([seedPromise, configPromise]).then(function() {
                 console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
                 return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
             });

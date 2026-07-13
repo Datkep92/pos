@@ -622,7 +622,8 @@ function initRealtime() {
         }
     });
     
-    // NÂNG CẤP: Khi fullSync hoàn thành, re-render toàn bộ tables + cập nhật pos-cash-info
+    // NÂNG CẤP: Khi fullSync hoàn thành, cập nhật pos-cash-info (không render lại UI)
+    // UI da duoc cap nhat boi 'tables:*' handler (wildcard match 'tables:synced')
     DB.on('tables:synced', function() {
         DB.getAll('tables').then(function(allTables) {
             cachedTables = allTables;
@@ -631,9 +632,6 @@ function initRealtime() {
             if (typeof loadPosCashData === 'function') {
                 loadPosCashData();
             }
-            if (currentTab !== 'tables') return;
-            updateTablesDiff(allTables);
-            if (typeof startTableTimer === 'function') startTableTimer();
         });
     });
 
@@ -662,13 +660,12 @@ function initRealtime() {
             });
         }, 100);
     });
-    // NÂNG CẤP: Khi fullSync hoàn thành, re-render customers
+    // NÂNG CẤP: Khi fullSync hoàn thành, chi cap nhat bien (khong render lai UI)
+    // UI da duoc cap nhat boi 'customers:*' handler (wildcard match 'customers:synced')
     DB.on('customers:synced', function() {
-        if (currentTab !== 'customers') return;
         DB.getAll('customers').then(function(list) {
             customers = list;
             window.customers = customers;
-            renderCustomerList();
         });
     });
 
@@ -700,7 +697,8 @@ function initRealtime() {
             });
         }, 100);
     });
-    // NÂNG CẤP: Khi fullSync hoàn thành, re-render menu
+    // NÂNG CẤP: Khi fullSync hoàn thành, chi cap nhat bien (khong render lai UI)
+    // UI da duoc cap nhat boi 'menu:*' handler (wildcard match 'menu:synced')
     DB.on('menu:synced', function() {
         DB.getAll('menu').then(function(list) {
             menuItems = list;
@@ -710,10 +708,6 @@ function initRealtime() {
                 return orderA - orderB;
             });
             window.menuItems = menuItems;
-            var orderModal = document.getElementById('orderModal');
-            if (orderModal && orderModal.style.display === 'flex') {
-                renderMenuByCategory(currentMenuCategory);
-            }
         });
     });
 
@@ -1039,132 +1033,60 @@ function initRealtime() {
     DB.on('menu_categories:synced', function() {
         DB.getAll('menu_categories').then(function(list) {
             menuCategories = list;
-            var orderModal = document.getElementById('orderModal');
-            if (orderModal && orderModal.style.display === 'flex') {
-                renderOrderCategoriesColumn();
-            }
+            // UI da duoc cap nhat boi 'menu_categories:*' handler (wildcard match)
         });
     });
 
     // NÂNG CẤP: Khi fullSync cost_categories hoàn thành
+    // UI da duoc cap nhat boi 'cost_categories:*' handler (wildcard match 'cost_categories:synced')
     DB.on('cost_categories:synced', function() {
-        if (typeof loadExpenseData === 'function') {
-            loadExpenseData().then(function() {
-                if (currentTab === 'cost') {
-                    if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
-                    if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
-                } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
-                    managerApplyFilter();
-                }
-            });
-        }
+        // Chi cap nhat bien, khong render UI (da co 'cost_categories:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync cost_transactions hoàn thành
+    // UI da duoc cap nhat boi 'cost_transactions:*' handler (wildcard match 'cost_transactions:synced')
     DB.on('cost_transactions:synced', function() {
-        if (typeof loadExpenseData === 'function') {
-            loadExpenseData().then(function() {
-                if (currentTab === 'cost') {
-                    if (typeof renderTodayExpenses === 'function') renderTodayExpenses();
-                    if (typeof renderMonthExpenseTotal === 'function') renderMonthExpenseTotal();
-                } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
-                    managerApplyFilter();
-                }
-            });
-        }
+        // Chi cap nhat bien, khong render UI (da co 'cost_transactions:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync manager_cash_pickups hoàn thành
+    // UI da duoc cap nhat boi 'manager_cash_pickups:*' handler (wildcard match 'manager_cash_pickups:synced')
     DB.on('manager_cash_pickups:synced', function() {
-        if (currentTab === 'report') {
-            renderReport(currentReportDate);
-        }
+        // Chi cap nhat bien, khong render UI (da co 'manager_cash_pickups:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync daily_balances hoàn thành
+    // UI da duoc cap nhat boi 'daily_balances:*' handler (wildcard match 'daily_balances:synced')
     DB.on('daily_balances:synced', function() {
-        if (typeof loadPosCashData === 'function') {
-            loadPosCashData();
-        }
+        // Chi cap nhat bien, khong render UI (da co 'daily_balances:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync ingredients hoàn thành
+    // UI da duoc cap nhat boi 'ingredients:*' handler (wildcard match 'ingredients:synced')
     DB.on('ingredients:synced', function() {
         DB.getAll('ingredients').then(function(list) {
             window.ingredients = list;
             if (typeof _invalidateLookups === 'function') _invalidateLookups();
-            if (currentTab === 'cost') {
-                if (typeof renderIngredientList === 'function') renderIngredientList();
-            }
-            if (currentTab === 'inventory') {
-                if (typeof renderInventoryIngredients === 'function') renderInventoryIngredients();
-            }
+            // Chi cap nhat bien, khong render UI (da co 'ingredients:*' handler xu ly)
         });
     });
 
     // NÂNG CẤP: Khi fullSync transactions hoàn thành
+    // UI da duoc cap nhat boi 'transactions:*' handler (wildcard match 'transactions:synced')
     DB.on('transactions:synced', function() {
-        updateRecentToast();
-        if (typeof loadPosCashData === 'function') {
-            loadPosCashData();
-        }
-        if (currentTab === 'history') {
-            renderHistoryByDate(currentHistoryDate);
-        }
+        // Chi cap nhat bien, khong render UI (da co 'transactions:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync info hoàn thành
+    // UI da duoc cap nhat boi 'info:*' handler (wildcard match 'info:synced')
     DB.on('info:synced', function() {
-        DB.getAll('info').then(function(data) {
-            if (!data || data.length === 0) return;
-            var infoItem = null;
-            for (var i = 0; i < data.length; i++) {
-                if (data[i].id === 'shop_config') {
-                    infoItem = data[i];
-                    break;
-                }
-            }
-            if (!infoItem) return;
-            var hasLockData = (infoItem.lockStartHour !== undefined ||
-                               infoItem.lockEndHour !== undefined ||
-                               infoItem.lockEndMinute !== undefined ||
-                               infoItem.tableLockHours !== undefined ||
-                               infoItem.lockPassword !== undefined);
-            var oldConfig = window.shopConfig || {};
-            window.shopConfig = {
-                telegramBotToken: infoItem.telegramBotToken || oldConfig.telegramBotToken || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
-                telegramChatId: infoItem.telegramChatId || oldConfig.telegramChatId || '6372876364',
-                telegramShiftCloseToken: infoItem.telegramShiftCloseToken || oldConfig.telegramShiftCloseToken || '',
-                telegramWarningToken: infoItem.telegramWarningToken || oldConfig.telegramWarningToken || '',
-                telegramExpenseToken: infoItem.telegramExpenseToken || oldConfig.telegramExpenseToken || '',
-                lockPassword: hasLockData && infoItem.lockPassword ? infoItem.lockPassword : (oldConfig.lockPassword || '28122020'),
-                lockStartHour: hasLockData && infoItem.lockStartHour !== undefined ? infoItem.lockStartHour : (oldConfig.lockStartHour !== undefined ? oldConfig.lockStartHour : 22),
-                lockEndHour: hasLockData && infoItem.lockEndHour !== undefined ? infoItem.lockEndHour : (oldConfig.lockEndHour !== undefined ? oldConfig.lockEndHour : 5),
-                lockEndMinute: hasLockData && infoItem.lockEndMinute !== undefined ? infoItem.lockEndMinute : (oldConfig.lockEndMinute !== undefined ? oldConfig.lockEndMinute : 30),
-                tableLockHours: hasLockData && infoItem.tableLockHours !== undefined ? infoItem.tableLockHours : (oldConfig.tableLockHours !== undefined ? oldConfig.tableLockHours : 5)
-            };
-            if (infoItem.name) {
-                window.shopInfo = window.shopInfo || {};
-                window.shopInfo.name = infoItem.name;
-                var shopNameEl = document.getElementById('shopNameHeader');
-                if (shopNameEl) shopNameEl.textContent = infoItem.name;
-            }
-        });
+        // Chi cap nhat bien, khong render UI (da co 'info:*' handler xu ly)
     });
 
     // NÂNG CẤP: Khi fullSync messages hoàn thành
+    // UI da duoc cap nhat boi 'messages:*' handler (wildcard match 'messages:synced')
     DB.on('messages:synced', function() {
-        if (typeof updateChatBadge === 'function') {
-            updateChatBadge();
-        }
-        if (_chatPopupVisible) {
-            if (typeof renderChatMessages === 'function') {
-                renderChatMessages();
-            }
-        }
-        if (typeof checkNewMessages === 'function') {
-            checkNewMessages();
-        }
+        // Chi cap nhat bien, khong render UI (da co 'messages:*' handler xu ly)
     });
 
     // FIX: Gọi updateRecentToast() ngay khi khởi tạo để hiển thị 5 giao dịch gần nhất
