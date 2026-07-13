@@ -107,7 +107,15 @@ function openOrderModal() {
 }
 
 // ========== RENDER CỘT DANH MỤC (dọc) ==========
+// FIX: Guard chống render liên tiếp trong thời gian ngắn
+var _categoryRenderGuard = 0;
 function renderOrderCategoriesColumn() {
+    // FIX: Nếu đang trong quá trình render (gọi liên tiếp < 50ms), bỏ qua
+    var now = Date.now();
+    if (_categoryRenderGuard > 0 && (now - _categoryRenderGuard) < 50) {
+        return;
+    }
+    _categoryRenderGuard = now;
     var container = document.getElementById('orderCategoriesColumn');
     if (!container) return;
     

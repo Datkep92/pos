@@ -576,26 +576,33 @@ function initRealtime() {
     // ============================================================
     // TABLES
     // ============================================================
-    // Subscribe cũ: cập nhật cachedTables (KHÔNG gọi loadPosCashData để tránh double execution với event bus)
-    DB.subscribe('tables', function(newTables) {
-        if (!newTables) return;
-        cachedTables = newTables;
-        tablesCacheTime = Date.now();
-        // Fallback: nếu đang ở tab tables, re-render toàn bộ (dự phòng)
-        if (currentTab !== 'tables') return;
-        _renderNow('tables_render', function() {
-            updateTablesDiff(newTables);
-            if (typeof startTableTimer === 'function') {
-                startTableTimer();
-            }
-        });
-    });
-    
     // NÂNG CẤP: Event Bus handler cho tables - xử lý targeted updates
+    // FIX: Chỉ dùng Event Bus, loại bỏ DB.subscribe cũ để tránh duplicate render
+    // Event Bus handler xử lý chi tiết từng thao tác (added/changed/removed)
+    // và cập nhật DOM trực tiếp, không cần updateTablesDiff toàn bộ
     DB.on('tables:*', function(event) {
         if (!event || !event.data) return;
         var item = event.data.item;
         if (!item) return;
+        // Luôn cập nhật cachedTables để các tab khác có dữ liệu mới nhất
+        if (item.id) {
+            var found = false;
+            for (var i = 0; i < cachedTables.length; i++) {
+                if (cachedTables[i].id === item.id) {
+                    if (event.type === 'removed') {
+                        cachedTables.splice(i, 1);
+                    } else {
+                        cachedTables[i] = item;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && event.type !== 'removed') {
+                cachedTables.push(item);
+            }
+            tablesCacheTime = Date.now();
+        }
         if (currentTab !== 'tables') return;
         var grid = document.getElementById('tablesGrid');
         if (!grid) return;

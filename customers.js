@@ -55,7 +55,15 @@ function _removeAccents(str) {
 }
 
 // ========== KHÁCH HÀNG ==========
+// FIX: Guard chống render liên tiếp trong thời gian ngắn
+var _customerRenderGuard = 0;
 function renderCustomerList() {
+    // FIX: Nếu đang trong quá trình render (gọi liên tiếp < 50ms), bỏ qua
+    var now = Date.now();
+    if (_customerRenderGuard > 0 && (now - _customerRenderGuard) < 50) {
+        return;
+    }
+    _customerRenderGuard = now;
     // Dùng memory cache, không query DB
     var keywordRaw = document.getElementById('customerSearchInput') ? document.getElementById('customerSearchInput').value : '';
     var keyword = _removeAccents(keywordRaw);

@@ -28,7 +28,7 @@
     // [Comment removed - encoding error]
     var masterApp, masterDb, auth;
     try {
-        // Th? t?o DEFAULT app tru?c
+        // Thử tạo DEFAULT app trước
         firebase.initializeApp(MASTER_CONFIG);
         masterApp = firebase.app(); // DEFAULT app
         masterDb = masterApp.database();
@@ -62,7 +62,7 @@
         return slaveDb || masterDb; // [Comment removed - encoding error]
     }
     
-    // Helper: kh?i t?o/h?y Slave Firebase App
+    // Helper: khởi tạo/hủy Slave Firebase App
     function _initSlaveApp(shopId, fbConfig) {
         var appName = 'slave_' + shopId;
         
@@ -92,19 +92,19 @@
                     try { return existing.delete(); } catch(e) { return Promise.resolve(); }
                 }
             } catch(e) {
-                // App chua t?n t?i
+                // App chưa tồn tại
             }
             return Promise.resolve();
         });
         
-        // Bu?c 3: Kh?i t?o Slave App m?i
+        // Bước 3: Khởi tạo Slave App mới
         chain = chain.then(function() {
             try {
                 slaveApp = firebase.initializeApp(fbConfig, appName);
                 slaveDb = slaveApp.database();
                 slaveConfig = fbConfig;
             } catch(e) {
-                console.error('[db.js] L?i kh?i t?o Slave Firebase:', e);
+                console.error('[db.js] Lỗi khởi tạo Slave Firebase:', e);
                 throw e;
             }
         });
@@ -137,9 +137,9 @@
         return fbConfig.databaseURL || fbConfig.apiKey || 'custom';
     }
 
-    // Helper: di chuy?n d? li?u t? Master DB sang Slave DB khi d?i Firebase config
+    // Helper: di chuyển dữ liệu từ Master DB sang Slave DB khi đổi Firebase config
     // [Comment removed - encoding error]
-        // Helper: di chuy?n d? li?u t? Master DB sang Slave DB khi d?i Firebase config
+        // Helper: di chuyển dữ liệu từ Master DB sang Slave DB khi đổi Firebase config
     // [Comment removed - encoding error]
     function _migrateData(shopId, oldDb, newDb) {
         var collections = [];
@@ -213,7 +213,7 @@
     // [Comment removed - encoding error]
     var _slaveInitPromise = null;
     // [Comment removed - encoding error]
-    // Khi F5/reload, session du?c restore t? localStorage nhung slaveApp/slaveDb = null
+    // Khi F5/reload, session được restore từ localStorage nhưng slaveApp/slaveDb = null
     // [Comment removed - encoding error]
     if (currentUser && currentUser.hasCustomConfig && currentUser.shopId && currentUser.shopId !== 'master') {
         var _shopId = currentUser.shopId;
@@ -236,7 +236,7 @@
                 return _initSlaveApp(_shopId, fbConfig).then(function() {
                     var newHash = _getConfigHash(fbConfig);
                     localStorage.setItem(CONFIG_HASH_KEY, newHash);
-                    console.log('[db.js] Da khoi phuc Slave Firebase:', fbConfig.databaseURL);
+                    console.log('[db.js] Đã khôi phục Slave Firebase:', fbConfig.databaseURL);
                 });
             } else {
                 console.warn('[db.js] User co hasCustomConfig=true nhung khong tim thay firebaseConfig cho', _shopId);
@@ -245,7 +245,7 @@
                 localStorage.setItem('pos_session', JSON.stringify(currentUser));
             }
         }).catch(function(err) {
-            console.error('[db.js] Loi khoi phuc Slave Firebase:', err);
+            console.error('[db.js] Lỗi khôi phục Slave Firebase:', err);
         });
     }
     
@@ -375,7 +375,7 @@
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
-    //   - function(oldData, newData): return true n?u c?n render l?i
+    //   - function(oldData, newData): return true nếu cần render lại
     // [Comment removed - encoding error]
     // [Comment removed - encoding error]
     function _renderOn(collection, selector, renderFn) {
@@ -399,7 +399,7 @@
                 }
             }
             entry.lastData = data;
-            try { renderFn(data); } catch(e) { console.error('[ComponentRegistry] L?i render l?n d?u:', e); }
+            try { renderFn(data); } catch(e) { console.error('[ComponentRegistry] Lỗi render lần đầu:', e); }
         }
         // [Comment removed - encoding error]
         return function() {
@@ -434,14 +434,14 @@
                 try {
                     shouldRender = entry.selector(entry.lastData, newData, changeInfo);
                 } catch(e) {
-                    console.error('[ComponentRegistry] L?i selector:', e);
+                    console.error('[ComponentRegistry] Lỗi selector:', e);
                     shouldRender = true;
                 }
             }
             if (shouldRender) {
                 entry.lastData = newData;
                 try { entry.renderFn(newData, changeInfo); } catch(e) {
-                    console.error('[ComponentRegistry] L?i render:', e);
+                    console.error('[ComponentRegistry] Lỗi render:', e);
                 }
             }
         }
@@ -557,9 +557,9 @@
                 var collections = Object.keys(_pendingNotifyCollections);
                 _pendingNotifyCollections = {};
                 for (var i = 0; i < collections.length; i++) {
-                    // FIX: Truy?n changeInfo { type: 'synced' } d? _emit du?c g?i
-                    // Gi?p DB.on('collection:*') trong realtime-pos.js ch?y
-                    // d? c?p nh?t UI sau fullSync
+                    // FIX: Truyền changeInfo { type: 'synced' } để _emit được gọi
+                    // Giúp DB.on('collection:*') trong realtime-pos.js chạy
+                    // để cập nhật UI sau fullSync
                     _notifyLocal(collections[i], { type: 'synced', collection: collections[i] });
                 }
             }
@@ -652,6 +652,11 @@
         return ready.then(function() {
             if (!localDB) return;
             if (!localDB.objectStoreNames.contains(collection)) return;
+            // FIX: Kiểm tra item còn tồn tại trong memoryCache không
+            // Tránh gọi _notifyLocal nhiều lần cho cùng 1 item khi cleanup chạy trùng
+            if (memoryCache[collection] && !memoryCache[collection][id]) {
+                return;
+            }
             // Xóa khỏi memory cache ngay
             if (memoryCache[collection]) {
                 delete memoryCache[collection][id];
@@ -684,7 +689,7 @@
             timestamp: Date.now(),
             retryCount: 0,
             status: 'pending',
-            lastError: null,   // Luu l?i g?n nh?t d? debug
+            lastError: null,   // Lưu lỗi gần nhất để debug
             dirtyAt: Date.now() // [Comment removed - encoding error]
         };
         syncQueue.push(item);
@@ -845,7 +850,7 @@
                 return new Promise(function(r) { setTimeout(r, delay); });
             }).then(function() {
                 // [Comment removed - encoding error]
-                // d? t?n d?ng batch mechanism
+                // để tận dụng batch mechanism
                 return processSyncQueue();
             });
         } else {
@@ -1320,6 +1325,12 @@
         };
         var onValue = function(snapshot) {
             if (!snapshot.exists()) return;
+            
+            // FIX: Set flag cho collection 'info' (dùng on('value') thay vì child_*)
+            if (!_initialDataLoaded[collection]) {
+                _initialDataLoaded[collection] = true;
+            }
+            
             var src = snapshot.val() || {};
             // Gộp toàn bộ object thành 1 item với id='shop_config'
             var item = { id: 'shop_config' };
@@ -1351,8 +1362,20 @@
             });
         }, 200);
     };
+    // FIX: Dánh d?u collection dã nh?n du?c d? li?u d?u tiên t? Firebase
+    // Gi?i quy?t vòng l?p cleanup F5: _cleanupDeletedIds ch?y tru?c khi Firebase k?p d?ng b?
+    // Ch? set 1 l?n d?u tiên, các l?n child_added sau v?n x? lý bình thu?ng
+    var _hasSetInitialFlag = false;
+    
     var onAdded = function(snapshot) {
         if (!snapshot.exists()) return;
+        
+        // FIX: Set flag ngay khi nh?n du?c b?t k? item nào t? Firebase l?n d?u
+        // D?m b?o _cleanupDeletedIds không ch?y tru?c khi có d? li?u Firebase
+        if (!_initialDataLoaded[collection]) {
+            _initialDataLoaded[collection] = true;
+        }
+        
         var key = snapshot.key;
         var src = snapshot.val() || {};
         var item = { id: key };
@@ -1368,6 +1391,19 @@
             var incomingVer = item._version || 0;
             if (existingVer >= incomingVer) {
                 return;
+            }
+            // FIX: Nếu version bằng nhau nhưng item không có _version (cả 2 đều undefined -> 0)
+            // thì kiểm tra thêm JSON.stringify để tránh duplicate khi fullSync đã ghi item giống hệt
+            if (existingVer === incomingVer) {
+                try {
+                    var existingStr = JSON.stringify(existingItem);
+                    var incomingStr = JSON.stringify(item);
+                    if (existingStr === incomingStr) {
+                        return;
+                    }
+                } catch(e) {
+                    // Nếu JSON.stringify lỗi (circular reference...), bỏ qua check này
+                }
             }
         }
         
@@ -1567,8 +1603,8 @@
                 });
             });
             
-            // FIX: Polling cung can phat hien deletions
-            // Dam bao items da bi xoa tren Firebase cung duoc xoa khoi local
+            // FIX: Polling cũng cần phát hiện deletions
+            // Đảm bảo items đã bị xóa trên Firebase cũng được xóa khỏi local
             _cleanupDeletedIds(collection);
         }, intervalSeconds * 1000);
         
@@ -1746,7 +1782,7 @@
         });
     }
     
-    // L?y maxVersion c?a 1 collection t? Firebase _meta node
+    // Lấy maxVersion của 1 collection từ Firebase _meta node
     function getMaxVersionFromFirebase(collection) {
         if (!isOnline) return Promise.resolve(0);
         // [Comment removed - encoding error]
@@ -1922,12 +1958,12 @@
             return deltaSync(collection);
         });
     }
-    // - Master collections: t?i t?t c?
+    // - Master collections: tải tất cả
     // [Comment removed - encoding error]
     function fullSync(collection) {
         if (!isOnline) return Promise.resolve();
         
-        // FIX: Ki?m tra collection h?p l? (master ho?c date-based)
+        // FIX: Kiểm tra collection hợp lệ (master hoặc date-based)
         var isDateBased = DATE_BASED_COLLECTIONS[collection];
         var isMaster = MASTER_COLLECTIONS[collection];
         if (!isMaster && !isDateBased) {
@@ -1964,6 +2000,21 @@
                 if (!snapshot.exists()) {
                     // Ghi sync_meta v?i maxVersion = 0
                     saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: 0, dateKeys: [] });
+                    // FIX: Khi Firebase không có data, clear memoryCache và IndexedDB
+                    // d? tránh data c? t?n t?i qua các l?n F5
+                    // Tru?c dây: không clear, d?n d?n _cleanupDeletedIds phát hi?n
+                    // memoryCache có data c? nhung Firebase không có -> xóa
+                    // -> F5 lại thì IndexedDB vẫn còn data cũ -> lặp lại vô hạn
+                    if (memoryCache[collection]) {
+                        memoryCache[collection] = {};
+                    }
+                    if (localDB && localDB.objectStoreNames.contains(collection)) {
+                        try {
+                            var tx = localDB.transaction([collection], 'readwrite');
+                            var store = tx.objectStore(collection);
+                            store.clear();
+                        } catch(e) {}
+                    }
                     // Subscribe lai listener
                     _resumeListeners(collection);
                     resolve();
@@ -2013,8 +2064,11 @@
                     saveToLocal(collection, infoItem).then(function() {
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: infoItem._version || 1, dateKeys: [] });
                         // [Comment removed - encoding error]
-                        _resumeListeners(collection);
+                        // FIX: Gọi _setSuppressRealtime(false) TRƯỚC _resumeListeners
+                        // De flush pending notifications tu saveToLocal truoc
+                        // Sau do moi resume listeners de tranh duplicate notification
                         _setSuppressRealtime(false);
+                        _resumeListeners(collection);
                         console.log('  ?? Full synced info: 1 item');
                         resolve();
                     });
@@ -2037,7 +2091,7 @@
                                 if (item._version === undefined) item._version = 1;
                                 if (item._version > maxVersion) maxVersion = item._version;
                                 
-                                // Thu th?p dateKeys cho date-based collections
+                                // Thu thập dateKeys cho date-based collections
                                 if (isDateBased && item.dateKey && dateKeys.indexOf(item.dateKey) < 0) {
                                     dateKeys.push(item.dateKey);
                                 }
@@ -2055,18 +2109,19 @@
                     // [Comment removed - encoding error]
                     updateMetaOnFirebase(collection, maxVersion);
                     // [Comment removed - encoding error]
-                    // FIX: Goi _resumeListeners truoc, de onAdded nhan child_added events
-                    // trong luc _suppressRealtime > 0 (chua flush)
-                    _resumeListeners(collection);
-                    // FIX: _setSuppressRealtime(false) flush chi goi _notifyLocal 1 lan duy nhat
-                    // Handler 'collection:synced' trong realtime-pos.js la redundant
-                    // vi _notifyLocal da thong bao thay doi qua db_update + event bus roi
+                    // FIX: Gọi _setSuppressRealtime(false) TRƯỚC _resumeListeners
+                    // De flush cac pending notifications tu saveToLocal trong loop fullSync
+                    // Sau do moi resume listeners, onAdded se chay saveToLocal lai lan nua
+                    // Nhung luc nay _suppressRealtime = 0, onAdded goi _notifyLocal ngay
+                    // Version check trong onAdded (existingVer >= incomingVer) se phat hien
+                    // item da ton tai trong memoryCache va skip, tranh duplicate notification
                     _setSuppressRealtime(false);
+                    _resumeListeners(collection);
                     resolve();
                 }).catch(function(err) {
                     console.error('  ? Error full syncing ' + collection + ': ', err);
-                    _resumeListeners(collection);
                     _setSuppressRealtime(false);
+                    _resumeListeners(collection);
                     resolve();
                 });
             }, function(err) {
@@ -2155,8 +2210,9 @@
                     }
                     
                     return saveChain.then(function() {
-                        // [Comment removed - encoding error]
-                        // [Comment removed - encoding error]
+                        // FIX: Set flag d? d?m b?o _cleanupDeletedIds không b? skip
+                        // deltaSync dã có d? li?u Firebase (v?a ref.once('value') xong)
+                        _initialDataLoaded[collection] = true;
                         return _cleanupDeletedIds(collection).then(function() {
                             saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
                             updateMetaOnFirebase(collection, newMaxVersion);
@@ -2177,7 +2233,7 @@
     // Chi?n lu?c cleanup d? li?u dã xóa: mac d?nh ch? ch?y trên các collection nh?
     // (tables, customers, menu, menu_categories, ingredients, notifications, daily_balances, messages)
     // Các collection l?n nhu transactions, cost_transactions không c?n cleanup thu?ng xuyên
-    // vì realtime Firebase listener dã xu? lý child_removed
+    // vì realtime Firebase listener đã xử lý child_removed
     // Tuy nhiên, khi tab resume (_quickSync) ho?c force=true, cleanup t?t c? d? d?m b?o chính xác
     var _SMALL_MASTER_COLLECTIONS = {
         tables: true, customers: true, menu: true, menu_categories: true,
@@ -2188,20 +2244,47 @@
     // Khi nhieu listener (onAdded, onChanged, initDatabase) cung goi cleanup
     // Chi chay that su 1 lan trong khoang thoi gian ngan
     var _cleanupDebounceMap = {};
+    // Flag d? dánh d?u collection dã nh?n du?c d? li?u d?u tiên t? Firebase listener
+    // Tránh tình tr?ng _cleanupDeletedIds ch?y tru?c khi Firebase k?p d?ng b? d? li?u v?
+    // gây xóa nh?m d? li?u local (xem initDatabase)
+    var _initialDataLoaded = {};
+
     function _cleanupDeletedIds(collection, force) {
         // Mac dinh chi cleanup small master collections
         // Neu force=true, cleanup tat ca (ke ca transactions, cost_transactions)
         if (!force && !_SMALL_MASTER_COLLECTIONS[collection]) return Promise.resolve();
         if (!isOnline) return Promise.resolve();
         
-        // Debounce: neu da co cleanup dang chay cho collection nay, bo qua
-        // Tranh spam Firebase requests khi nhieu listener cung goi
-        var debounceKey = collection + '|' + (force ? 'force' : 'normal');
+        // FIX: Không cleanup n?u collection chua nh?n du?c d? li?u d?u tiên t? Firebase
+        // Tru?ng h?p: initDatabase() g?i subscribeToCollection r?i g?i _cleanupDeletedIds ngay
+        // Lúc này Firebase listener child_added chua k?p fire, memoryCache dang có data c?
+        // -> cleanup so sánh local vs remote (remote r?ng) -> xóa h?t local -> F5 l?i l?p l?i
+        if (!_initialDataLoaded[collection]) {
+            return Promise.resolve();
+        }
+        
+        // FIX: Dùng chung debounceKey cho c? force và normal
+        // Vì _cleanupDeletedIds có th? du?c g?i t? nhi?u ngu?n:
+        // - _quickSync (tab resume) với force=true
+        // - onAdded/onChanged (Firebase child_added) với force=undefined
+        // - deltaSync/fullSync với force=undefined
+        // N?u dùng key riêng (customers|force vs customers|normal), debounce không hi?u qu?
+        // và cả 2 đều chạy, gây cleanup trùng -> _notifyLocal trùng -> UI render dup
+        var debounceKey = collection; // Ch? d?a trên collection, b? qua force
         if (_cleanupDebounceMap[debounceKey]) {
             return _cleanupDebounceMap[debounceKey];
         }
         
-        // Luu promise de debounce
+        // Set map synchronous ngay l?p t?c, tru?c khi làm b?t c? async operation nào
+        var resolveHolder;
+        var rejectHolder;
+        var cleanupPromise = new Promise(function(resolve, reject) {
+            resolveHolder = resolve;
+            rejectHolder = reject;
+        });
+        _cleanupDebounceMap[debounceKey] = cleanupPromise;
+        
+        // Th?c hi?n cleanup th?c t?
         var loadMemory = Promise.resolve();
         if (!memoryCache[collection]) {
             loadMemory = loadFromLocal(collection).then(function(data) {
@@ -2211,11 +2294,17 @@
             });
         }
         
-        var cleanupPromise = loadMemory.then(function() {
-            if (!memoryCache[collection]) return;
+        loadMemory.then(function() {
+            if (!memoryCache[collection]) {
+                resolveHolder();
+                return;
+            }
             
             var localIds = Object.keys(memoryCache[collection]);
-            if (localIds.length === 0) return;
+            if (localIds.length === 0) {
+                resolveHolder();
+                return;
+            }
             
             // === B??c 1: Ki?m tra _deleted node trên Firebase ===
             // Node này du?c ghi khi remove() du?c g?i ? máy khác (xem hàm remove())
@@ -2234,7 +2323,7 @@
                     var delId = deletedFromOtherDevices[di];
                     var delEntry = deletedData[delId];
                     
-                    // N?u item này t?n t?i trong local memoryCache -> xóa kh?i local
+                    // Nếu item này tồn tại trong local memoryCache -> xóa khỏi local
                     if (memoryCache[collection][delId]) {
                         foundDeletedLocally.push(delId);
                         cleanupPromises.push(deleteFromLocal(collection, delId));
@@ -2258,7 +2347,7 @@
                 }
                 
                 if (foundDeletedLocally.length > 0) {
-                    console.log('[Cleanup] Phát hi?n', foundDeletedLocally.length, 'items dã b? xóa t? máy khác trong', collection, ':', foundDeletedLocally);
+                    console.log('[Cleanup] Phát hiện', foundDeletedLocally.length, 'items đã bị xóa từ máy khác trong', collection, ':', foundDeletedLocally);
                 }
                 
                 // === B??c 2: So sánh local IDs vs remote IDs (phuong pháp truy?n th?ng) ===
@@ -2276,7 +2365,7 @@
                     }
                     
                     if (deletedIds.length > 0) {
-                        console.log('[Cleanup] Phát hi?n', deletedIds.length, 'items không còn trên Firebase trong', collection);
+                        console.log('[Cleanup] Phát hiện', deletedIds.length, 'items không còn trên Firebase trong', collection);
                         
                         for (var d = 0; d < deletedIds.length; d++) {
                             (function(delId) {
@@ -2285,25 +2374,35 @@
                         }
                     }
                     
-                    if (cleanupPromises.length === 0) return;
+                    if (cleanupPromises.length === 0) {
+                        resolveHolder();
+                        return;
+                    }
                     
                     return Promise.all(cleanupPromises).then(function() {
-                        console.log('[Cleanup] Hoàn t?t d?n d?p', collection, '- dã xóa', cleanupPromises.length, 'items kh?i local');
+                        console.log('[Cleanup] Hoàn tất dọn dẹp', collection, '- đã xóa', cleanupPromises.length, 'items khỏi local');
+                        resolveHolder();
                     });
                 });
             }).catch(function(err) {
-                console.warn('[Cleanup] L?i khi ki?m tra', collection, ':', err.message);
+                console.warn('[Cleanup] Lỗi khi kiểm tra', collection, ':', err.message);
+                resolveHolder();
             });
         }).then(function() {
-            // Xoa debounce sau khi hoan tat
-            delete _cleanupDebounceMap[debounceKey];
+            // FIX: Gi? debounce map trong 3 giây thay vì xóa ngay
+            // Vì _cleanupDeletedIds có th? du?c g?i t? nhi?u ngu?n khác nhau trong cùng 1 d?t
+            // (onAdded, onChanged, deltaSync, fullSync, initDatabase)
+            // N?u xóa ngay, l?n g?i ti?p theo s? t?o promise m?i và ch?y cleanup trùng
+            setTimeout(function() {
+                delete _cleanupDebounceMap[debounceKey];
+            }, 3000);
         }, function(err) {
             // Xoa debounce ca khi loi
-            delete _cleanupDebounceMap[debounceKey];
+            setTimeout(function() {
+                delete _cleanupDebounceMap[debounceKey];
+            }, 3000);
+            resolveHolder();
         });
-        
-        // Luu promise vao debounce map
-        _cleanupDebounceMap[debounceKey] = cleanupPromise;
         
         return cleanupPromise;
     }
@@ -2322,6 +2421,9 @@
             return Promise.resolve();
         }
         console.log('?? Reconcile snapshot for:', collection);
+        // FIX: Set flag d? d?m b?o _cleanupDeletedIds không b? skip
+        // reconcileSnapshot ch? d?nh ch?y khi dã có d? li?u Firebase
+        _initialDataLoaded[collection] = true;
         // [Comment removed - encoding error]
         return _cleanupDeletedIds(collection).then(function() {
             // [Comment removed - encoding error]
@@ -2707,12 +2809,12 @@
         return _syncPromise;
     }
 
-    // Gioi han 30 ngay cho transactions - chi tai transactions trong 30 ngay gan nhat
-    // Cac ngay cu hon se duoc load khi can qua getTransactionsByDateRange()
+    // Giới hạn 30 ngày cho transactions - chỉ tải transactions trong 30 ngày gần nhất
+    // Các ngày cũ hơn sẽ được load khi cần qua getTransactionsByDateRange()
     var _MAX_TRANSACTION_DAYS = 30;
     
-    // Cleanup transactions cu hon 30 ngay de giam dung luong IndexedDB
-    // Chi xoa transactions, khong xoa cost_transactions (can luu lau hon)
+    // Cleanup transactions cũ hơn 30 ngày để giảm dung lượng IndexedDB
+    // Chỉ xóa transactions, không xóa cost_transactions (cần lưu lâu hơn)
     function _cleanupOldTransactions() {
         var cutoff = Date.now() - _MAX_TRANSACTION_DAYS * 24 * 60 * 60 * 1000;
         var cutoffKey = toDateKey(cutoff);
@@ -2730,11 +2832,11 @@
             }
             
             if (toDelete.length === 0) {
-                console.log('[Cleanup] Khong co transactions nao cu hon', _MAX_TRANSACTION_DAYS, 'ngay');
+                console.log('[Cleanup] Không có transactions nào cũ hơn', _MAX_TRANSACTION_DAYS, 'ngày');
                 return;
             }
             
-            console.log('[Cleanup] Dang xoa', toDelete.length, 'transactions cu hon', _MAX_TRANSACTION_DAYS, 'ngay...');
+            console.log('[Cleanup] Đang xóa', toDelete.length, 'transactions cũ hơn', _MAX_TRANSACTION_DAYS, 'ngày...');
             
             var chain = Promise.resolve();
             for (var d = 0; d < toDelete.length; d++) {
@@ -2745,11 +2847,11 @@
                 })(toDelete[d]);
             }
             return chain.then(function() {
-                console.log('[Cleanup] Da xoa', toDelete.length, 'transactions cu');
+                console.log('[Cleanup] Đã xóa', toDelete.length, 'transactions cũ');
             });
         }).catch(function(err) {
             // Khong block neu cleanup that bai
-            console.warn('[Cleanup] Loi khi cleanup transactions cu:', err.message);
+            console.warn('[Cleanup] Lỗi khi cleanup transactions cũ:', err.message);
         });
     }
     
@@ -2765,7 +2867,7 @@
             
             // SUBSCRIBE NGAY LAP TUC - Khong doi smartSync/seed/config
             // Firebase realtime listener bat dau dong bo tu dong
-            // Dieu nay giup may Admin/Slave nhan duoc realtime ngay khi vao lai trang
+            // Điều này giúp máy Admin/Slave nhận được realtime ngay khi vào lại trang
             subscribeToCollection('tables');
             subscribeToCollection('customers');
             subscribeToCollection('transactions');
@@ -2779,16 +2881,31 @@
             subscribeToCollection('ingredients');
             subscribeToCollection('messages');
             
-            // cleanupDeletedIds voi force=true de dam bao khong con du lieu cu
-            // Chay song song voi seed + config
-            _cleanupDeletedIds('tables', true);
-            _cleanupDeletedIds('customers', true);
-            _cleanupDeletedIds('menu', true);
-            _cleanupDeletedIds('menu_categories', true);
-            _cleanupDeletedIds('ingredients', true);
-            _cleanupDeletedIds('notifications', true);
-            _cleanupDeletedIds('daily_balances', true);
-            _cleanupDeletedIds('messages', true);
+            // FIX: Không g?i _cleanupDeletedIds ngay t?i dây vì Firebase listener
+            // (subscribeToCollection) chua k?p d?ng b? d? li?u v?.
+            // N?u cleanup ch?y tru?c, nó s? so sánh local data (có) vs remote (r?ng)
+            // và xóa h?t local data -> F5 l?i l?p l?i vòng l?p.
+            // Thay vào dó, dùng delayed cleanup d? d?m b?o listener dã nh?n d? li?u.
+            // Các cleanup này s? ch?y sau 3 giây, lúc dó onAdded dã fire.
+            var _delayedCleanup = function(col) {
+                setTimeout(function() {
+                    // N?u sau 3 giây mà collection v?n chua có d? li?u t? Firebase,
+                    // có th? do Firebase không có data cho collection này.
+                    // Trong tru?ng h?p dó, set flag d? cho phép cleanup ch?y.
+                    if (!_initialDataLoaded[col]) {
+                        _initialDataLoaded[col] = true;
+                    }
+                    _cleanupDeletedIds(col, true);
+                }, 3000);
+            };
+            _delayedCleanup('tables');
+            _delayedCleanup('customers');
+            _delayedCleanup('menu');
+            _delayedCleanup('menu_categories');
+            _delayedCleanup('ingredients');
+            _delayedCleanup('notifications');
+            _delayedCleanup('daily_balances');
+            _delayedCleanup('messages');
             
             // Khoi tao BroadcastChannel va Heartbeat
             _initBroadcastChannel();
@@ -2805,7 +2922,7 @@
             _initHeartbeat();
             
             // KHONG goi smartSync() o day - Firebase realtime listener da tu dong dong bo
-            // smartSync chi can thiet khi online -> offline -> online lai (da co trong initNetwork)
+            // smartSync chỉ cần thiết khi online -> offline -> online lại (đã có trong initNetwork)
             // Tranh ton bang thong va render lai UI khong can thiet
             
             // Chay seed + config song song (khong block subscribe)
@@ -2815,7 +2932,7 @@
             // WATCHDOG: Polling rieng cho tables (10s) de phat hien thay doi tu may khac
             // Tables la collection quan trong nhat, can do tre thap nhat
             // Dam bao phat hien duoc ca deletions (xoa ban tu may khac)
-            // Polling la fallback khi realtime Firebase listener bi miss (tab background, suppress, etc.)
+            // Polling là fallback khi realtime Firebase listener bị miss (tab background, suppress, etc.)
             if (!_pollingTimers['tables']) {
                 _pollingTimers['tables'] = setInterval(function() {
                     if (!isOnline) return;
@@ -2825,7 +2942,7 @@
                 }, 10000);
             }
             
-            // Cleanup transactions cu hon 30 ngay (khong block)
+            // Cleanup transactions cũ hơn 30 ngày (không block)
             _cleanupOldTransactions();
             
             return Promise.all([seedPromise, configPromise]).then(function() {
@@ -2897,7 +3014,7 @@
         try {
             var key = 'pos_broadcast_' + Date.now();
             localStorage.setItem(key, JSON.stringify(msg));
-            // Xoa ngay de tranh day localStorage
+            // Xóa ngay để tránh đầy localStorage
             setTimeout(function() { localStorage.removeItem(key); }, 100);
         } catch(e) {}
     }
@@ -2916,11 +3033,11 @@
         }
     }
     
-    // Goi _initBroadcastChannel ngay sau khi khoi tao
+    // Gọi _initBroadcastChannel ngay sau khi khởi tạo
     // (se duoc goi tu initDatabase)
     // ========== REALTIME OPTIMIZATION: Heartbeat & Connection Indicator ==========
     // Muc dich: Phat hien stale collections de tu dong smartSync
-    // Indicator chi hien thi trang thai online/offline, khong bao sai khi ko co du lieu thay doi
+    // Indicator chỉ hiển thị trạng thái online/offline, không báo sai khi không có dữ liệu thay đổi
     var _lastSyncTimestamps = {};
     var _heartbeatInterval = null;
     var _lastHeartbeatTime = 0;
@@ -2942,7 +3059,7 @@
                 if (_lastSyncTimestamps.hasOwnProperty(col)) {
                     var elapsed = now - _lastSyncTimestamps[col];
                     // Neu qua 120s khong co sync, danh dau la stale
-                    // Tang len 120s de tranh bao sai khi khong co du lieu thay doi
+                    // Tăng lên 120s để tránh báo sai khi không có dữ liệu thay đổi
                     if (elapsed > 120000 && isOnline) {
                         staleCollections.push(col);
                     }
@@ -2957,10 +3074,10 @@
             // Cap nhat indicator: online = xanh, offline = do
             _lastHeartbeatTime = now;
             _updateSyncIndicator();
-        }, 30000); // Kiem tra moi 30s
+        }, 30000); // Kiểm tra mỗi 30s
     }
     
-    // Cap nhat sync indicator tren UI - doi mau ten nhan vien theo trang thai online/offline
+    // Cập nhật sync indicator trên UI - đổi màu tên nhân viên theo trạng thái online/offline
     function _updateSyncIndicator() {
         var staffEl = document.getElementById('staffName');
         if (!staffEl) return;
@@ -2986,7 +3103,7 @@
     
     // Xóa toàn bộ dữ liệu local (IndexedDB + localStorage + memory cache) khi chuyển POS
     function clearLocalData() {
-        // FIX: Huy tat ca Firebase listeners de tranh memory leak va double callback
+        // FIX: Hủy tất cả Firebase listeners để tránh memory leak và double callback
         _destroyAllListeners();
         
         // FIX: Xoa local callbacks, event bus, component registry
@@ -3075,7 +3192,7 @@
     // Hỗ trợ: master_admin (shopCode='master'), POS có firebase_config riêng, migration tự động
         function login(shopCode, username, password) {
         if (!shopCode || !username || !password) {
-            return Promise.reject(new Error('Vui long nhap day du thong tin'));
+            return Promise.reject(new Error('Vui lòng nhập đầy đủ thông tin'));
         }
 
         // ===== TRU?NG H?P 1: Master Admin login =====
@@ -3094,7 +3211,7 @@
                     }
                 }
                 if (!foundAdmin) {
-                    throw new Error('Sai ten dang nhap hoac mat khau Master Admin');
+                    throw new Error('Sai tên đăng nhập hoặc mật khẩu Master Admin');
                 }
                 // [Comment removed - encoding error]
                 currentUser = {
@@ -3123,17 +3240,17 @@
         // [Comment removed - encoding error]
         return masterDb.ref('shop_registry/' + shopCode).once('value').then(function(snapshot) {
             if (!snapshot.exists()) {
-                throw new Error('Ma POS khong ton tai');
+                throw new Error('Mã POS không tồn tại');
             }
             var shopInfo = snapshot.val();
             var shopId = shopInfo.shopId;
 
             // [Comment removed - encoding error]
             if (shopInfo.status === 'locked') {
-                throw new Error('POS nay da bi khoa. Vui long lien he Admin Master.');
+                throw new Error('POS này đã bị khóa. Vui lòng liên hệ Admin Master.');
             }
             if (shopInfo.status === 'deleted') {
-                throw new Error('POS nay da bi xoa. Vui long lien he Admin Master.');
+                throw new Error('POS này đã bị xóa. Vui lòng liên hệ Admin Master.');
             }
 
             // [Comment removed - encoding error]
@@ -3164,7 +3281,7 @@
                         }
                     }
                     if (!foundStaff) {
-                        throw new Error('Sai ten dang nhap hoac mat khau');
+                        throw new Error('Sai tên đăng nhập hoặc mật khẩu');
                     }
 
                     // [Comment removed - encoding error]
@@ -3172,7 +3289,7 @@
                     var isSwitchingShop = oldShopId && oldShopId !== shopId;
                     
                     if (isSwitchingShop) {
-                        console.log('Phat hien chuyen POS tu', oldShopId, '->', shopId, 'dang clear cache cu...');
+                        console.log('Phát hiện chuyển POS từ', oldShopId, '->', shopId, 'đang clear cache cũ...');
                         // Clear memory cache ngay l?p t?c
                         memoryCache = {};
                         cacheVersion = {};
@@ -3208,21 +3325,21 @@
                         _slaveInitPromiseForLogin = _initSlaveApp(shopId, fbConfig).then(function() {
                             // [Comment removed - encoding error]
                             if (oldConfigHash && oldConfigHash !== 'master' && oldConfigHash !== newConfigHash) {
-                                console.log('Phat hien thay doi Firebase config, chuan bi migration...');
+                                console.log('Phát hiện thay đổi Firebase config, chuẩn bị migration...');
                                 return _migrateData(shopId, masterDb, slaveDb).then(function() {
                                     localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
-                                    console.log('Migration hoan tat cho', shopId);
+                                    console.log('Migration hoàn tất cho', shopId);
                                 });
                             } else {
                                 localStorage.setItem(CONFIG_HASH_KEY, newConfigHash);
                             }
                         }).catch(function(err) {
-                            console.error('?? L?i init Slave:', err);
+                            console.error('?? Lỗi init Slave:', err);
                         });
                     } else {
                         // [Comment removed - encoding error]
                         localStorage.setItem(CONFIG_HASH_KEY, 'master');
-                        // H?y Slave n?u dang t?n t?i
+                        // Hủy Slave nếu đang tồn tại
                         if (slaveApp) {
                             try { slaveApp.delete(); } catch(e) {}
                             slaveApp = null;
@@ -3256,7 +3373,7 @@
                                 }));
                             }
                             return Promise.all(promises).then(function() {
-                                console.log('??? Cleared IndexedDB data for shop switch to', shopId);
+                                console.log('??? Đã xóa IndexedDB data cho shop switch to', shopId);
                                 return currentUser;
                             });
                         });
@@ -3506,7 +3623,7 @@
                 return _getShopStaff(code, registry[code]);
             });
             return Promise.all(promises).then(function(shops) {
-                // S?p x?p theo th?i gian t?o m?i nh?t
+                // Sắp xếp theo thời gian tạo mới nhất
                 shops.sort(function(a, b) { return b.createdAt - a.createdAt; });
                 return shops;
             });
@@ -3519,7 +3636,7 @@
         return _readStaffFromMaster(code, info);
     }
     
-    // Helper: d?c staff t? Master Firebase
+    // Helper: đọc staff từ Master Firebase
     function _readStaffFromMaster(code, info) {
         return masterDb.ref(info.shopId + '/staffs').once('value').then(function(staffSnap) {
             var staffs = staffSnap.val() || {};
@@ -3587,7 +3704,7 @@
                 }
             }
             if (!adminId) {
-                throw new Error('Khong tim thay tai khoan admin cua POS nay');
+                throw new Error('Không tìm thấy tài khoản admin của POS này');
             }
             
             var updates = {};
@@ -3601,16 +3718,16 @@
     // [Comment removed - encoding error]
     function changePassword(shopId, staffId, newPassword) {
         if (!currentUser) {
-            return Promise.reject(new Error('Chua dang nh?p'));
+            return Promise.reject(new Error('Chưa đăng nhập'));
         }
         if (currentUser.role !== 'admin' && currentUser.role !== 'master_admin') {
-            return Promise.reject(new Error('Chi admin moi co the doi mat khau'));
+            return Promise.reject(new Error('Chỉ admin mới có thể đổi mật khẩu'));
         }
         if (!newPassword || newPassword.length < 4) {
-            return Promise.reject(new Error('Mat khau moi phai co it nhat 4 ky tu'));
+            return Promise.reject(new Error('Mật khẩu mới phải có ít nhất 4 ký tự'));
         }
         
-        console.log('changePassword() - Doi mat khau cho staff:', { shopId: shopId, staffId: staffId });
+        console.log('changePassword() - Đổi mật khẩu cho staff:', { shopId: shopId, staffId: staffId });
         
         // [Comment removed - encoding error]
         var masterUpdates = {};
@@ -3622,11 +3739,11 @@
                 return slaveDb.ref(shopId + '/staffs/' + staffId + '/password').set(newPassword);
             }
         }).then(function() {
-            // C?p nh?t currentUser trong memory
+            // Cập nhật currentUser trong memory
             if (currentUser) {
                 currentUser.password = newPassword;
             }
-            // C?p nh?t session trong localStorage
+            // Cập nhật session trong localStorage
             var session = localStorage.getItem('pos_session');
             if (session) {
                 try {
@@ -3635,7 +3752,7 @@
                     localStorage.setItem('pos_session', JSON.stringify(sessionData));
                 } catch(e) {}
             }
-            console.log('changePassword() - Da doi mat khau thanh cong');
+            console.log('changePassword() - Đã đổi mật khẩu thành công');
             return { success: true };
         });
     }
@@ -3643,13 +3760,13 @@
     // [Comment removed - encoding error]
     function createMasterAdmin(username, password, displayName) {
         if (!username || !password) {
-            return Promise.reject(new Error('Vui long nhap ten dang nhap va mat khau'));
+            return Promise.reject(new Error('Vui lòng nhập tên đăng nhập và mật khẩu'));
         }
         if (password.length < 4) {
-            return Promise.reject(new Error('Mat khau phai co it nhat 4 ky tu'));
+            return Promise.reject(new Error('Mật khẩu phải có ít nhất 4 ký tự'));
         }
         
-        console.log('?? createMasterAdmin() - T?o master admin m?i:', { username: username });
+        console.log('?? createMasterAdmin() - Tạo master admin mới:', { username: username });
         
         var adminId = 'master_' + Date.now().toString(36);
         var adminData = {
@@ -3663,7 +3780,7 @@
         };
         
         return masterDb.ref('master_admins/' + adminId).set(adminData).then(function() {
-            console.log('createMasterAdmin() - Da tao master admin:', { adminId: adminId, username: username });
+            console.log('createMasterAdmin() - Đã tạo master admin:', { adminId: adminId, username: username });
             return adminData;
         });
     }
@@ -3680,7 +3797,7 @@
         getTransactionsByDateRange: getTransactionsByDateRange,
         subscribe: subscribeToCollection,
         subscribeWithPolling: subscribeWithPolling,
-        // NANG CAP: Event Bus API - Reactive Layer Giai doan 1
+        // NÂNG CẤP: Event Bus API - Reactive Layer Giai đoạn 1
         on: function(eventType, callback) { return _on(eventType, callback); },
         off: function(eventType, callback) { _off(eventType, callback); },
         isOnline: function() { return isOnline; },
@@ -3690,7 +3807,7 @@
         // OPTIMIZE: Suppress realtime notifications cho batch operations
         suppressRealtime: function() { _setSuppressRealtime(true); },
         flushRealtime: function() { _setSuppressRealtime(false); },
-        // OPTIMIZE: getMemoryCache - d?c tr?c ti?p t? memory cache
+        // OPTIMIZE: getMemoryCache - đọc trực tiếp từ memory cache
         getMemoryCache: getMemoryCache,
         // Auth methods
         setShopId: setShopId,
@@ -3715,7 +3832,7 @@
         getDirtyCollections: function() { return Object.keys(_dirtyCollections); },
         // [Comment removed - encoding error]
         // [Comment removed - encoding error]
-        // selector: function(oldData, newData, changeInfo) => true n?u c?n render l?i
+        // selector: function(oldData, newData, changeInfo) => true nếu cần render lại
         // [Comment removed - encoding error]
         renderOn: function(collection, selector, renderFn) {
             return _renderOn(collection, selector, renderFn);
@@ -3728,7 +3845,7 @@
         getAllShops: getAllShops,
         // [Comment removed - encoding error]
         updateShopStatus: updateShopStatus,
-        // MASTER ADMIN: C?p nh?t username/password admin c?a POS
+        // MASTER ADMIN: Cập nhật username/password admin của POS
         updateShopAdmin: updateShopAdmin,
         // [Comment removed - encoding error]
         createMasterAdmin: createMasterAdmin,
@@ -3736,7 +3853,6 @@
         changePassword: changePassword
     };
 })();
-
 
 
 
