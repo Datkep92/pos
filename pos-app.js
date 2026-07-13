@@ -178,6 +178,8 @@ function loadData() {
         });
         menuCategories = menuCatFromCache || [];
         customers = customersFromCache;
+        // FIX: Migrate dữ liệu cũ: gộp changeBalance vào prepaidBalance
+        if (typeof _migrateCustomerChangeBalance === 'function') _migrateCustomerChangeBalance();
         // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
         if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         ingredients = ingredientsFromCache || [];
@@ -244,6 +246,8 @@ function loadData() {
         });
         menuCategories = results[1] || [];
         customers = results[2] || [];
+        // FIX: Migrate dữ liệu cũ: gộp changeBalance vào prepaidBalance
+        if (typeof _migrateCustomerChangeBalance === 'function') _migrateCustomerChangeBalance();
         // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
         if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         // Load shop info từ IndexedDB (ưu tiên)

@@ -1897,31 +1897,27 @@ function handleDebtOrder() {
                 return;
             }
             
-            // OPTIMIZE: Pre-calculate debtAmount và creditUsed từ memory cache
-            // để chạy song song addCustomerDebt + addHistory thay vì tuần tự
-            var creditBalance = customer.creditBalance || 0;
-            var preCreditUsed = Math.min(creditBalance, total);
-            var preDebtAmount = total - preCreditUsed;
-            
-            // Chạy song song addCustomerDebt và addHistory
+            // FIX: Không pre-calculate creditUsed ở đây vì addCustomerDebt sẽ tự động
+            // deduct từ prepaidBalance (đã gộp changeBalance + prepaidBalance) và trả về creditUsed thực tế.
+            // Chạy addCustomerDebt trước để lấy kết quả thực tế, sau đó mới tạo history.
             var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items);
-            var historyPromise = addHistory({
-                type: 'debt_payment',
-                amount: preDebtAmount,
-                paymentMethod: 'debt',
-                items: items,
-                customer: { id: customer.id, name: customer.name },
-                tableName: null,
-                note: debtNote + (preCreditUsed > 0 ? ' (đã dùng ' + formatMoney(preCreditUsed) + ' tiền dư)' : ''),
-                createdAt: now.toISOString(),
-                dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
-            });
             
-            return Promise.all([debtPromise, historyPromise]).then(function(results) {
-                // Lấy kết quả thực tế từ addCustomerDebt (để đảm bảo chính xác)
-                var debtResult = results[0];
+            return debtPromise.then(function(debtResult) {
                 debtAmount = debtResult.debtAmount;
                 creditUsed = debtResult.creditUsed;
+                
+                // Tạo history với số liệu thực tế từ addCustomerDebt
+                return addHistory({
+                    type: 'debt_payment',
+                    amount: debtAmount,
+                    paymentMethod: 'debt',
+                    items: items,
+                    customer: { id: customer.id, name: customer.name },
+                    tableName: null,
+                    note: debtNote + (creditUsed > 0 ? ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư/trước)' : ''),
+                    createdAt: now.toISOString(),
+                    dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+                });
             });
         }).then(function() {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
