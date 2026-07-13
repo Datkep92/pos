@@ -1005,6 +1005,26 @@
             addToSyncQueue('delete', collection, { id: id }, String(id));
             // OPTIMIZE: Debounce sync - gom nhiều operations vào 1 lần sync
             if (isOnline) _debouncedProcessSyncQueue();
+            
+            // CROSS-DEVICE DELETION SYNC: Ghi vào _deleted node trên Firebase
+            // Để các máy khác có thể phát hiện item đã bị xóa
+            // Chỉ ghi cho các collection quan trọng (tables, customers, menu, menu_categories)
+            if (isOnline && CURRENT_SHOP_ID) {
+                var _deletedCollections = { tables: true, customers: true, menu: true, menu_categories: true };
+                if (_deletedCollections[collection]) {
+                    var deletedRef = _getDb(collection).ref(CURRENT_SHOP_ID + '/_deleted/' + collection + '/' + String(id));
+                    deletedRef.set({
+                        deletedAt: firebase.database.ServerValue.TIMESTAMP,
+                        deletedBy: CURRENT_DEVICE_ID,
+                        collection: collection,
+                        itemId: String(id)
+                    }).catch(function(err) {
+                        // Không block luồng chính nếu ghi _deleted thất bại
+                        console.warn('  ⚠️ Could not write _deleted flag for', collection, id, ':', err.message);
+                    });
+                }
+            }
+            
             return Promise.resolve();
         }).then(function() { return true; });
     }
@@ -1384,6 +1404,10 @@
         }
         
         saveToLocal(collection, item).then(emitUpdate);
+        
+        // Khi có item m?i d?c t? Firebase, ki?m tra luôn _deleted node
+        // d? phát hi?n deletions t? máy khác (n?u có)
+        _cleanupDeletedIds(collection);
     };
     var onChanged = function(snapshot) {
         if (!snapshot.exists()) return;
@@ -1402,6 +1426,9 @@
         }
         
         saveToLocal(collection, item).then(emitUpdate);
+        
+        // Khi có item thay d?i t? Firebase, ki?m tra luôn _deleted node
+        _cleanupDeletedIds(collection);
     };
     var onRemoved = function(snapshot) {
         var key = snapshot.key;
@@ -1532,8 +1559,8 @@
                 });
             });
             
-            // [Comment removed - encoding error]
-            // [Comment removed - encoding error]
+            // FIX: Polling cung can phat hien deletions
+            // Dam bao items da bi xoa tren Firebase cung duoc xoa khoi local
             _cleanupDeletedIds(collection);
         }, intervalSeconds * 1000);
         
@@ -1543,27 +1570,30 @@
         };
     }
     
-    // SIMPLIFIED QUICK SYNC: Khi tab resume, chi can kiem tra Firebase connection
-    // Neu Firebase con ket noi -> realtime listeners van hoat dong -> khong can lam gi
-    // Neu Firebase mat ket noi -> F5 de dam bao du lieu chinh xac
-    // Giai phap don gian, an toan, khong ton bang thong
+    // ENHANCED QUICK SYNC: Khi tab resume, chu dong dong bo du lieu
+    // Tables: fullSync de dam bao chinh xac (quan trong nhat)
+    // Cac collection khac: deltaSync de lay items moi
+    // Khong chi check Firebase connection nhu phien ban cu
     var _quickSyncTimer = null;
     function _quickSync() {
         if (_quickSyncTimer) clearTimeout(_quickSyncTimer);
         _quickSyncTimer = setTimeout(function() {
             _quickSyncTimer = null;
             
-            // Chi kiem tra Firebase connection state
-            // _firebaseConnected duoc cap nhat boi .info/connected listener
-            if (!_firebaseConnected) {
-                console.log('?? Firebase disconnected on resume - reloading to ensure data accuracy');
-                location.reload();
-                return;
-            }
+            if (!isOnline) return;
             
-            // Firebase con ket noi -> realtime listeners van hoat dong
-            // Khong can lam gi them
-            console.log('?? Tab resumed, Firebase connected - realtime listeners active');
+            console.log('?? Tab resumed - quick syncing data...');
+            
+            // Tables: fullSync de dam bao chinh xac tuyet doi
+            // Tables la collection quan trong nhat, can dong bo hoan chinh
+            fullSync('tables');
+            
+            // Cac collection khac: deltaSync de lay items moi
+            deltaSync('customers');
+            deltaSync('transactions');
+            deltaSync('notifications');
+            deltaSync('info');
+            deltaSync('daily_balances');
         }, 500);
     }
     
@@ -2096,11 +2126,12 @@
     }
     
     // Chi?n lu?c cleanup d? li?u dã xóa: ch? ch?y trên các collection nh?
-    // (tables, customers, menu, menu_categories, ingredients)
+    // (tables, customers, menu, menu_categories, ingredients, notifications, daily_balances, messages)
     // Các collection l?n nhu transactions, cost_transactions không c?n cleanup
     // vì realtime Firebase listener dã xu? lý child_removed
     var _SMALL_MASTER_COLLECTIONS = {
-        tables: true, customers: true, menu: true, menu_categories: true, ingredients: true
+        tables: true, customers: true, menu: true, menu_categories: true,
+        ingredients: true, notifications: true, daily_balances: true, messages: true
     };
     function _cleanupDeletedIds(collection) {
         // Ch? cleanup cho small master collections
@@ -2122,32 +2153,80 @@
             var localIds = Object.keys(memoryCache[collection]);
             if (localIds.length === 0) return;
             
-            var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
+            // === B??c 1: Ki?m tra _deleted node trên Firebase ===
+            // Node này du?c ghi khi remove() du?c g?i ? máy khác (xem hàm remove())
+            // Giúp phát hi?n deletions t? máy khác nhanh hon mà không c?n so sánh toàn b?
+            var deletedRef = _getDb(collection).ref(CURRENT_SHOP_ID + '/_deleted/' + collection);
             
-            return ref.once('value').then(function(snapshot) {
-                var remoteData = snapshot.val() || {};
-                var remoteIds = Object.keys(remoteData);
+            return deletedRef.once('value').then(function(deletedSnapshot) {
+                var deletedData = deletedSnapshot.val() || {};
+                var deletedFromOtherDevices = Object.keys(deletedData);
+                var now = Date.now();
+                var ONE_HOUR = 3600000;
+                var cleanupPromises = [];
+                var foundDeletedLocally = [];
                 
-                var deletedIds = [];
-                for (var i = 0; i < localIds.length; i++) {
-                    if (remoteIds.indexOf(localIds[i]) === -1) {
-                        deletedIds.push(localIds[i]);
+                for (var di = 0; di < deletedFromOtherDevices.length; di++) {
+                    var delId = deletedFromOtherDevices[di];
+                    var delEntry = deletedData[delId];
+                    
+                    // N?u item này t?n t?i trong local memoryCache -> xóa kh?i local
+                    if (memoryCache[collection][delId]) {
+                        foundDeletedLocally.push(delId);
+                        cleanupPromises.push(deleteFromLocal(collection, delId));
+                    }
+                    
+                    // D?n d?p entries cu? hon 1 gi? d? tránh phình to node _deleted
+                    if (delEntry && delEntry.deletedAt) {
+                        var deletedTime = delEntry.deletedAt;
+                        if (typeof deletedTime === 'object' && deletedTime.seconds) {
+                            deletedTime = deletedTime.seconds * 1000;
+                        }
+                        if (now - deletedTime > ONE_HOUR) {
+                            // Xóa entry cu?i kh?i _deleted node
+                            (function(oldId) {
+                                cleanupPromises.push(
+                                    deletedRef.child(oldId).remove().catch(function() {})
+                                );
+                            })(delId);
+                        }
                     }
                 }
                 
-                if (deletedIds.length === 0) return;
-                
-                console.log('[Cleanup] Phát hi?n', deletedIds.length, 'items dã b? xóa kh?i', collection);
-                
-                var deleteChain = Promise.resolve();
-                for (var d = 0; d < deletedIds.length; d++) {
-                    (function(delId) {
-                        deleteChain = deleteChain.then(function() {
-                            return deleteFromLocal(collection, delId);
-                        });
-                    })(deletedIds[d]);
+                if (foundDeletedLocally.length > 0) {
+                    console.log('[Cleanup] Phát hi?n', foundDeletedLocally.length, 'items dã b? xóa t? máy khác trong', collection, ':', foundDeletedLocally);
                 }
-                return deleteChain;
+                
+                // === B??c 2: So sánh local IDs vs remote IDs (phuong pháp truy?n th?ng) ===
+                var ref = _getDb(collection).ref(CURRENT_SHOP_ID + '/' + collection);
+                
+                return ref.once('value').then(function(snapshot) {
+                    var remoteData = snapshot.val() || {};
+                    var remoteIds = Object.keys(remoteData);
+                    
+                    var deletedIds = [];
+                    for (var i = 0; i < localIds.length; i++) {
+                        if (remoteIds.indexOf(localIds[i]) === -1) {
+                            deletedIds.push(localIds[i]);
+                        }
+                    }
+                    
+                    if (deletedIds.length > 0) {
+                        console.log('[Cleanup] Phát hi?n', deletedIds.length, 'items không còn trên Firebase trong', collection);
+                        
+                        for (var d = 0; d < deletedIds.length; d++) {
+                            (function(delId) {
+                                cleanupPromises.push(deleteFromLocal(collection, delId));
+                            })(deletedIds[d]);
+                        }
+                    }
+                    
+                    if (cleanupPromises.length === 0) return;
+                    
+                    return Promise.all(cleanupPromises).then(function() {
+                        console.log('[Cleanup] Hoàn t?t d?n d?p', collection, '- dã xóa', cleanupPromises.length, 'items kh?i local');
+                    });
+                });
             }).catch(function(err) {
                 console.warn('[Cleanup] L?i khi ki?m tra', collection, ':', err.message);
             });
@@ -2610,6 +2689,22 @@
                     _lastSyncTimestamps[subscribedCollections[_si]] = now;
                 }
                 _initHeartbeat();
+                
+                // WATCHDOG: Polling rieng cho tables (10s) de phat hien thay doi tu may khac
+                // Tables la collection quan trong nhat, can do tre thap nhat
+                // Dam bao phat hien duoc ca deletions (xoa ban tu may khac)
+                // Polling la fallback khi realtime Firebase listener bi miss (tab background, suppress, etc.)
+                if (!_pollingTimers['tables']) {
+                    _pollingTimers['tables'] = setInterval(function() {
+                        if (!isOnline) return;
+                        // cleanupDeletedIds truoc de xoa ban da bi xoa tren Firebase
+                        _cleanupDeletedIds('tables').then(function() {
+                            // deltaSync de lay ban moi hoac da cap nhat
+                            return deltaSync('tables');
+                        });
+                    }, 10000);
+                }
+                
                 console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
                 return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
             });
