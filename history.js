@@ -400,8 +400,8 @@ function _renderHistoryCore(dateStr) {
                 if (filter === 'dinein') return t.type === 'dinein';
                 if (filter === 'takeaway') return t.type === 'takeaway';
                 if (filter === 'grab') return t.type === 'grab';
-                if (filter === 'cash') return t.paymentMethod === 'cash';
-                if (filter === 'transfer') return t.paymentMethod === 'transfer';
+                if (filter === 'cash') return t.paymentMethod === 'cash' || (t.type === 'prepaid' && t.paymentMethod === 'cash');
+                if (filter === 'transfer') return t.paymentMethod === 'transfer' || (t.type === 'prepaid' && t.paymentMethod === 'transfer');
                 if (filter === 'debt') return t.type === 'debt_payment' && t.paymentMethod === 'debt';
                 if (filter === 'debt_payment') return (t.type === 'debt_payment' && t.paymentMethod !== 'debt') || t.type === 'prepaid';
                 if (filter === 'delete_table') return t.type === 'delete_table' || t.refunded === true;
@@ -430,6 +430,7 @@ function _renderHistoryCore(dateStr) {
         // TÍNH TỔNG: dựa trên transactions đã được lọc
         // Khi filter = 'debt', transactions chỉ còn giao dịch ghi nợ → tính tổng trực tiếp
         // Khi filter = 'all', bỏ qua debt (vì bộ lọc đã có phần lọc trả sau riêng)
+        // FIX: Tính prepaid (đưa trước) vào tổng để đồng bộ với cash counter
         var totalAmount = 0;
         var totalCount = 0;
         var isDebtFilter = (filter === 'debt');
@@ -437,7 +438,6 @@ function _renderHistoryCore(dateStr) {
             var tx = transactions[i];
             if (tx.refunded) continue;
             if (tx.type === 'credit') continue;
-            if (tx.type === 'prepaid') continue;
             if (tx.type === 'change_in') continue;
             if (tx.type === 'change_use') continue;
             if (tx.type === 'delete_table') continue;
