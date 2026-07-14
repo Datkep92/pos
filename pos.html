@@ -396,50 +396,6 @@
                         <div id="telegramConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
                     </div>
 
-                    <!-- PHẦN FIREBASE CONFIG RIÊNG (chỉ cho POS có config riêng) -->
-                    <div class="settings-section" id="settingsFirebaseSection" style="display:none;">
-                        <h3 class="settings-title">🔥 Cấu hình Firebase riêng</h3>
-                        <div class="settings-hint" style="margin-bottom:8px;color:#fbbf24;">
-                            ⚠️ Chỉ admin POS có config Firebase riêng mới thấy section này.
-                            Nếu bạn không chắc chắn, hãy giữ nguyên cấu hình mặc định.
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">API Key</label>
-                            <input type="text" id="fbApiKey" class="form-input" placeholder="AIzaSy...">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Auth Domain</label>
-                            <input type="text" id="fbAuthDomain" class="form-input" placeholder="project.firebaseapp.com">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Database URL</label>
-                            <input type="text" id="fbDatabaseURL" class="form-input" placeholder="https://project-default-rtdb.firebaseio.com">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Project ID</label>
-                            <input type="text" id="fbProjectId" class="form-input" placeholder="project-id">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Storage Bucket</label>
-                            <input type="text" id="fbStorageBucket" class="form-input" placeholder="project.appspot.com">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">Messaging Sender ID</label>
-                            <input type="text" id="fbMessagingSenderId" class="form-input" placeholder="123456789">
-                        </div>
-                        <div class="settings-field">
-                            <label class="settings-label">App ID</label>
-                            <input type="text" id="fbAppId" class="form-input" placeholder="1:123456789:web:abc123">
-                        </div>
-                        <div class="settings-actions" style="margin-top:8px;">
-                            <button class="settings-btn settings-btn-primary" onclick="testFirebaseConfig()" style="background:#22c55e;">🔌 Kiểm tra kết nối</button>
-                            <button class="settings-btn settings-btn-primary" onclick="saveFirebaseConfig()">💾 Lưu cấu hình</button>
-                            <button class="settings-btn settings-btn-secondary" onclick="clearFirebaseConfig()">🗑️ Xóa (dùng Firebase mặc định)</button>
-                            <button class="settings-btn settings-btn-secondary" onclick="syncDataToNewFirebase()" style="background:#f97316;">🔄 Đồng bộ dữ liệu sang Firebase mới</button>
-                        </div>
-                        <div id="firebaseConfigStatus" style="margin-top:6px;font-size:12px;color:#888;"></div>
-                    </div>
-
                     <!-- PHẦN THÔNG TIN QUÁN -->
                     <div class="settings-section" id="settingsShopSection">
                         <h3 class="settings-title">🏪 Thông tin quán</h3>

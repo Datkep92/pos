@@ -52,13 +52,7 @@ window.shopConfig = {
 document.addEventListener('DOMContentLoaded', function() {
     // OPTIMIZE: Khôi phục UI từ sessionStorage ngay lập tức (nếu có)
     // Giúp UI hiển thị ngay trong khi chờ DB.init() và loadData() hoàn tất
-    var hasSessionCache = _restoreFromSessionCache();
-    
-    // OPTIMIZE: Neu co session cache, an loading screen som
-    // De nguoi dung thay UI ngay, khong can cho DB.init() hoan tat
-    if (hasSessionCache) {
-        _hideLoadingScreen();
-    }
+    _restoreFromSessionCache();
     
     // FIX: Gọi DB.init() TRƯỚC, sau đó mới initRealtime()
     // Đảm bảo database đã sẵn sàng trước khi đăng ký subscriptions
@@ -86,11 +80,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }).then(function() {
         return loadDraftOrders();
     }).then(function() {
-        // OPTIMIZE: Chi an loading screen neu chua an (truong hop ko co session cache)
-        if (!hasSessionCache) {
-            _hideLoadingScreen();
-        }
-
         // FIX: Khởi tạo realtime subscriptions SAU KHI DB đã sẵn sàng và data đã load
         // Tránh race condition: subscribeWithPolling gọi callback khi memoryCache còn rỗng
         initRealtime();
@@ -121,8 +110,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }).catch(function(err) {
         // FIX: Catch mọi lỗi để đảm bảo UI không bị treo
         console.error('❌ Initialization error:', err);
-        // Ẩn loading ngay cả khi có lỗi để không bị treo màn hình
-        _hideLoadingScreen();
         showToast('⚠️ Lỗi khởi tạo: ' + (err.message || 'unknown'), 'error', 4000);
         // Vẫn cố gắng khởi tạo event listeners để nút bấm hoạt động
         try {
@@ -133,20 +120,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
-
-// Hàm ẩn màn hình loading với hiệu ứng mượt
-function _hideLoadingScreen() {
-    var el = document.getElementById('loadingScreen');
-    if (el) {
-        el.classList.add('hidden');
-        // Xóa khỏi DOM sau khi animation kết thúc để giải phóng bộ nhớ
-        setTimeout(function() {
-            if (el.parentNode) {
-                el.parentNode.removeChild(el);
-            }
-        }, 500);
-    }
-}
 
 // FIX: Kiểm tra dữ liệu local có rỗng không (do IndexedDB bị xóa)
 function _isDataEmpty() {
@@ -178,10 +151,6 @@ function loadData() {
         });
         menuCategories = menuCatFromCache || [];
         customers = customersFromCache;
-        // FIX: Migrate dữ liệu cũ: gộp changeBalance vào prepaidBalance
-        if (typeof _migrateCustomerChangeBalance === 'function') _migrateCustomerChangeBalance();
-        // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
-        if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         ingredients = ingredientsFromCache || [];
         // FIX: Load tables từ memoryCache (đã được smartSync cập nhật)
         if (tablesFromCache) {
@@ -246,10 +215,6 @@ function loadData() {
         });
         menuCategories = results[1] || [];
         customers = results[2] || [];
-        // FIX: Migrate dữ liệu cũ: gộp changeBalance vào prepaidBalance
-        if (typeof _migrateCustomerChangeBalance === 'function') _migrateCustomerChangeBalance();
-        // Đồng bộ totalDebt từ debtHistory để tránh sai lệch
-        if (typeof _syncAllCustomersDebt === 'function') _syncAllCustomersDebt();
         // Load shop info từ IndexedDB (ưu tiên)
         var shopInfoList = results[3] || [];
         if (shopInfoList.length > 0) {
@@ -374,6 +339,24 @@ function initEventListeners() {
     var nextDayBtn = document.getElementById('nextDayBtn');
     if (nextDayBtn) nextDayBtn.onclick = function() { changeHistoryDate(1); };
 
+    // FIX: Event delegation cho filter-chip (cả trong #historyFilterChips và #historyStaffChips)
+    // Dùng delegation trên container cha để tránh phải gán lại listener khi staff chips được tạo động
+    var historyView = document.getElementById('historyView');
+    if (historyView) {
+        historyView.addEventListener('click', function(e) {
+            var chip = e.target;
+            // Kiểm tra nếu click vào .filter-chip (hoặc .staff-chip)
+            if (chip && chip.classList && chip.classList.contains('filter-chip')) {
+                // Bỏ active tất cả chip
+                var allChips = document.querySelectorAll('#historyFilterChips .filter-chip, #historyStaffChips .filter-chip');
+                for (var j = 0; j < allChips.length; j++) {
+                    allChips[j].classList.remove('active');
+                }
+                chip.classList.add('active');
+                renderHistoryByDate(currentHistoryDate);
+            }
+        });
+    }
 
     var reportPrevDayBtn = document.getElementById('reportPrevDayBtn');
     if (reportPrevDayBtn) reportPrevDayBtn.onclick = function() { changeReportDate(-1); };
@@ -442,13 +425,6 @@ function switchTab(tabId) {
         if (recentToast) recentToast.style.display = 'none';
 
         if (tabId === 'history') {
-            // Reset bộ lọc về "Tất cả" mỗi khi click tab Lịch sử
-            var allChips = document.querySelectorAll('.filter-chip');
-            for (var ci = 0; ci < allChips.length; ci++) {
-                allChips[ci].classList.remove('active');
-            }
-            var allChip = document.querySelector('.filter-chip[data-filter="all"]');
-            if (allChip) allChip.classList.add('active');
             renderHistoryByDate(currentHistoryDate);
         } else if (tabId === 'customers') {
             renderCustomerList();
@@ -469,10 +445,6 @@ function switchTab(tabId) {
             if (typeof applyExpenseRoleRestrictions === 'function') applyExpenseRoleRestrictions();
         } else if (tabId === 'manager') {
             if (typeof managerApplyFilter === 'function') managerApplyFilter();
-        } else if (tabId === 'admin') {
-            if (typeof loadAdminDashboard === 'function') {
-                setTimeout(loadAdminDashboard, 50);
-            }
         } else if (tabId === 'settings') {
             if (typeof initSettingsTab === 'function') {
                 initSettingsTab();
@@ -624,12 +596,12 @@ function _saveToSessionCache() {
 function _restoreFromSessionCache() {
     try {
         var cacheTime = sessionStorage.getItem('pos_cacheTime');
-        if (!cacheTime) return false;
+        if (!cacheTime) return;
         
         // Cache hết hạn sau 24h
         if (Date.now() - parseInt(cacheTime) > _SESSION_CACHE_TTL) {
             sessionStorage.clear();
-            return false;
+            return;
         }
         
         var menuData = sessionStorage.getItem('pos_menuItems');
@@ -646,29 +618,23 @@ function _restoreFromSessionCache() {
         }
         if (tablesData) {
             cachedTables = JSON.parse(tablesData);
+            // FIX: Set tablesCacheTime về 0 để renderTables() sau đó (từ switchTab)
+            // không dùng cachedTables cũ từ sessionStorage mà đọc từ IndexedDB đã sync
             tablesCacheTime = 0;
-            
-            // OPTIMIZE: Render UI tables NGAY LAP TUC tu sessionStorage
-            // De user thay duoc ban ngay, khong can cho DB.init() hoan tat
-            // Khi DB.init() xong, Firebase listeners se tu dong cap nhat UI
-            var grid = document.getElementById('tablesGrid');
-            if (grid && cachedTables.length > 0 && typeof updateTablesDiff === 'function') {
-                updateTablesDiff(cachedTables);
-                if (typeof startTableTimer === 'function') {
-                    startTableTimer();
-                }
-            }
         }
         
-        // Hien thi recentToast ngay tu cache
+        // FIX: KHÔNG gọi renderTables() ở đây vì:
+        // 1. IndexedDB chưa sẵn sàng (dbReady = null) -> DB.getAll('tables') sẽ crash
+        // 2. Nếu IndexedDB đã sẵn sàng, dữ liệu chưa được cleanup (smartSync chưa chạy)
+        //    -> renderTables() sẽ hiển thị dữ liệu cũ (bao gồm bàn đã xóa trên Firebase)
+        // 3. Promise từ renderTables() có thể resolve SAU KHI switchTab() đã render UI đúng
+        //    -> ghi đè UI đúng bằng dữ liệu cũ (race condition)
+        // Việc render UI sẽ được thực hiện bởi switchTab() sau khi DB.init() hoàn tất
+        // Chỉ khôi phục dữ liệu vào bộ nhớ (cachedTables) để các component khác dùng
         updateRecentToast();
-        
-        // Co du lieu session cache
-        return true;
     } catch(e) {
         // Lỗi parse JSON hoặc sessionStorage không khả dụng
         sessionStorage.clear();
-        return false;
     }
 }
 

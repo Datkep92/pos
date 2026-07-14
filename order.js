@@ -107,15 +107,7 @@ function openOrderModal() {
 }
 
 // ========== RENDER CỘT DANH MỤC (dọc) ==========
-// FIX: Guard chống render liên tiếp trong thời gian ngắn
-var _categoryRenderGuard = 0;
 function renderOrderCategoriesColumn() {
-    // FIX: Nếu đang trong quá trình render (gọi liên tiếp < 50ms), bỏ qua
-    var now = Date.now();
-    if (_categoryRenderGuard > 0 && (now - _categoryRenderGuard) < 50) {
-        return;
-    }
-    _categoryRenderGuard = now;
     var container = document.getElementById('orderCategoriesColumn');
     if (!container) return;
     
@@ -1709,13 +1701,7 @@ function takeawayCashPayWithDenom(givenAmount) {
     // Lưu givenAmount
     _takeawayChangeGivenAmount = givenAmount;
     
-    // Kiểm tra nếu có chọn khách hàng và có tiền dư
-    var creditNote = '';
-    if (change > 0 && selectedCustomer) {
-        creditNote = '<div style="font-size:12px;color:#d97706;margin-top:6px;">💡 ' + selectedCustomer.name + ' có ' + formatMoney(change) + ' tiền dư sẽ được lưu làm tiền trả trước</div>';
-    }
-    
-    // Tạo toast đặc biệt to, nổi bật
+    // Tạo toast đặc biệt to, nổi bật - chỉ hiển thị tiền dư trả lại khách
     var toast = document.createElement('div');
     toast.className = 'change-toast';
     toast.id = 'changeToast';
@@ -1723,7 +1709,7 @@ function takeawayCashPayWithDenom(givenAmount) {
         '<div class="change-label">💵 TIỀN DƯ</div>' +
         '<div class="change-given">Khách đưa: ' + formatMoney(givenAmount) + '</div>' +
         '<div class="change-amount">' + formatMoney(change) + '</div>' +
-        creditNote +
+        '<div class="change-return">🔄 Trả lại khách: <strong>' + formatMoney(change) + '</strong></div>' +
         '<div style="display:flex;gap:8px;margin-top:10px;">' +
             '<button onclick="_takeawayChangeToastPay()" style="flex:1;padding:10px;border-radius:40px;border:none;background:#f97316;color:#fff;font-weight:700;font-size:14px;cursor:pointer;-webkit-appearance:none;">✅ Thanh toán</button>' +
             '<button onclick="_hideTakeawayChangeToast()" style="padding:10px 16px;border-radius:40px;border:none;background:#475569;color:#fff;font-size:13px;cursor:pointer;-webkit-appearance:none;">✕</button>' +
@@ -1733,24 +1719,8 @@ function takeawayCashPayWithDenom(givenAmount) {
 }
 
 function _takeawayChangeToastPay() {
-    var givenAmount = _takeawayChangeGivenAmount;
     _hideTakeawayChangeToast();
-    
-    // Nếu có chọn khách và tiền dư > 0, lưu credit trước
-    if (tempOrder.length && selectedCustomer) {
-        var total = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
-        var change = givenAmount - total;
-        if (change > 0) {
-            addCustomerCredit(selectedCustomer.id, change, 'Trả dư khi mua mang đi').then(function() {
-                showToast('💰 Đã lưu ' + formatMoney(change) + ' tiền dư cho ' + selectedCustomer.name, 'success');
-                // FIX: Đánh dấu đã qua _takeawayChangeToastPay để handleTakeawayPayment
-                // và _processTakeawayDirect không kiểm tra credit thêm lần nữa
-                _skipOrderCreditCheck = true;
-                handleTakeawayPayment('cash');
-            });
-            return;
-        }
-    }
+    // Đơn giản: chỉ thanh toán tiền mặt, không lưu tiền dư vào credit
     handleTakeawayPayment('cash');
 }
 
@@ -1897,27 +1867,31 @@ function handleDebtOrder() {
                 return;
             }
             
-            // FIX: Không pre-calculate creditUsed ở đây vì addCustomerDebt sẽ tự động
-            // deduct từ prepaidBalance (đã gộp changeBalance + prepaidBalance) và trả về creditUsed thực tế.
-            // Chạy addCustomerDebt trước để lấy kết quả thực tế, sau đó mới tạo history.
-            var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items);
+            // OPTIMIZE: Pre-calculate debtAmount và creditUsed từ memory cache
+            // để chạy song song addCustomerDebt + addHistory thay vì tuần tự
+            var creditBalance = customer.creditBalance || 0;
+            var preCreditUsed = Math.min(creditBalance, total);
+            var preDebtAmount = total - preCreditUsed;
             
-            return debtPromise.then(function(debtResult) {
+            // Chạy song song addCustomerDebt và addHistory
+            var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items);
+            var historyPromise = addHistory({
+                type: 'debt_payment',
+                amount: preDebtAmount,
+                paymentMethod: 'debt',
+                items: items,
+                customer: { id: customer.id, name: customer.name },
+                tableName: null,
+                note: debtNote + (preCreditUsed > 0 ? ' (đã dùng ' + formatMoney(preCreditUsed) + ' tiền dư)' : ''),
+                createdAt: now.toISOString(),
+                dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+            });
+            
+            return Promise.all([debtPromise, historyPromise]).then(function(results) {
+                // Lấy kết quả thực tế từ addCustomerDebt (để đảm bảo chính xác)
+                var debtResult = results[0];
                 debtAmount = debtResult.debtAmount;
                 creditUsed = debtResult.creditUsed;
-                
-                // Tạo history với số liệu thực tế từ addCustomerDebt
-                return addHistory({
-                    type: 'debt_payment',
-                    amount: debtAmount,
-                    paymentMethod: 'debt',
-                    items: items,
-                    customer: { id: customer.id, name: customer.name },
-                    tableName: null,
-                    note: debtNote + (creditUsed > 0 ? ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư/trước)' : ''),
-                    createdAt: now.toISOString(),
-                    dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
-                });
             });
         }).then(function() {
             // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
