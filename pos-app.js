@@ -449,6 +449,10 @@ function switchTab(tabId) {
             if (typeof initSettingsTab === 'function') {
                 initSettingsTab();
             }
+        } else if (tabId === 'master') {
+            if (typeof initMasterTab === 'function') {
+                initMasterTab();
+            }
         } else if (tabId === 'takeaway') {
             if (typeof _renderTakeawayCategories === 'function') _renderTakeawayCategories();
             if (typeof _renderTakeawayMenu === 'function') _renderTakeawayMenu();

@@ -160,7 +160,7 @@ function _renderTxItem(tx, index) {
     // Vuốt phải: nút Xóa (chỉ admin, mọi giao dịch)
     var swipeHtml = '';
     var currentUser = DB.getCurrentUser();
-    var isAdmin = currentUser && currentUser.role === 'admin';
+    var isAdmin = currentUser && isAdminUser();
     
     // Nút hoàn tác (vuốt trái) - cho giao dịch chưa hoàn tác
     if (!isRefunded) {
@@ -349,18 +349,18 @@ function _renderHistoryCore(dateStr) {
         // FIX: Cập nhật staff chips vào #historyStaffChips thay vì <select> options
         // Các chip này sẽ xử lý click qua event delegation (xem pos-app.js)
         var staffChipsContainer = document.getElementById('historyStaffChips');
-        if (staffChipsContainer) {
-            staffChipsContainer.innerHTML = '';
-            if (staffNames.length > 0) {
-                for (var i = 0; i < staffNames.length; i++) {
-                    var chip = document.createElement('button');
-                    chip.className = 'filter-chip staff-chip';
-                    chip.setAttribute('data-filter', 'staff:' + staffNames[i]);
-                    chip.textContent = '👤 ' + staffNames[i];
-                    staffChipsContainer.appendChild(chip);
-                }
-            }
+if (staffChipsContainer) {
+    staffChipsContainer.innerHTML = '';
+    if (staffNames.length > 0) {
+        for (var i = 0; i < staffNames.length; i++) {
+            var chip = document.createElement('button');
+            chip.className = 'filter-chip staff-chip';
+            chip.setAttribute('data-filter', 'staff:' + staffNames[i]);
+            chip.textContent = '👤'; // chỉ icon
+            staffChipsContainer.appendChild(chip);
         }
+    }
+}
         
         // FIX: Không cần khôi phục giá trị select, dùng filter từ active chip
         
@@ -450,7 +450,7 @@ function _renderHistoryCore(dateStr) {
         }
         // Phân quyền: admin thấy tổng tiền, staff chỉ thấy số lượng
         var currentUser = DB.getCurrentUser();
-        var isAdmin = currentUser && currentUser.role === 'admin';
+        var isAdmin = currentUser && isAdminUser();
         var summaryHtml = '';
         if (isAdmin) {
             summaryHtml = '<div class="history-summary">📊 Tổng: <strong>' + totalCount + ' giao dịch</strong> - <strong>' + formatMoney(totalAmount) + '</strong></div>';
@@ -1153,6 +1153,15 @@ function changeHistoryDate(delta) {
     renderHistoryByDate(currentHistoryDate);
 }
 
+// Nhảy đến ngày được chọn từ date picker (lịch)
+function jumpHistoryDate(dateStr) {
+    if (!dateStr) return;
+    var parts = dateStr.split('-');
+    var nd = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    currentHistoryDate = nd;
+    renderHistoryByDate(currentHistoryDate);
+}
+
 // ========== THÊM GIAO DỊCH ==========
 function addHistory(transaction) {
     var now = new Date();
@@ -1247,7 +1256,7 @@ function deleteTransaction(transactionId) {
     
     // Kiểm tra quyền admin
     var currentUser = DB.getCurrentUser();
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser || !isAdminUser()) {
         showToast('👑 Chỉ quản lý mới có thể xóa giao dịch', 'warning');
         return;
     }

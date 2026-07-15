@@ -1054,8 +1054,52 @@ function _loadPosFundData(modal, range, filter) {
     });
 }
 
+// 11. 1% QUỸ THƯỞNG (hiển thị đơn giản, không lưu Firebase)
+function showManagerBonusDetail() {
+    var range = _getManagerDateRange();
+    _openManagerDetail(
+        '\uD83C\uDFAF 1% Qu\u1EF9 th\u01B0\u1EDFng - ' + range.label,
+        function(filter) {
+            return DB.getTransactionsByDateRange(range.startStr, range.endStr).then(function(transactions) {
+                // Tính doanh thu = cash + transfer + grab + debtPayment + prepayment (không gồm debt)
+                var totalRevenue = 0;
+                for (var i = 0; i < transactions.length; i++) {
+                    var tx = transactions[i];
+                    if (tx.refunded) continue;
+                    if (tx.paymentMethod === 'debt') continue;
+                    if (tx.paymentMethod !== 'cash' && tx.paymentMethod !== 'transfer' && tx.paymentMethod !== 'grab' && tx.paymentMethod !== 'debt_payment' && tx.paymentMethod !== 'prepayment') continue;
+                    totalRevenue += tx.amount || 0;
+                }
+                var bonus = Math.round(totalRevenue * 0.01);
+                return { days: [{ dateKey: range.startStr, methods: {}, items: [], total: totalRevenue }], total: totalRevenue, bonus: bonus };
+            });
+        },
+        function(data) {
+            return { 'T\u1ED5ng doanh thu': data.total, '1% Qu\u1EF9 th\u01B0\u1EDFng': data.bonus };
+        },
+        false,
+        function(filter) {
+            var el = document.getElementById('managerBonus');
+            if (!el) return;
+            DB.getTransactionsByDateRange(range.startStr, range.endStr).then(function(transactions) {
+                var totalRevenue = 0;
+                for (var i = 0; i < transactions.length; i++) {
+                    var tx = transactions[i];
+                    if (tx.refunded) continue;
+                    if (tx.paymentMethod === 'debt') continue;
+                    if (tx.paymentMethod !== 'cash' && tx.paymentMethod !== 'transfer' && tx.paymentMethod !== 'grab' && tx.paymentMethod !== 'debt_payment' && tx.paymentMethod !== 'prepayment') continue;
+                    totalRevenue += tx.amount || 0;
+                }
+                var bonus = Math.round(totalRevenue * 0.01);
+                el.textContent = formatMoney(bonus);
+            });
+        }
+    );
+}
+
 // Export global
 window.showManagerRevenueDetail = showManagerRevenueDetail;
+window.showManagerBonusDetail = showManagerBonusDetail;
 window.showManagerGrabDetail = showManagerGrabDetail;
 window.showManagerBankDetail = showManagerBankDetail;
 window.showManagerCashDetail = showManagerCashDetail;
@@ -1088,10 +1132,9 @@ function updateManagerBigValues(startStr, endStr) {
         // Lọc transactions không bị refund
         var validTx = transactions.filter(function(t) { return !t.refunded; });
 
-        // Tính tổng doanh thu = cash + transfer + grab + thanh toán nợ (giống settings.js)
+        // Tính tổng doanh thu = cash + transfer + grab + debtPayment + prepayment (không gồm debt)
         // - paymentMethod === 'debt': ghi nợ (mua chịu) -> loại bỏ
-        // - paymentMethod !== 'cash'|'transfer'|'grab': các phương thức khác (credit, v.v.) -> bỏ qua
-        // - Thanh toán nợ (type='debt_payment', paymentMethod='cash'|'transfer'|'grab'): giữ lại
+        // - Thanh toán nợ (debt_payment) và thanh toán trước (prepayment): giữ lại
         var totalRevenue = 0;
         var totalGrab = 0;
         var totalBank = 0;
@@ -1099,7 +1142,7 @@ function updateManagerBigValues(startStr, endStr) {
         for (var i = 0; i < validTx.length; i++) {
             var tx = validTx[i];
             if (tx.paymentMethod === 'debt') continue;
-            if (tx.paymentMethod !== 'cash' && tx.paymentMethod !== 'transfer' && tx.paymentMethod !== 'grab') continue;
+            if (tx.paymentMethod !== 'cash' && tx.paymentMethod !== 'transfer' && tx.paymentMethod !== 'grab' && tx.paymentMethod !== 'debt_payment' && tx.paymentMethod !== 'prepayment') continue;
             totalRevenue += tx.amount || 0;
             if (tx.paymentMethod === 'grab') totalGrab += tx.amount || 0;
             else if (tx.paymentMethod === 'transfer') totalBank += tx.amount || 0;
@@ -1159,8 +1202,12 @@ function updateManagerBigValues(startStr, endStr) {
             if (el) el.textContent = formatMoney(value);
         }
 
+        // Tính 1% Quỹ thưởng (dùng totalRevenue đã tính ở trên = cash+transfer+grab+debtPayment+prepayment)
+        var bonus = Math.round(totalRevenue * 0.01);
+
         // Cập nhật tất cả big-value
         _setBigValue('managerRevenue', totalRevenue);
+        _setBigValue('managerBonus', bonus);
         _setBigValue('managerGrab', totalGrab);
         _setBigValue('managerBank', totalBank);
         _setBigValue('managerCash', totalCash);

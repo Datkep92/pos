@@ -9,6 +9,15 @@ var _tableTimerId = null;
 var _tableCardCache = {};
 var _tableCardCacheDirty = false;
 
+// Helper: rút gọn tên hiển thị - "Master Admin - Milano 259" => "Master"
+function _displayName(name) {
+    if (!name) return '';
+    if (name.indexOf('Master Admin') === 0) {
+        return 'Master';
+    }
+    return name;
+}
+
 function _debounceRealtime(key, fn, delay) {
     delay = delay || 100;
     if (_realtimeTimers[key]) clearTimeout(_realtimeTimers[key]);
@@ -127,7 +136,7 @@ function updateRecentToast() {
             }
             var itemInfo = totalItems > 0 ? totalItems + ' món' : '';
             
-            var staffHtml = tx.createdByName ? ' <span class="toast-staff">👤 ' + escapeHtml(tx.createdByName) + '</span>' : '';
+            var staffHtml = tx.createdByName ? ' <span class="toast-staff">👤 ' + escapeHtml(_displayName(tx.createdByName)) + '</span>' : '';
             
             // Gom các phần tử lại: icon + nhãn + số món + staff
             var infoParts = [];
@@ -240,7 +249,7 @@ function createTableCard(table) {
         actionBtnsHtml = '<span class="table-act-row">' + actionBtnsHtml + '</span>';
     }
     
-    var creatorHtml = table.createdByName ? '<span class="table-creator">👤 ' + escapeHtml(table.createdByName) + '</span>' : '';
+    var creatorHtml = table.createdByName ? '<span class="table-creator">👤 ' + escapeHtml(_displayName(table.createdByName)) + '</span>' : '';
     
     div.innerHTML =
         '<div class="table-header">' +
@@ -309,7 +318,7 @@ function updateTableCard(card, table) {
     // Cập nhật creator
     var creatorSpan = card.querySelector('.table-creator');
     if (creatorSpan) {
-        creatorSpan.innerHTML = table.createdByName ? '👤 ' + escapeHtml(table.createdByName) : '';
+        creatorSpan.innerHTML = table.createdByName ? '👤 ' + escapeHtml(_displayName(table.createdByName)) : '';
     }
     
     // FIX: Cập nhật action buttons động
@@ -809,7 +818,20 @@ function initRealtime() {
                     } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
                         managerApplyFilter();
                     }
+                    // FIX: Cập nhật Két POS realtime - dispatch event để settings.js load lại pos-cash data
+                    try {
+                        var evt = document.createEvent('CustomEvent');
+                        evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_sub' } });
+                        window.dispatchEvent(evt);
+                    } catch(e) {}
                 });
+            } else {
+                // Fallback: nếu loadExpenseData chưa có, vẫn dispatch để settings.js xử lý
+                try {
+                    var evt = document.createEvent('CustomEvent');
+                    evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_sub' } });
+                    window.dispatchEvent(evt);
+                } catch(e) {}
             }
         }, 100);
     });
@@ -825,7 +847,19 @@ function initRealtime() {
                     } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
                         managerApplyFilter();
                     }
+                    // FIX: Cập nhật Két POS realtime - dispatch event để settings.js load lại pos-cash data
+                    try {
+                        var evt = document.createEvent('CustomEvent');
+                        evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_eventbus' } });
+                        window.dispatchEvent(evt);
+                    } catch(e) {}
                 });
+            } else {
+                try {
+                    var evt = document.createEvent('CustomEvent');
+                    evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_eventbus' } });
+                    window.dispatchEvent(evt);
+                } catch(e) {}
             }
         }, 100);
     });

@@ -557,10 +557,11 @@ function renderCashCounter(isAdmin) {
         html += '    <button class="cash-action-btn" style="padding:4px 8px;font-size:11px;margin-left:auto;" onclick="selectCloseDate(\'' + todayStr + '\')">📅 Hôm nay</button>';
     }
     html += '  </div>';
-    // Date selector: ◀ Ngày ▶
+    // Date selector: ◀ Ngày ▶ + click vào ngày để mở date picker
     html += '  <div class="pos-cash-date-selector" style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#f8f9fa;border-radius:8px;margin-bottom:8px;">';
     html += '    <button class="cash-action-btn" style="padding:6px 10px;font-size:14px;line-height:1;" onclick="changeCloseDate(-1)" ' + (displayDate <= minDate ? 'disabled' : '') + '>◀</button>';
-    html += '    <span style="flex:1;text-align:center;font-size:14px;font-weight:600;color:#2c3e50;">' + formatDateDisplay(displayDate) + '</span>';
+    html += '    <span style="flex:1;text-align:center;font-size:14px;font-weight:600;color:#2c3e50;cursor:pointer;" onclick="document.getElementById(\'posCashDatePicker\').showPicker()">' + formatDateDisplay(displayDate) + '</span>';
+    html += '    <input type="date" id="posCashDatePicker" value="' + displayDate + '" min="' + minDate + '" max="' + todayStr + '" style="width:0;height:0;padding:0;border:none;opacity:0;position:absolute;" onchange="jumpToDate(this.value)">';
     html += '    <button class="cash-action-btn" style="padding:6px 10px;font-size:14px;line-height:1;" onclick="changeCloseDate(1)" ' + (isToday ? 'disabled' : '') + '>▶</button>';
     html += '  </div>';
 
@@ -586,7 +587,8 @@ function renderCashCounter(isAdmin) {
         // ===== CỘT 2: THÔNG TIN =====
         html += '      <div style="flex:1 1 0;min-width:180px;">';
         html += '        <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:4px;">📋 Thông tin</div>';
-html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showActiveTablesModal()"><span>🪑 Bàn đang hoạt động</span><span style="color:#ca8a04;font-weight:600;">' + formatMoney(data.activeTableTotal) + '</span></div>';        html += '        <div class="pos-cash-row"><span>📂 Số dư đầu kỳ</span><span>' + formatMoney(data.openingBalance) + '</span></div>';
+html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showActiveTablesModal()"><span>🪑 Bàn đang hoạt động</span><span style="color:#ca8a04;font-weight:600;">' + (data.activeTables ? data.activeTables.length : 0) + ' bàn - ' + formatMoney(data.activeTableTotal) + '</span></div>';
+        html += '        <div class="pos-cash-row"><span>📂 Số dư đầu kỳ</span><span>' + formatMoney(data.openingBalance) + '</span></div>';
         html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showPosCostTransactions()" title="Xem danh sách chi phí Két POS"><span>🏦 Chi phí Két POS</span><span>' + data.posCostCount + ' khoản - ' + formatMoney(data.posCashExpense) + '</span></div>';
         html += '        <div class="pos-cash-row"><span>💰 QL nhận</span><span>' + formatMoney(data.managerPickupTotal) + '</span></div>';
         html += '        <div class="pos-cash-row pos-cash-formula" style="border-top:1px dashed #e2e8f0;padding-top:4px;margin-top:4px;">';
@@ -662,7 +664,7 @@ html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="show
         // ===== CỘT 2: THÔNG TIN KHÁC =====
         html += '      <div style="flex:1;min-width:180px;">';
         html += '        <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:4px;">📋 Thông tin</div>';
-        html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showActiveTablesModal()"><span>🪑 Bàn đang hoạt động</span><span>' + formatMoney(data.activeTableTotal) + '</span></div>';
+        html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showActiveTablesModal()"><span>🪑 Bàn đang hoạt động</span><span>' + (data.activeTables ? data.activeTables.length : 0) + ' bàn - ' + formatMoney(data.activeTableTotal) + '</span></div>';
         html += '        <div class="pos-cash-row"><span>📂 Số dư đầu kỳ</span><span>' + formatMoney(data.openingBalance) + '</span></div>';
         html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="showPosCostTransactions()" title="Xem danh sách chi phí Két POS"><span>🏦 Chi phí Két POS</span><span>' + data.posCostCount + ' khoản - ' + formatMoney(data.posCashExpense) + '</span></div>';
         html += '        <div class="pos-cash-row"><span>💰 QL nhận</span><span>' + formatMoney(data.managerPickupTotal) + '</span></div>';
@@ -1101,6 +1103,12 @@ function changeCloseDate(delta) {
     d.setDate(d.getDate() + delta);
     var newDateStr = d.toISOString().slice(0, 10);
     selectCloseDate(newDateStr);
+}
+
+// Nhảy đến ngày được chọn từ date picker
+function jumpToDate(dateStr) {
+    if (!dateStr) return;
+    selectCloseDate(dateStr);
 }
 
 // ========== NHÂN VIÊN: CHỐT NGÀY ==========
@@ -1637,11 +1645,6 @@ function initSettingsTab() {
                 staffNoteInput.value = savedNote;
             }
         } catch(e) {}
-    }
-
-    // Khởi tạo Quỹ thưởng trách nhiệm (chỉ admin mới thấy)
-    if (isAdmin && typeof initBonusFund === 'function') {
-        initBonusFund();
     }
 
     } catch(e) {

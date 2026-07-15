@@ -117,8 +117,7 @@ function getTableLockInfo(table) {
 // ========== YÊU CẦU MẬT KHẨU ==========
 function requirePassword(action, callback) {
     // NÂNG CẤP: Admin không cần nhập mật khẩu
-    var currentUser = DB.getCurrentUser();
-    if (currentUser && currentUser.role === 'admin') {
+    if (DB.isAdmin()) {
         callback();
         return;
     }

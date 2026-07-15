@@ -55,8 +55,7 @@ function initNotifications() {
     }
     
     // Ẩn toggle nếu không phải admin
-    var currentUser = DB.getCurrentUser();
-    var isAdmin = currentUser && currentUser.role === 'admin';
+    var isAdmin = DB.isAdmin();
     var toggleRow = document.getElementById('notificationToggleRow');
     if (toggleRow) {
         toggleRow.style.display = isAdmin ? 'flex' : 'none';
@@ -350,8 +349,7 @@ function renderNotificationHistory(notifications) {
     }
     
     // Kiểm tra quyền admin
-    var currentUser = DB.getCurrentUser();
-    var isAdmin = currentUser && currentUser.role === 'admin';
+    var isAdmin = DB.isAdmin();
     
     // Sắp xếp mới nhất lên đầu
     var sorted = notifications.slice().sort(function(a, b) {
