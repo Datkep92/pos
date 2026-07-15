@@ -727,31 +727,57 @@
     }
 
     // FIX: Kiá»ƒm tra transaction trÃ¹ng trong memory cache trÆ°á»›c khi táº¡o
+    // Má»Ÿ rá»™ng: há»— trá»£ cáº£ giao dá»‹ch khÃ´ng cÃ³ tableId (debt_payment, credit, v.v.)
     function _isDuplicateTransaction(data) {
-        if (!data.tableId && !data.tableName) {
-            return false;
-        }
-        var tableKey = data.tableId || data.tableName;
         var amt = Math.round(data.amount || 0);
         var method = data.paymentMethod || '';
+        var type = data.type || '';
         var txCache = memoryCache.transactions;
         if (!txCache) {
             return false;
         }
-        for (var key in txCache) {
-            if (!txCache.hasOwnProperty(key)) continue;
-            var tx = txCache[key];
-            if (tx.refunded) continue;
-            var txTableKey = tx.tableId || tx.tableName;
-            if (txTableKey === tableKey && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
-                // Kiá»ƒm tra thá»i gian - náº¿u trong vÃ²ng 30 giÃ¢y thÃ¬ coi lÃ  trÃ¹ng
-                var txTime = tx.createdAt || 0;
-                var dataTime = data.createdAt || Date.now();
-                if (Math.abs(txTime - dataTime) < 30000) {
-                    return true;
+        
+        // Náº¿u cÃ³ tableId/tableName, kiá»ƒm tra theo table + amount + method (Æ°u tiÃªn)
+        if (data.tableId || data.tableName) {
+            var tableKey = data.tableId || data.tableName;
+            for (var key in txCache) {
+                if (!txCache.hasOwnProperty(key)) continue;
+                var tx = txCache[key];
+                if (tx.refunded) continue;
+                var txTableKey = tx.tableId || tx.tableName;
+                if (txTableKey === tableKey && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
+                    var txTime = tx.createdAt || 0;
+                    var dataTime = data.createdAt || Date.now();
+                    if (Math.abs(txTime - dataTime) < 30000) {
+                        return true;
+                    }
                 }
             }
         }
+        
+        // Náº¿u khÃ´ng cÃ³ tableId (debt_payment, credit), kiá»ƒm tra theo type + amount + method + customer
+        if (!data.tableId && !data.tableName) {
+            var customerId = data.customer ? data.customer.id : null;
+            for (var key in txCache) {
+                if (!txCache.hasOwnProperty(key)) continue;
+                var tx = txCache[key];
+                if (tx.refunded) continue;
+                // CÃ¹ng type, amount, method vÃ  cÃ¹ng customer (náº¿u cÃ³)
+                if (tx.type === type && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
+                    // Náº¿u cÃ³ customer, kiá»ƒm tra thÃªm customerId
+                    if (customerId) {
+                        var txCustId = tx.customer ? tx.customer.id : null;
+                        if (txCustId !== customerId) continue;
+                    }
+                    var txTime = tx.createdAt || 0;
+                    var dataTime = data.createdAt || Date.now();
+                    if (Math.abs(txTime - dataTime) < 30000) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
         return false;
     }
 
@@ -1257,22 +1283,41 @@
         }
         
         // FIX: Kiá»ƒm tra idempotency - náº¿u transaction tá»« mÃ¡y khÃ¡c cÃ³ cÃ¹ng table+amount+method
+        // hoáº·c cÃ¹ng type+amount+method+customer (cho debt_payment, credit khÃ´ng cÃ³ tableId)
         // trong khoáº£ng thá»i gian ngáº¯n, kiá»ƒm tra xem cÃ³ pháº£i trÃ¹ng khÃ´ng
-        if (collection === 'transactions' && item.tableId && item.amount) {
+        if (collection === 'transactions' && item.amount) {
             var txCache = memoryCache.transactions;
             if (txCache) {
                 for (var ck in txCache) {
                     if (!txCache.hasOwnProperty(ck) || ck === key) continue;
                     var existing = txCache[ck];
                     if (existing.refunded) continue;
-                    var sameTable = (existing.tableId === item.tableId) || (existing.tableName === item.tableName);
+                    
+                    var isDuplicate = false;
                     var sameAmount = Math.round(existing.amount || 0) === Math.round(item.amount || 0);
                     var sameMethod = existing.paymentMethod === item.paymentMethod;
-                    if (sameTable && sameAmount && sameMethod) {
+                    
+                    if (item.tableId || item.tableName) {
+                        // CÃ³ tableId: kiá»ƒm tra theo table + amount + method
+                        var sameTable = (existing.tableId === item.tableId) || (existing.tableName === item.tableName);
+                        isDuplicate = sameTable && sameAmount && sameMethod;
+                    } else {
+                        // KhÃ´ng cÃ³ tableId (debt_payment, credit): kiá»ƒm tra theo type + amount + method + customer
+                        var sameType = existing.type === item.type;
+                        var sameCustomer = false;
+                        if (item.customer && item.customer.id) {
+                            sameCustomer = (existing.customer && existing.customer.id === item.customer.id);
+                        } else {
+                            sameCustomer = true; // KhÃ´ng cÃ³ customer thÃ¬ chá»‰ cáº§n type+amount+method
+                        }
+                        isDuplicate = sameType && sameAmount && sameMethod && sameCustomer;
+                    }
+                    
+                    if (isDuplicate) {
                         var timeDiff = Math.abs((existing.createdAt || 0) - (item.createdAt || 0));
                         if (timeDiff < 30000 && timeDiff > 0) {
                             // Transaction tá»« mÃ¡y khÃ¡c trÃ¹ng vá»›i local - Ä‘Ã¡nh dáº¥u refunded Ä‘á»ƒ áº©n
-                            console.warn('⚠️ Detected duplicate transaction from another device:', key, 'duplicates', ck);
+                            console.warn('âš ï¸ Detected duplicate transaction from another device:', key, 'duplicates', ck);
                             item.refunded = true;
                             item.note = (item.note || '') + ' [Tá»± Ä‘á»™ng Ä‘Ã¡nh dáº¥u trÃ¹ng láº·p]';
                             break;

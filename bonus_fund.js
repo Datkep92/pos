@@ -113,12 +113,10 @@ function _bfInitRevenueListener() {
                 if (typeof dayData === 'number') {
                     revenue = dayData;
                 } else if (typeof dayData === 'object') {
-                    // Ưu tiên cash+transfer+grab nếu có
-                    if (dayData.cash !== undefined || dayData.transfer !== undefined || dayData.grab !== undefined) {
-                        revenue = (dayData.cash || 0) + (dayData.transfer || 0) + (dayData.grab || 0);
-                    } else if (dayData.total) {
-                        revenue = dayData.total;
-                    }
+                    // FIX: Tính doanh thu = cash + transfer + grab + debtPayment + prepayment
+                    // KHÔNG bao gồm ghi nợ (debt) - ghi nợ là công nợ, không phải doanh thu thực tế
+                    revenue = (dayData.cash || 0) + (dayData.transfer || 0) + (dayData.grab || 0)
+                           + (dayData.debtPayment || 0) + (dayData.prepayment || 0);
                 }
                 if (_bonusFundRevenueCache[dateStr] !== revenue) {
                     _bonusFundRevenueCache[dateStr] = revenue;
@@ -771,6 +769,43 @@ window.getBonusFundTotal = getBonusFundTotal;
 // ========== ĐĂNG KÝ EVENT LISTENER ==========
 // Lắng nghe sự kiện thanh toán để cập nhật daily_revenue (giống employees.js)
 document.addEventListener('pos_cash_update', function() {
-    // Firebase daily_revenue listener sẽ tự động cập nhật
-    // Không cần làm gì thêm vì _bfInitRevenueListener đã lắng nghe daily_revenue
+    // FIX: Gọi trực tiếp _bfSyncRevenuePercent thay vì chỉ dựa vào Firebase listener
+    // Vì Firebase listener có thể chậm hoặc chưa được khởi tạo
+    if (_bonusFundRevenueCache && Object.keys(_bonusFundRevenueCache).length > 0) {
+        _bfSyncRevenuePercent();
+    }
 });
+
+// ========== AUTO-INIT: Khởi tạo listener sớm, không phụ thuộc vào Settings ==========
+// FIX: Tự động khởi tạo listener daily_revenue ngay khi file load
+// để đảm bảo trích quỹ tự động dù admin chưa mở Settings
+(function _autoInitBonusFund() {
+    // Đợi DB và Firebase sẵn sàng
+    var checkReady = setInterval(function() {
+        if (typeof DB !== 'undefined' && DB.getAll && typeof firebase !== 'undefined' && firebase.database) {
+            clearInterval(checkReady);
+            // Chỉ init nếu chưa được khởi tạo (tránh trùng với init từ Settings)
+            if (!_bonusFundInitialized) {
+                initBonusFund();
+            } else if (!_bonusFundRevenueListener) {
+                // Đã init nhưng chưa có listener -> khởi tạo listener riêng
+                _bfInitRevenueListener();
+            }
+        }
+    }, 1000); // Kiểm tra mỗi 1 giây
+    
+    // FIX: Kiểm tra ngày mới mỗi 60 giây
+    // Để tự động trích quỹ khi qua ngày mới (dù không có giao dịch)
+    var _lastCheckedDate = _bfGetTodayDateStr();
+    setInterval(function() {
+        var today = _bfGetTodayDateStr();
+        if (today !== _lastCheckedDate) {
+            _lastCheckedDate = today;
+            console.log('[BonusFund] Phát hiện ngày mới:', today, '- kiểm tra daily_revenue...');
+            // Kích hoạt listener để cập nhật revenue_percent cho ngày mới
+            if (_bonusFundRevenueCache && Object.keys(_bonusFundRevenueCache).length > 0) {
+                _bfSyncRevenuePercent();
+            }
+        }
+    }, 60000); // 60 giây
+})();
