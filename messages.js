@@ -627,28 +627,37 @@ function updateChatBadge() {
 }
 
 function getUnreadCount() {
+    // OPTIMIZE: Đọc từ memory cache trước (nhanh, không block UI)
+    var cached = (typeof DB.getMemoryCache === 'function') ? DB.getMemoryCache('messages') : null;
+    if (cached) {
+        return Promise.resolve(_calcUnreadCount(cached));
+    }
     return DB.getAll('messages').then(function(messages) {
-        if (!messages || messages.length === 0) return 0;
-        
-        var currentUser = DB.getCurrentUser();
-        if (!currentUser) return 0;
-        
-        var count = 0;
-        for (var i = 0; i < messages.length; i++) {
-            var msg = messages[i];
-            if (!msg || msg.status === 'archived') continue;
-            
-            // Bỏ qua tin nhắn do chính mình gửi
-            if (msg.from && msg.from.id === currentUser.id) continue;
-            
-            // Kiểm tra đã đọc chưa
-            var read = msg.readBy && msg.readBy[currentUser.id];
-            if (!read) {
-                count++;
-            }
-        }
-        return count;
+        return _calcUnreadCount(messages);
     });
+}
+
+function _calcUnreadCount(messages) {
+    if (!messages || messages.length === 0) return 0;
+    
+    var currentUser = DB.getCurrentUser();
+    if (!currentUser) return 0;
+    
+    var count = 0;
+    for (var i = 0; i < messages.length; i++) {
+        var msg = messages[i];
+        if (!msg || msg.status === 'archived') continue;
+        
+        // Bỏ qua tin nhắn do chính mình gửi
+        if (msg.from && msg.from.id === currentUser.id) continue;
+        
+        // Kiểm tra đã đọc chưa
+        var read = msg.readBy && msg.readBy[currentUser.id];
+        if (!read) {
+            count++;
+        }
+    }
+    return count;
 }
 
 function markAllAsRead() {

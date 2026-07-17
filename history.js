@@ -383,8 +383,8 @@ if (staffChipsContainer) {
             });
         }
 
-        // FIX DUP: Loại bỏ các giao dịch trùng lặp trước khi sort và render
-        // Cấp 1: Loại bỏ trùng id (cùng 1 record được load nhiều lần)
+        // FIX Phase 1: Chỉ dedup theo id (trùng record do load nhiều lần)
+        // Đã loại bỏ dedup 5s theo nội dung - mỗi giao dịch là duy nhất
         var seenIds = {};
         transactions = transactions.filter(function(t) {
             if (seenIds[t.id]) {
@@ -392,27 +392,6 @@ if (staffChipsContainer) {
                 return false;
             }
             seenIds[t.id] = true;
-            return true;
-        });
-        
-        // Cấp 2: Loại bỏ giao dịch trùng nội dung (cùng customer + amount + type + method trong 5 giây)
-        // Trường hợp: debt_payment được tạo 2 lần với 2 id khác nhau do sync issue
-        var seenContent = {};
-        transactions = transactions.filter(function(t) {
-            // Chỉ dedup cho debt_payment và các giao dịch không có tableId
-            if (t.type === 'debt_payment' || !t.tableId) {
-                var custId = t.customer ? t.customer.id : '';
-                var contentKey = t.type + '|' + Math.round(t.amount || 0) + '|' + (t.paymentMethod || '') + '|' + custId;
-                var existing = seenContent[contentKey];
-                if (existing) {
-                    var timeDiff = Math.abs((t.createdAt || 0) - (existing.createdAt || 0));
-                    if (timeDiff < 5000) {
-                        console.warn('⚠️ [DEDUP-CONTENT] Loại bỏ giao dịch trùng nội dung:', t.id, contentKey, timeDiff + 'ms');
-                        return false;
-                    }
-                }
-                seenContent[contentKey] = t;
-            }
             return true;
         });
 

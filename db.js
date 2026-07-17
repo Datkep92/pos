@@ -138,6 +138,15 @@
     
     var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     
+    // ========== DATA RETENTION: Số ngày lưu trữ dữ liệu ==========
+    // Admin: 50 ngày, Employee: 2 ngày
+    function _getRetentionDays() {
+        return _isEmployeeMode() ? 2 : 50;
+    }
+    function _getRetentionMs() {
+        return _getRetentionDays() * 24 * 60 * 60 * 1000;
+    }
+    
     var _isEmployeeMode = function() {
         return !currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'master_admin');
     };
@@ -183,6 +192,145 @@
     
     var memoryCache = {};
     var cacheVersion = {};
+    
+    // ========== PHASE 2: Memory Cache theo ngày ==========
+    var _currentDateKey = toDateKey(Date.now()); // Ngày hiện tại
+    var MEMORY_CACHE_LIMITS = {
+        transactions: 2000,  // Giữ 2000 giao dịch gần nhất trong RAM (đủ cho 31 ngày)
+        default: 1000
+    };
+    
+    // Kiểm tra xem collection có nên giới hạn theo ngày không
+    function _isDateBasedCollection(collection) {
+        return collection === 'transactions';
+    }
+    
+    // Lấy ngày hiện tại từ memory cache
+    function _getCurrentDateKey() {
+        return _currentDateKey;
+    }
+    
+    // Cập nhật ngày hiện tại (khi user chọn ngày khác)
+    function _setCurrentDateKey(dateKey) {
+        if (dateKey && dateKey !== _currentDateKey) {
+            var oldKey = _currentDateKey;
+            _currentDateKey = dateKey;
+            // Xóa transactions không thuộc ngày mới khỏi memory cache
+            _cleanMemoryCacheForDateChange('transactions', oldKey, dateKey);
+        }
+    }
+    
+    // Dọn dẹp memory cache khi đổi ngày
+    function _cleanMemoryCacheForDateChange(collection, oldDateKey, newDateKey) {
+        if (!memoryCache[collection]) return;
+        var keys = Object.keys(memoryCache[collection]);
+        for (var i = 0; i < keys.length; i++) {
+            var item = memoryCache[collection][keys[i]];
+            if (item && item.dateKey && item.dateKey !== newDateKey) {
+                delete memoryCache[collection][keys[i]];
+            }
+        }
+        console.log('[Cache] Đã dọn ' + collection + ' khi đổi ngày: ' + oldDateKey + ' -> ' + newDateKey + ', còn ' + Object.keys(memoryCache[collection]).length + ' items');
+    }
+    
+    // Giới hạn kích thước memory cache cho 1 collection
+    // Chỉ log 1 lần cho mỗi collection khi có xóa, tránh tràn log
+    var _enforceLogged = {};
+    function _enforceMemoryCacheLimit(collection) {
+        if (!memoryCache[collection]) return;
+        var limit = MEMORY_CACHE_LIMITS[collection] || MEMORY_CACHE_LIMITS.default;
+        var keys = Object.keys(memoryCache[collection]);
+        if (keys.length <= limit) return;
+        
+        // Sắp xếp theo createdAt (cũ nhất trước)
+        var sorted = keys.slice().sort(function(a, b) {
+            var aTime = memoryCache[collection][a].createdAt || memoryCache[collection][a].updatedAt || 0;
+            var bTime = memoryCache[collection][b].createdAt || memoryCache[collection][b].updatedAt || 0;
+            return aTime - bTime;
+        });
+        
+        var toRemove = sorted.slice(0, keys.length - limit);
+        for (var i = 0; i < toRemove.length; i++) {
+            delete memoryCache[collection][toRemove[i]];
+            // PHASE 4: Dọn cache timestamp tương ứng
+            if (_cacheTimestamps[collection]) {
+                delete _cacheTimestamps[collection][toRemove[i]];
+            }
+        }
+        // Chỉ log 1 lần cho mỗi collection để tránh tràn log
+        if (!_enforceLogged[collection]) {
+            _enforceLogged[collection] = true;
+            console.log('[Cache] Đã giới hạn ' + collection + ': xóa ' + toRemove.length + ' items cũ, còn ' + limit + ' items');
+        }
+    }
+    
+    // ========== PHASE 4: TTL Cache & Periodic Cleanup ==========
+    var _cacheTimestamps = {}; // { collection: { key: timestamp } } - lưu thời điểm cache
+    var _CACHE_TTL = 30 * 60 * 1000; // 30 phút
+    var _cleanupIntervalId = null;
+    
+    // Ghi lại thời điểm cache 1 item
+    function _markCacheTime(collection, key) {
+        if (!_cacheTimestamps[collection]) _cacheTimestamps[collection] = {};
+        _cacheTimestamps[collection][key] = Date.now();
+    }
+    
+    // Kiểm tra cache còn hạn không
+    function _isCacheValid(collection, key) {
+        if (!_cacheTimestamps[collection] || !_cacheTimestamps[collection][key]) return false;
+        return (Date.now() - _cacheTimestamps[collection][key]) < _CACHE_TTL;
+    }
+    
+    // Dọn dẹp cache cũ định kỳ
+    function _periodicCacheCleanup() {
+        var now = Date.now();
+        var totalRemoved = 0;
+        
+        // Dọn memoryCache items quá hạn
+        for (var col in memoryCache) {
+            if (!memoryCache.hasOwnProperty(col)) continue;
+            if (col === 'transactions') continue; // transactions đã có cơ chế riêng
+            var keys = Object.keys(memoryCache[col]);
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                if (!_isCacheValid(col, key)) {
+                    delete memoryCache[col][key];
+                    totalRemoved++;
+                }
+            }
+        }
+        
+        // Dọn _cacheTimestamps cũ
+        for (var col in _cacheTimestamps) {
+            if (!_cacheTimestamps.hasOwnProperty(col)) continue;
+            var tsKeys = Object.keys(_cacheTimestamps[col]);
+            for (var i = 0; i < tsKeys.length; i++) {
+                if ((now - _cacheTimestamps[col][tsKeys[i]]) > _CACHE_TTL * 2) {
+                    delete _cacheTimestamps[col][tsKeys[i]];
+                }
+            }
+        }
+        
+        // PHASE 4: Dọn _txDateCacheTimestamps cũ
+        var txKeys = Object.keys(_txDateCacheTimestamps);
+        for (var i = 0; i < txKeys.length; i++) {
+            if ((now - _txDateCacheTimestamps[txKeys[i]]) > _TX_DATE_CACHE_TTL * 3) {
+                delete _txDateCache[txKeys[i]];
+                delete _txDateCacheTimestamps[txKeys[i]];
+                totalRemoved++;
+            }
+        }
+        
+        if (totalRemoved > 0) {
+            console.log('[Cache] 🧹 Periodic cleanup: đã xóa ' + totalRemoved + ' items quá hạn');
+        }
+    }
+    
+    // Khởi động periodic cleanup (gọi sau khi DB.init hoàn tất)
+    function _startPeriodicCleanup() {
+        if (_cleanupIntervalId) return;
+        _cleanupIntervalId = setInterval(_periodicCacheCleanup, 5 * 60 * 1000); // 5 phút
+    }
     
     var _localCallbacks = {};
     
@@ -263,32 +411,59 @@
         };
     }
 
+    // PHASE 2: Tối ưu _notifyComponents - chỉ gửi delta thay vì toàn bộ collection
     function _notifyComponents(collection, changeInfo) {
         var entries = _componentRegistry[collection];
         if (!entries || entries.length === 0) return;
-        var newData = null;
-        if (memoryCache[collection]) {
-            newData = [];
+        
+        // Nếu có changeInfo với item cụ thể, tạo delta data
+        var deltaData = null;
+        if (changeInfo && changeInfo.item) {
+            deltaData = changeInfo.item;
+        }
+        
+        // Chỉ rebuild toàn bộ array khi cần (selector cần so sánh)
+        var fullData = null;
+        var needsFullData = false;
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].selector) {
+                needsFullData = true;
+                break;
+            }
+        }
+        
+        if (needsFullData && memoryCache[collection]) {
+            fullData = [];
             for (var key in memoryCache[collection]) {
                 if (memoryCache[collection].hasOwnProperty(key)) {
-                    newData.push(memoryCache[collection][key]);
+                    fullData.push(memoryCache[collection][key]);
                 }
             }
         }
+        
         for (var i = 0; i < entries.length; i++) {
             var entry = entries[i];
             var shouldRender = true;
             if (entry.selector) {
                 try {
-                    shouldRender = entry.selector(entry.lastData, newData, changeInfo);
+                    shouldRender = entry.selector(entry.lastData, fullData, changeInfo);
                 } catch(e) {
                     console.error('[ComponentRegistry] Lỗi selector:', e);
                     shouldRender = true;
                 }
             }
             if (shouldRender) {
-                entry.lastData = newData;
-                try { entry.renderFn(newData, changeInfo); } catch(e) {
+                // PHASE 2: Gửi delta data (item thay đổi) kèm changeInfo
+                // Render function có thể dùng changeInfo.type để biết là 'added'/'changed'/'removed'
+                entry.lastData = fullData;
+                try {
+                    entry.renderFn(fullData, {
+                        type: changeInfo ? changeInfo.type : null,
+                        item: deltaData,
+                        collection: collection,
+                        timestamp: Date.now()
+                    });
+                } catch(e) {
                     console.error('[ComponentRegistry] Lỗi render:', e);
                 }
             }
@@ -403,14 +578,50 @@
             if (!localDB.objectStoreNames.contains(collection)) throw new Error('Store ' + collection + ' not found');
             if (!memoryCache[collection]) memoryCache[collection] = {};
             var isNew = !memoryCache[collection][data.id];
-            memoryCache[collection][data.id] = normalizeIndexedFields(collection, data);
+            var normalized = normalizeIndexedFields(collection, data);
+            
+            // PHASE 2: Xóa cache query transactions khi có thay đổi
+            if (collection === 'transactions' && normalized.dateKey) {
+                _invalidateTxDateCache(normalized.dateKey);
+            }
+            
+            // PHASE 2: Cập nhật session cache realtime (nếu pos-app.js đã load)
+            try {
+                if (typeof window._debouncedSaveSessionCache === 'function') {
+                    window._debouncedSaveSessionCache();
+                }
+            } catch(e) {}
+            
+            // PHASE 2: Chỉ giữ transactions của ngày hiện tại trong memory cache
+            if (_isDateBasedCollection(collection) && normalized.dateKey && normalized.dateKey !== _currentDateKey) {
+                // Không thêm vào memory cache, chỉ lưu IndexedDB
+                cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
+                var type = changeType || (isNew ? 'added' : 'changed');
+                _notifyLocal(collection, { type: type, item: data, collection: collection });
+                return new Promise(function(resolve, reject) {
+                    var tx = localDB.transaction([collection], 'readwrite');
+                    var store = tx.objectStore(collection);
+                    var req = store.put(normalized);
+                    req.onsuccess = function() { resolve(data); };
+                    req.onerror = function() { reject(req.error); };
+                });
+            }
+            
+            memoryCache[collection][data.id] = normalized;
             cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
+            
+            // PHASE 4: Ghi lại thời điểm cache
+            _markCacheTime(collection, data.id);
+            
+            // PHASE 2: Giới hạn kích thước memory cache
+            _enforceMemoryCacheLimit(collection);
+            
             var type = changeType || (isNew ? 'added' : 'changed');
             _notifyLocal(collection, { type: type, item: data, collection: collection });
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readwrite');
                 var store = tx.objectStore(collection);
-                var req = store.put(normalizeIndexedFields(collection, data));
+                var req = store.put(normalized);
                 req.onsuccess = function() { resolve(data); };
                 req.onerror = function() { reject(req.error); };
             });
@@ -447,7 +658,12 @@
                         var result = req.result || null;
                         if (result) {
                             if (!memoryCache[collection]) memoryCache[collection] = {};
-                            memoryCache[collection][result.id] = result;
+                            // PHASE 2: Chỉ cache vào memory nếu là ngày hiện tại
+                            if (!_isDateBasedCollection(collection) || !result.dateKey || result.dateKey === _currentDateKey) {
+                                memoryCache[collection][result.id] = result;
+                                // PHASE 4: Ghi lại thời điểm cache
+                                _markCacheTime(collection, result.id);
+                            }
                         }
                         resolve(result);
                     };
@@ -458,7 +674,12 @@
                         var results = req.result || [];
                         if (!memoryCache[collection]) memoryCache[collection] = {};
                         for (var i = 0; i < results.length; i++) {
-                            memoryCache[collection][results[i].id] = results[i];
+                            // PHASE 2: Chỉ cache vào memory nếu là ngày hiện tại
+                            if (!_isDateBasedCollection(collection) || !results[i].dateKey || results[i].dateKey === _currentDateKey) {
+                                memoryCache[collection][results[i].id] = results[i];
+                                // PHASE 4: Ghi lại thời điểm cache
+                                _markCacheTime(collection, results[i].id);
+                            }
                         }
                         resolve(results);
                     };
@@ -472,25 +693,76 @@
         return dbReady.then(function() {
             if (!localDB) return;
             if (!localDB.objectStoreNames.contains(collection)) return;
+            
+            // Lưu dateKey của item trước khi xóa khỏi memory cache (để invalidate cache sau)
+            var deletedDateKey = null;
+            if (memoryCache[collection] && memoryCache[collection][id]) {
+                deletedDateKey = memoryCache[collection][id].dateKey || null;
+            }
+            
             if (memoryCache[collection]) {
                 delete memoryCache[collection][id];
                 cacheVersion[collection] = (cacheVersion[collection] || 0) + 1;
             }
-            _notifyLocal(collection, { type: 'removed', item: { id: id }, collection: collection });
+            // PHASE 2: Cập nhật session cache khi xóa dữ liệu
+            try {
+                if (typeof window._debouncedSaveSessionCache === 'function') {
+                    window._debouncedSaveSessionCache();
+                }
+            } catch(e) {}
+            
+            // FIX: Chuyển _invalidateTxDateCache và _notifyLocal xuống SAU KHI IndexedDB delete hoàn tất
+            // để tránh race condition: nếu getTransactionsByDate() được gọi trước khi delete xong,
+            // nó sẽ đọc dữ liệu cũ từ IndexedDB và cache lại kết quả cũ
             return new Promise(function(resolve, reject) {
                 var tx = localDB.transaction([collection], 'readwrite');
                 var store = tx.objectStore(collection);
                 var req = store.delete(String(id));
-                req.onsuccess = function() { resolve(); };
+                req.onsuccess = function() {
+                    // Xóa cache query transactions SAU KHI IndexedDB đã xóa xong
+                    if (collection === 'transactions' && deletedDateKey) {
+                        _invalidateTxDateCache(deletedDateKey);
+                    }
+                    // Gọi _notifyLocal SAU KHI IndexedDB đã xóa xong
+                    _notifyLocal(collection, { type: 'removed', item: { id: id }, collection: collection });
+                    resolve();
+                };
                 req.onerror = function() { reject(req.error); };
             });
         });
     }
 
+    // ========== PHASE 4: Priority Queue ==========
+    // Priority levels: 0=critical (transactions), 1=high (tables, customers), 2=normal (menu, ingredients), 3=low (settings, logs)
+    var COLLECTION_PRIORITY = {
+        transactions: 0,
+        daily_balances: 0,
+        tables: 1,
+        customers: 1,
+        debt: 1,
+        menu: 2,
+        menu_categories: 2,
+        ingredients: 2,
+        inventory_transactions: 2,
+        ingredient_transactions: 2,
+        info: 3,
+        cost_transactions: 3,
+        cost_categories: 3,
+        employee_attendance: 3,
+        employee_salaries: 3,
+        notifications: 3,
+        sync_queue: 3
+    };
+    
+    function _getPriority(collection) {
+        return COLLECTION_PRIORITY[collection] !== undefined ? COLLECTION_PRIORITY[collection] : 3;
+    }
+    
     // Sync Queue (simplified)
     function addToSyncQueue(action, collection, data, targetId) {
         var existing = syncQueue.filter(function(q) { return q.targetId === targetId && q.action === action && q.status === 'pending'; })[0];
         if (existing) return existing.id;
+        var priority = _getPriority(collection);
         var item = {
             id: Date.now() + '_' + Math.random().toString(36).substr(2, 6),
             action: action,
@@ -502,11 +774,17 @@
             retryCount: 0,
             status: 'pending',
             lastError: null,   // Lưu lỗi gần nhất để debug
-            dirtyAt: Date.now() // Thời điểm đánh dấu dirty
+            dirtyAt: Date.now(), // Thời điểm đánh dấu dirty
+            priority: priority  // PHASE 4: Priority level
         };
         syncQueue.push(item);
         saveToLocal('sync_queue', item);
         _markDirty(collection);
+        // PHASE 4: Queue size warning
+        var pendingCount = syncQueue.filter(function(q) { return q.status === 'pending'; }).length;
+        if (pendingCount > 50) {
+            console.warn('[SyncQueue] ⚠️ Queue có ' + pendingCount + ' items pending, đang đồng bộ...');
+        }
         if (isOnline) processSyncQueue();
         return item.id;
     }
@@ -541,21 +819,50 @@
         } catch (e) {}
     }
 
+    // PHASE 4: Sắp xếp pending items theo priority (critical trước)
+    function _sortByPriority(items) {
+        return items.slice().sort(function(a, b) {
+            var pa = a.priority !== undefined ? a.priority : 3;
+            var pb = b.priority !== undefined ? b.priority : 3;
+            if (pa !== pb) return pa - pb;
+            return a.timestamp - b.timestamp;
+        });
+    }
+
     function processSyncQueue() {
         if (!isOnline) return Promise.resolve();
         var pending = syncQueue.filter(function(q) { return q.status === 'pending'; });
         if (pending.length === 0) return Promise.resolve();
         
+        // PHASE 4: Sắp xếp theo priority trước khi batch
+        var sorted = _sortByPriority(pending);
+        
         var batches = {};
-        for (var i = 0; i < pending.length; i++) {
-            var item = pending[i];
+        for (var i = 0; i < sorted.length; i++) {
+            var item = sorted[i];
             var key = item.collection + '|' + item.action;
             if (!batches[key]) batches[key] = [];
             batches[key].push(item);
         }
         
+        // PHASE 4: Sắp xếp batch keys theo priority thấp nhất trong batch
+        var batchKeys = Object.keys(batches).sort(function(a, b) {
+            var itemsA = batches[a];
+            var itemsB = batches[b];
+            var minPA = 3, minPB = 3;
+            for (var i = 0; i < itemsA.length; i++) {
+                var p = itemsA[i].priority !== undefined ? itemsA[i].priority : 3;
+                if (p < minPA) minPA = p;
+            }
+            for (var i = 0; i < itemsB.length; i++) {
+                var p = itemsB[i].priority !== undefined ? itemsB[i].priority : 3;
+                if (p < minPB) minPB = p;
+            }
+            if (minPA !== minPB) return minPA - minPB;
+            return itemsA[0].timestamp - itemsB[0].timestamp;
+        });
+        
         var chain = Promise.resolve();
-        var batchKeys = Object.keys(batches);
         
         for (var b = 0; b < batchKeys.length; b++) {
             chain = chain.then((function(batchItems) {
@@ -710,69 +1017,8 @@
     // CRUD Public
     function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 6); }
 
-    function _generateIdempotencyKey(collection, data) {
-        if (collection !== 'transactions') return null;
-        var ts = Math.floor(Date.now() / 1000);
-        var tableKey = data.tableId || data.tableName || 'unknown';
-        var amt = Math.round(data.amount || 0);
-        var method = data.paymentMethod || 'unknown';
-        return CURRENT_DEVICE_ID + '|' + ts + '|' + tableKey + '|' + amt + '|' + method;
-    }
-
-    function _isDuplicateTransaction(data) {
-        var amt = Math.round(data.amount || 0);
-        var method = data.paymentMethod || '';
-        var type = data.type || '';
-        var txCache = memoryCache.transactions;
-        if (!txCache) {
-            return false;
-        }
-        
-        if (data.tableId || data.tableName) {
-            var tableKey = data.tableId || data.tableName;
-            for (var key in txCache) {
-                if (!txCache.hasOwnProperty(key)) continue;
-                var tx = txCache[key];
-                if (tx.refunded) continue;
-                var txTableKey = tx.tableId || tx.tableName;
-                if (txTableKey === tableKey && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
-                    var txTime = tx.createdAt || 0;
-                    var dataTime = data.createdAt || Date.now();
-                    if (Math.abs(txTime - dataTime) < 30000) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        if (!data.tableId && !data.tableName) {
-            var customerId = data.customer ? data.customer.id : null;
-            for (var key in txCache) {
-                if (!txCache.hasOwnProperty(key)) continue;
-                var tx = txCache[key];
-                if (tx.refunded) continue;
-                if (tx.type === type && Math.round(tx.amount || 0) === amt && tx.paymentMethod === method) {
-                    if (customerId) {
-                        var txCustId = tx.customer ? tx.customer.id : null;
-                        if (txCustId !== customerId) continue;
-                    }
-                    var txTime = tx.createdAt || 0;
-                    var dataTime = data.createdAt || Date.now();
-                    if (Math.abs(txTime - dataTime) < 30000) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        return false;
-    }
-
     function create(collection, data, customId) {
-        if (collection === 'transactions' && _isDuplicateTransaction(data)) {
-            console.warn('⚠️ Duplicate transaction detected, skipping:', data.tableName, data.amount);
-            return Promise.resolve(null);
-        }
+        // FIX Phase 1: Đã loại bỏ _isDuplicateTransaction - mỗi giao dịch là duy nhất
         var id = customId || data.id || generateId();
         var newData = { id: id };
         for (var k in data) if (data.hasOwnProperty(k) && k !== 'id') newData[k] = data[k];
@@ -780,9 +1026,6 @@
         newData.createdBy = CURRENT_DEVICE_ID;
         newData.updatedAt = Date.now();
         newData._version = 1;
-        if (collection === 'transactions') {
-            newData._idempotencyKey = _generateIdempotencyKey(collection, data);
-        }
         return saveToLocal(collection, newData).then(function() {
             addToSyncQueue('create', collection, newData, id);
             if (isOnline) _debouncedProcessSyncQueue();
@@ -891,10 +1134,44 @@
     }
 
     var _fetchingTxDateKeys = {};
+    
+    // PHASE 2: Cache kết quả query transactions
+    // PHASE 4: Thêm TTL cho _txDateCache - tự động invalidate sau 2 phút
+    var _txDateCache = {}; // { '2024-01-15|all': [transactions] }
+    var _txDateCacheTimestamps = {}; // { '2024-01-15|all': timestamp }
+    var _TX_DATE_CACHE_TTL = 2 * 60 * 1000; // 2 phút
+    
+    // Khi có transaction mới, xóa cache liên quan
+    function _invalidateTxDateCache(dateKey) {
+        if (!dateKey) {
+            _txDateCache = {};
+            _txDateCacheTimestamps = {};
+            return;
+        }
+        for (var key in _txDateCache) {
+            if (_txDateCache.hasOwnProperty(key) && key.indexOf(dateKey) === 0) {
+                delete _txDateCache[key];
+                delete _txDateCacheTimestamps[key];
+            }
+        }
+    }
 
     function getTransactionsByDate(dateKey, options) {
         options = options || {};
         var type = options.type || 'all';
+        
+        // PHASE 2: Kiểm tra cache trước
+        // PHASE 4: Kiểm tra TTL cache
+        var cacheKey = dateKey + '|' + type;
+        if (_txDateCache[cacheKey] && !options.forceRefresh) {
+            var cacheTime = _txDateCacheTimestamps[cacheKey] || 0;
+            if ((Date.now() - cacheTime) < _TX_DATE_CACHE_TTL) {
+                return Promise.resolve(_txDateCache[cacheKey]);
+            }
+            // Cache quá hạn, xóa để fetch lại
+            delete _txDateCache[cacheKey];
+            delete _txDateCacheTimestamps[cacheKey];
+        }
         
         var txFetchKey = dateKey + '|' + type;
         if (_fetchingTxDateKeys[txFetchKey]) {
@@ -904,54 +1181,47 @@
         var promise = dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
             
-            var localPromise;
-            if (memoryCache.transactions) {
-                var allTx = [];
-                for (var key in memoryCache.transactions) {
-                    if (memoryCache.transactions.hasOwnProperty(key)) {
-                        allTx.push(memoryCache.transactions[key]);
-                    }
+            // PHASE 3: Tối ưu - dùng IndexedDB index trực tiếp thay vì iterate memory cache
+            // IndexedDB index 'dateKey' hoặc 'dateTypeKey' chỉ query đúng ngày cần
+            var localPromise = new Promise(function(resolve, reject) {
+                var tx = localDB.transaction(['transactions'], 'readonly');
+                var store = tx.objectStore('transactions');
+                var req;
+                if (type !== 'all' && store.indexNames.contains('dateTypeKey')) {
+                    req = store.index('dateTypeKey').getAll(dateKey + '|' + type);
+                } else if (store.indexNames.contains('dateKey')) {
+                    req = store.index('dateKey').getAll(dateKey);
+                } else {
+                    req = store.getAll();
                 }
-                for (var i = 0; i < allTx.length; i++) {
-                    _fixDateKeyIfNeeded(allTx[i]);
-                }
-                var filtered = allTx.filter(function(t) { return t.dateKey === dateKey; });
-                if (type !== 'all') filtered = filtered.filter(function(t) { return t.type === type; });
-                localPromise = Promise.resolve(filtered);
-            } else {
-                localPromise = new Promise(function(resolve, reject) {
-                    var tx = localDB.transaction(['transactions'], 'readonly');
-                    var store = tx.objectStore('transactions');
-                    var req;
-                    if (type !== 'all' && store.indexNames.contains('dateTypeKey')) {
-                        req = store.index('dateTypeKey').getAll(dateKey + '|' + type);
-                    } else if (store.indexNames.contains('dateKey')) {
-                        req = store.index('dateKey').getAll(dateKey);
-                    } else {
-                        req = store.getAll();
+                req.onsuccess = function() {
+                    var rows = req.result || [];
+                    if (!store.indexNames.contains('dateKey')) {
+                        rows = rows.filter(function(r) { return toDateKey(r.date) === dateKey; });
+                        if (type !== 'all') rows = rows.filter(function(r) { return r.type === type; });
                     }
-                    req.onsuccess = function() {
-                        var rows = req.result || [];
-                        if (!store.indexNames.contains('dateKey')) {
-                            rows = rows.filter(function(r) { return toDateKey(r.date) === dateKey; });
-                            if (type !== 'all') rows = rows.filter(function(r) { return r.type === type; });
-                        }
-                        for (var i = 0; i < rows.length; i++) {
-                            _fixDateKeyIfNeeded(rows[i]);
-                        }
-                        if (!memoryCache.transactions) memoryCache.transactions = {};
-                        for (var i = 0; i < rows.length; i++) {
+                    for (var i = 0; i < rows.length; i++) {
+                        _fixDateKeyIfNeeded(rows[i]);
+                    }
+                    if (!memoryCache.transactions) memoryCache.transactions = {};
+                    for (var i = 0; i < rows.length; i++) {
+                        // PHASE 2: Chỉ cache vào memory nếu là ngày hiện tại
+                        if (rows[i].dateKey === _currentDateKey) {
                             memoryCache.transactions[rows[i].id] = rows[i];
                         }
-                        resolve(rows);
-                    };
-                    req.onerror = function() { reject(req.error); };
-                });
-            }
+                    }
+                    resolve(rows);
+                };
+                req.onerror = function() { reject(req.error); };
+            });
             
             return localPromise.then(function(localData) {
+                // PHASE 2: Lưu vào cache
+                // PHASE 4: Ghi timestamp cho TTL
                 if (localData && localData.length > 0) {
-                    return localData; // Đã có local, trả về ngay
+                    _txDateCache[cacheKey] = localData;
+                    _txDateCacheTimestamps[cacheKey] = Date.now();
+                    return localData;
                 }
                 
                 if (!isOnline) return [];
@@ -966,10 +1236,16 @@
                     }
                 }
                 
-                console.log('📡 Auto-fetching transactions for date:', dateKey);
+                // console.log('📡 Auto-fetching transactions for date:', dateKey);
                 return syncCollectionByDate('transactions', dateKey).then(function(fetched) {
                     if (type !== 'all' && fetched) {
                         fetched = fetched.filter(function(t) { return t.type === type; });
+                    }
+                    // PHASE 2: Lưu vào cache
+                    // PHASE 4: Ghi timestamp cho TTL
+                    if (fetched && fetched.length > 0) {
+                        _txDateCache[cacheKey] = fetched;
+                        _txDateCacheTimestamps[cacheKey] = Date.now();
                     }
                     return fetched || [];
                 });
@@ -1014,53 +1290,40 @@
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
             
-            var localPromise;
-            if (memoryCache.transactions) {
-                var allTx = [];
-                for (var key in memoryCache.transactions) {
-                    if (memoryCache.transactions.hasOwnProperty(key)) {
-                        allTx.push(memoryCache.transactions[key]);
-                    }
+            // LUÔN query IndexedDB để có dữ liệu đầy đủ, không chỉ dựa vào memory cache
+            // Memory cache chỉ chứa transactions của ngày hiện tại (Phase 2 optimization)
+            localPromise = new Promise(function(resolve, reject) {
+                var tx = localDB.transaction(['transactions'], 'readonly');
+                var store = tx.objectStore('transactions');
+                var req;
+                if (store.indexNames.contains('dateKey')) {
+                    req = store.index('dateKey').getAll();
+                } else {
+                    req = store.getAll();
                 }
-                for (var i = 0; i < allTx.length; i++) {
-                    _fixDateKeyIfNeeded(allTx[i]);
-                }
-                var filtered = allTx.filter(function(t) {
-                    return t.dateKey >= startDateKey && t.dateKey <= endDateKey;
-                });
-                if (type !== 'all') filtered = filtered.filter(function(t) { return t.type === type; });
-                localPromise = Promise.resolve(filtered);
-            } else {
-                localPromise = new Promise(function(resolve, reject) {
-                    var tx = localDB.transaction(['transactions'], 'readonly');
-                    var store = tx.objectStore('transactions');
-                    var req;
-                    if (store.indexNames.contains('dateKey')) {
-                        req = store.index('dateKey').getAll();
-                    } else {
-                        req = store.getAll();
+                req.onsuccess = function() {
+                    var rows = req.result || [];
+                    for (var i = 0; i < rows.length; i++) {
+                        _fixDateKeyIfNeeded(rows[i]);
                     }
-                    req.onsuccess = function() {
-                        var rows = req.result || [];
-                        for (var i = 0; i < rows.length; i++) {
-                            _fixDateKeyIfNeeded(rows[i]);
-                        }
-                        var filtered = rows.filter(function(r) {
-                            var dk = toDateKey(r.date);
-                            return dk >= startDateKey && dk <= endDateKey;
-                        });
-                        if (type !== 'all') filtered = filtered.filter(function(r) { return r.type === type; });
-                        if (!memoryCache.transactions) memoryCache.transactions = {};
-                        for (var i = 0; i < rows.length; i++) {
-                            memoryCache.transactions[rows[i].id] = rows[i];
-                        }
-                        resolve(filtered);
-                    };
-                    req.onerror = function() { reject(req.error); };
-                });
-            }
+                    // Dùng r.dateKey thay vì toDateKey(r.date) vì _fixDateKeyIfNeeded đã đảm bảo dateKey đúng
+                    var filtered = rows.filter(function(r) {
+                        var dk = r.dateKey || toDateKey(r.date);
+                        return dk >= startDateKey && dk <= endDateKey;
+                    });
+                    if (type !== 'all') filtered = filtered.filter(function(r) { return r.type === type; });
+                    // Cập nhật memory cache với dữ liệu từ IndexedDB
+                    if (!memoryCache.transactions) memoryCache.transactions = {};
+                    for (var i = 0; i < rows.length; i++) {
+                        memoryCache.transactions[rows[i].id] = rows[i];
+                    }
+                    resolve(filtered);
+                };
+                req.onerror = function() { reject(req.error); };
+            });
             
             return localPromise.then(function(localData) {
+                // Bước 1: Xác định những ngày đã có dữ liệu từ local (memory cache + IndexedDB)
                 var localDateKeys = {};
                 for (var i = 0; i < localData.length; i++) {
                     if (localData[i].dateKey) {
@@ -1068,228 +1331,225 @@
                     }
                 }
                 
-                return getSyncMeta('transactions').then(function(meta) {
-                    var fetchedDateKeys = (meta && meta.dateKeys) || [];
-                    for (var i = 0; i < fetchedDateKeys.length; i++) {
-                        localDateKeys[fetchedDateKeys[i]] = true;
+                // Bước 2: Xác định tất cả các ngày trong range
+                var allDateKeys = getDateKeysBetween(startDateKey, endDateKey);
+                
+                // Bước 3: Tìm những ngày còn thiếu (chưa có trong local)
+                var missingDateKeys = [];
+                for (var i = 0; i < allDateKeys.length; i++) {
+                    if (!localDateKeys[allDateKeys[i]]) {
+                        missingDateKeys.push(allDateKeys[i]);
                     }
-                    
-                    var allDateKeys = getDateKeysBetween(startDateKey, endDateKey);
-                    var missingDateKeys = [];
-                    for (var i = 0; i < allDateKeys.length; i++) {
-                        if (!localDateKeys[allDateKeys[i]]) {
-                            missingDateKeys.push(allDateKeys[i]);
-                        }
-                    }
-                    
-                    if (missingDateKeys.length === 0 || !isOnline) {
-                        return localData; // Đã có đủ dữ liệu
-                    }
-                    
-                    if (noAutoFetch) {
-                        console.log('📡 Auto-fetch skipped (noAutoFetch=true), missing:', missingDateKeys.length, 'days');
-                        return localData;
-                    }
-                    
-                    var MAX_AUTO_FETCH_DAYS = _isEmployeeMode() ? 2 : 7;
-                    var dateKeysToFetch = missingDateKeys;
-                    if (missingDateKeys.length > MAX_AUTO_FETCH_DAYS) {
-                        dateKeysToFetch = missingDateKeys.slice(missingDateKeys.length - MAX_AUTO_FETCH_DAYS);
-                        console.log('📡 Auto-fetch limited to', MAX_AUTO_FETCH_DAYS, 'days (range has', missingDateKeys.length, 'missing days)');
-                    }
-                    
+                }
+                
+                // Bước 4: Nếu đã có đủ dữ liệu hoặc offline thì trả về localData
+                if (missingDateKeys.length === 0 || !isOnline) {
+                    return localData;
+                }
+                
+                if (noAutoFetch) {
+                    console.log('📡 Auto-fetch skipped (noAutoFetch=true), missing:', missingDateKeys.length, 'days');
+                    return localData;
+                }
+                
+                // Bước 5: Giới hạn số ngày auto-fetch theo retention days
+                var MAX_AUTO_FETCH_DAYS = _getRetentionDays();
+                var dateKeysToFetch = missingDateKeys;
+                if (missingDateKeys.length > MAX_AUTO_FETCH_DAYS) {
+                    // Chỉ fetch MAX_AUTO_FETCH_DAYS ngày gần nhất
+                    dateKeysToFetch = missingDateKeys.slice(missingDateKeys.length - MAX_AUTO_FETCH_DAYS);
+                    console.log('📡 Auto-fetch limited to', MAX_AUTO_FETCH_DAYS, 'days (range has', missingDateKeys.length, 'missing days)');
+                }
+                
+                if (dateKeysToFetch.length > 0) {
                     console.log('📡 Auto-fetching missing dates:', dateKeysToFetch.length, 'days');
-                    
-                    var chain = Promise.resolve();
-                    for (var i = 0; i < dateKeysToFetch.length; i++) {
-                        chain = chain.then((function(dateKey) {
-                            return function() {
-                                return syncCollectionByDate('transactions', dateKey);
-                            };
-                        })(dateKeysToFetch[i]));
-                    }
-                    
-                    return chain.then(function() {
-                        return loadFromLocal('transactions').then(function(allData) {
-                            var result = [];
-                            for (var i = 0; i < allData.length; i++) {
-                                var dk = allData[i].dateKey;
-                                if (dk >= startDateKey && dk <= endDateKey) {
-                                    if (type === 'all' || allData[i].type === type) {
-                                        result.push(allData[i]);
-                                    }
+                }
+                
+                // Bước 6: Fetch từng ngày còn thiếu từ Firebase
+                var chain = Promise.resolve();
+                for (var i = 0; i < dateKeysToFetch.length; i++) {
+                    chain = chain.then((function(dateKey) {
+                        return function() {
+                            return syncCollectionByDate('transactions', dateKey);
+                        };
+                    })(dateKeysToFetch[i]));
+                }
+                
+                // Bước 7: Load lại toàn bộ dữ liệu từ local sau khi fetch
+                return chain.then(function() {
+                    return loadFromLocal('transactions').then(function(allData) {
+                        var result = [];
+                        for (var i = 0; i < allData.length; i++) {
+                            var dk = allData[i].dateKey;
+                            if (dk >= startDateKey && dk <= endDateKey) {
+                                if (type === 'all' || allData[i].type === type) {
+                                    result.push(allData[i]);
                                 }
                             }
-                            return result;
-                        });
+                        }
+                        return result;
                     });
                 });
             });
         });
     }
 
-   function subscribeToCollection(collection, callback, options) {
-    if (callback) {
-        if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
-        _localCallbacks[collection].push(callback);
-    }
+    // ========== PHASE 4: Lazy Firebase Listeners ==========
+    var _activeListeners = {}; // { collection: { ref, handlers, refCount } }
+    var _listenerQueue = []; // Queue các collection chờ active
     
-    var ref = _getDb().ref(CURRENT_SHOP_ID + '/' + collection);
-    if (options && options.orderByChild) {
-        var queryRef = ref.orderByChild(options.orderByChild);
-        if (options.limitToLast) {
-            queryRef = queryRef.limitToLast(options.limitToLast);
+    // Active listener cho 1 collection (chỉ khi có component cần)
+    function _ensureListener(collection, callback, options) {
+        if (_activeListeners[collection]) {
+            _activeListeners[collection].refCount++;
+            if (callback) {
+                if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
+                _localCallbacks[collection].push(callback);
+            }
+            return _activeListeners[collection].unsubFn;
         }
-        ref = queryRef;
-    } else if (options && options.limitToLast) {
-        ref = ref.limitToLast(options.limitToLast);
-    }
-    
-    if (collection === 'info') {
-        var updateScheduledInfo = false;
-        var emitUpdateInfo = function() {
-            if (updateScheduledInfo) return;
-            updateScheduledInfo = true;
-            setTimeout(function() {
-                updateScheduledInfo = false;
-                loadFromLocal(collection).then(function(localData) {
-                    if (callback) callback(localData);
-                    var evt = document.createEvent('CustomEvent');
-                    evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
-                    window.dispatchEvent(evt);
-                });
-            }, 200);
-        };
-        var onValue = function(snapshot) {
-            if (!snapshot.exists()) return;
-            var src = snapshot.val() || {};
-            var item = { id: 'shop_config' };
-            for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-            saveToLocal(collection, item).then(emitUpdateInfo);
-        };
-        ref.on('value', onValue);
+        
+        // Thêm callback trước
+        if (callback) {
+            if (!_localCallbacks[collection]) _localCallbacks[collection] = [];
+            _localCallbacks[collection].push(callback);
+        }
+        
+        var ref = _getDb().ref(CURRENT_SHOP_ID + '/' + collection);
+        if (options && options.orderByChild) {
+            var queryRef = ref.orderByChild(options.orderByChild);
+            if (options.limitToLast) {
+                queryRef = queryRef.limitToLast(options.limitToLast);
+            }
+            ref = queryRef;
+        } else if (options && options.limitToLast) {
+            ref = ref.limitToLast(options.limitToLast);
+        }
+        
+        var handlers = {};
+        var unsubFn = function() {};
+        
+        if (collection === 'info') {
+            var updateScheduledInfo = false;
+            var emitUpdateInfo = function() {
+                if (updateScheduledInfo) return;
+                updateScheduledInfo = true;
+                setTimeout(function() {
+                    updateScheduledInfo = false;
+                    loadFromLocal(collection).then(function(localData) {
+                        var cbs = _localCallbacks[collection];
+                        if (cbs) { for (var ci = 0; ci < cbs.length; ci++) { try { cbs[ci](localData); } catch(e) {} } }
+                        var evt = document.createEvent('CustomEvent');
+                        evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
+                        window.dispatchEvent(evt);
+                    });
+                }, 200);
+            };
+            handlers.onValue = function(snapshot) {
+                if (!snapshot.exists()) return;
+                var src = snapshot.val() || {};
+                var item = { id: 'shop_config' };
+                for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+                saveToLocal(collection, item).then(emitUpdateInfo);
+            };
+            ref.on('value', handlers.onValue);
+            unsubFn = function() {
+                ref.off('value', handlers.onValue);
+            };
+        } else {
+            var updateScheduled = false;
+            var emitUpdate = function() {
+                if (updateScheduled) return;
+                updateScheduled = true;
+                setTimeout(function() {
+                    updateScheduled = false;
+                    loadFromLocal(collection).then(function(localData) {
+                        var cbs = _localCallbacks[collection];
+                        if (cbs) { for (var ci = 0; ci < cbs.length; ci++) { try { cbs[ci](localData); } catch(e) {} } }
+                        var evt = document.createEvent('CustomEvent');
+                        evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
+                        window.dispatchEvent(evt);
+                    });
+                }, 200);
+            };
+            handlers.onAdded = function(snapshot) {
+                if (!snapshot.exists()) return;
+                var key = snapshot.key;
+                var src = snapshot.val() || {};
+                var item = { id: key };
+                for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+                
+                if (collection !== 'tables') {
+                    var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
+                    if (localItem && (localItem._version || 0) > (item._version || 0)) return;
+                }
+                
+                if (collection === 'transactions' && memoryCache.transactions && memoryCache.transactions[key]) {
+                    var localTx = memoryCache.transactions[key];
+                    if (localTx._version >= 1 && !localTx._syncedAt) return;
+                }
+                
+                saveToLocal(collection, item).then(emitUpdate);
+            };
+            handlers.onChanged = function(snapshot) {
+                if (!snapshot.exists()) return;
+                var key = snapshot.key;
+                var src = snapshot.val() || {};
+                var item = { id: key };
+                for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
+                
+                if (collection !== 'tables') {
+                    var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
+                    if (localItem && (localItem._version || 0) > (item._version || 0)) return;
+                }
+                
+                saveToLocal(collection, item).then(emitUpdate);
+            };
+            handlers.onRemoved = function(snapshot) {
+                var key = snapshot.key;
+                deleteFromLocal(collection, key).then(emitUpdate);
+            };
+            ref.on('child_added', handlers.onAdded);
+            ref.on('child_changed', handlers.onChanged);
+            ref.on('child_removed', handlers.onRemoved);
+            unsubFn = function() {
+                ref.off('child_added', handlers.onAdded);
+                ref.off('child_changed', handlers.onChanged);
+                ref.off('child_removed', handlers.onRemoved);
+            };
+        }
+        
         if (!listeners[collection]) listeners[collection] = [];
-        listeners[collection].push({ value: onValue });
-        // Lưu hàm unsubscribe
-        var unsubFn = function() {
-            ref.off('value', onValue);
+        listeners[collection].push(handlers);
+        
+        _activeListeners[collection] = {
+            ref: ref,
+            handlers: handlers,
+            refCount: 1,
+            unsubFn: unsubFn
         };
+        
         if (!_unsubscribeFns[collection]) _unsubscribeFns[collection] = [];
         _unsubscribeFns[collection].push(unsubFn);
+        
+        console.log('[Listener] ✅ Active listener cho ' + collection);
         return unsubFn;
     }
     
-    var updateScheduled = false;
-    var emitUpdate = function() {
-        if (updateScheduled) return;
-        updateScheduled = true;
-        setTimeout(function() {
-            updateScheduled = false;
-            loadFromLocal(collection).then(function(localData) {
-                if (callback) callback(localData);
-                var evt = document.createEvent('CustomEvent');
-                evt.initCustomEvent('db_update', true, true, { detail: { collection: collection, data: localData } });
-                window.dispatchEvent(evt);
-            });
-        }, 200);
-    };
-    var onAdded = function(snapshot) {
-        if (!snapshot.exists()) return;
-        var key = snapshot.key;
-        var src = snapshot.val() || {};
-        var item = { id: key };
-        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-        
-        if (collection !== 'tables') {
-            var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-            if (localItem && (localItem._version || 0) > (item._version || 0)) {
-                return;
-            }
+    // Giảm refCount, tự động unsubscribe khi không còn ai dùng
+    function _releaseListener(collection) {
+        if (!_activeListeners[collection]) return;
+        _activeListeners[collection].refCount--;
+        if (_activeListeners[collection].refCount <= 0) {
+            _activeListeners[collection].unsubFn();
+            delete _activeListeners[collection];
+            console.log('[Listener] 🗑️ Đã hủy listener cho ' + collection);
         }
-        
-        if (collection === 'transactions' && memoryCache.transactions && memoryCache.transactions[key]) {
-            var localTx = memoryCache.transactions[key];
-            if (localTx._version >= 1 && !localTx._syncedAt) {
-                console.log('⏭️ Skip Firebase overwrite for pending local transaction:', key);
-                return;
-            }
-        }
-        
-        if (collection === 'transactions' && item.amount) {
-            var txCache = memoryCache.transactions;
-            if (txCache) {
-                for (var ck in txCache) {
-                    if (!txCache.hasOwnProperty(ck) || ck === key) continue;
-                    var existing = txCache[ck];
-                    if (existing.refunded) continue;
-                    
-                    var isDuplicate = false;
-                    var sameAmount = Math.round(existing.amount || 0) === Math.round(item.amount || 0);
-                    var sameMethod = existing.paymentMethod === item.paymentMethod;
-                    
-                    if (item.tableId || item.tableName) {
-                        var sameTable = (existing.tableId === item.tableId) || (existing.tableName === item.tableName);
-                        isDuplicate = sameTable && sameAmount && sameMethod;
-                    } else {
-                        var sameType = existing.type === item.type;
-                        var sameCustomer = false;
-                        if (item.customer && item.customer.id) {
-                            sameCustomer = (existing.customer && existing.customer.id === item.customer.id);
-                        } else {
-                            sameCustomer = true; // KhÃ´ng cÃ³ customer thÃ¬ chá»‰ cáº§n type+amount+method
-                        }
-                        isDuplicate = sameType && sameAmount && sameMethod && sameCustomer;
-                    }
-                    
-                    if (isDuplicate) {
-                        var timeDiff = Math.abs((existing.createdAt || 0) - (item.createdAt || 0));
-                        if (timeDiff < 30000 && timeDiff > 0) {
-                            console.warn('⚠️ Detected duplicate transaction from another device:', key, 'duplicates', ck);
-                            item.refunded = true;
-                            item.note = (item.note || '') + ' [Tự động đánh dấu trùng lặp]';
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        saveToLocal(collection, item).then(emitUpdate);
-    };
-    var onChanged = function(snapshot) {
-        if (!snapshot.exists()) return;
-        var key = snapshot.key;
-        var src = snapshot.val() || {};
-        var item = { id: key };
-        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-        
-        if (collection !== 'tables') {
-            var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-            if (localItem && (localItem._version || 0) > (item._version || 0)) {
-                return;
-            }
-        }
-        
-        saveToLocal(collection, item).then(emitUpdate);
-    };
-    var onRemoved = function(snapshot) {
-        var key = snapshot.key;
-        deleteFromLocal(collection, key).then(emitUpdate);
-    };
-    ref.on('child_added', onAdded);
-    ref.on('child_changed', onChanged);
-    ref.on('child_removed', onRemoved);
-    if (!listeners[collection]) listeners[collection] = [];
-    listeners[collection].push({ added: onAdded, changed: onChanged, removed: onRemoved });
-    // Lưu hàm unsubscribe
-    var unsubFn = function() {
-        ref.off('child_added', onAdded);
-        ref.off('child_changed', onChanged);
-        ref.off('child_removed', onRemoved);
-    };
-    if (!_unsubscribeFns[collection]) _unsubscribeFns[collection] = [];
-    _unsubscribeFns[collection].push(unsubFn);
-    return unsubFn;
+    }
+
+   function subscribeToCollection(collection, callback, options) {
+    // PHASE 4: Dùng lazy listener thay vì active ngay
+    return _ensureListener(collection, callback, options);
 }
 
     var _pollingTimers = {};
@@ -1401,13 +1661,40 @@
     
     function _cleanupOldData() {
         if (!localDB) return;
+        var retentionDays = _getRetentionDays();
+        var cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+        var cutoffDateKey = toDateKey(cutoffTime);
         var todayKey = toDateKey(Date.now());
-        var yesterdayKey = toDateKey(Date.now() - 86400000);
-        var keepKeys = {};
-        keepKeys[todayKey] = true;
-        keepKeys[yesterdayKey] = true;
         
+        console.log('[Retention] Giữ ' + retentionDays + ' ngày (từ ' + cutoffDateKey + ' đến ' + todayKey + ')');
+        
+        // 1. Xóa memory cache items quá hạn
         var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
+        for (var c = 0; c < dateKeys.length; c++) {
+            var col = dateKeys[c];
+            if (!memoryCache[col]) continue;
+            var memKeys = Object.keys(memoryCache[col]);
+            var memDeleted = 0;
+            for (var i = 0; i < memKeys.length; i++) {
+                var item = memoryCache[col][memKeys[i]];
+                if (item) {
+                    var dk = item.dateKey || (item.date ? toDateKey(item.date) : null);
+                    if (dk && dk < cutoffDateKey) {
+                        delete memoryCache[col][memKeys[i]];
+                        // Dọn cache timestamp tương ứng
+                        if (_cacheTimestamps[col]) {
+                            delete _cacheTimestamps[col][memKeys[i]];
+                        }
+                        memDeleted++;
+                    }
+                }
+            }
+            if (memDeleted > 0) {
+                console.log('[Retention] Đã xóa ' + memDeleted + ' items cũ khỏi memory cache ' + col);
+            }
+        }
+        
+        // 2. Xóa IndexedDB items quá hạn và cập nhật syncMeta.dateKeys
         for (var c = 0; c < dateKeys.length; c++) {
             var collection = dateKeys[c];
             if (!localDB.objectStoreNames.contains(collection)) continue;
@@ -1419,19 +1706,54 @@
                 req.onsuccess = function() {
                     var items = req.result || [];
                     var deleted = 0;
+                    var remainingDateKeys = {};
                     for (var i = 0; i < items.length; i++) {
-                        var dk = items[i].dateKey || toDateKey(items[i].date);
-                        if (dk && !keepKeys[dk]) {
+                        var dk = items[i].dateKey || (items[i].date ? toDateKey(items[i].date) : null);
+                        if (dk && dk < cutoffDateKey) {
                             store.delete(items[i].id);
                             deleted++;
+                        } else if (dk) {
+                            // Ghi nhận các dateKeys còn lại (không bị xóa)
+                            remainingDateKeys[dk] = true;
                         }
                     }
                     if (deleted > 0) {
-                        console.log('🧹 Cleaned up', deleted, 'old items from', col);
+                        console.log('[Retention] 🧹 Đã xóa ' + deleted + ' items cũ khỏi IndexedDB ' + col);
+                        // Cập nhật syncMeta.dateKeys: chỉ giữ các dateKeys còn items
+                        getSyncMeta(col).then(function(meta) {
+                            var oldDateKeys = (meta && meta.dateKeys) || [];
+                            var newDateKeys = [];
+                            for (var i = 0; i < oldDateKeys.length; i++) {
+                                if (remainingDateKeys[oldDateKeys[i]] || oldDateKeys[i] >= cutoffDateKey) {
+                                    newDateKeys.push(oldDateKeys[i]);
+                                }
+                            }
+                            if (newDateKeys.length !== oldDateKeys.length) {
+                                saveSyncMeta(col, {
+                                    lastSyncAt: (meta && meta.lastSyncAt) || Date.now(),
+                                    maxVersion: (meta && meta.maxVersion) || 0,
+                                    dateKeys: newDateKeys
+                                });
+                                console.log('[Retention] 📋 Đã cập nhật syncMeta.dateKeys cho ' + col + ': ' + oldDateKeys.length + ' → ' + newDateKeys.length + ' dateKeys');
+                            }
+                        });
                     }
                 };
             })(collection);
         }
+    }
+    
+    // DATA RETENTION: Cleanup dữ liệu cũ định kỳ (mỗi 6 tiếng)
+    var _dataCleanupIntervalId = null;
+    function _startPeriodicDataCleanup() {
+        if (_dataCleanupIntervalId) return;
+        // Chạy lần đầu sau 5 phút (tránh xung đột với lúc init)
+        setTimeout(function() {
+            _cleanupOldData();
+        }, 5 * 60 * 1000);
+        // Sau đó chạy mỗi 6 tiếng
+        _dataCleanupIntervalId = setInterval(_cleanupOldData, 6 * 60 * 60 * 1000);
+        console.log('[Retention] Đã khởi động periodic data cleanup (6 tiếng/lần, giữ ' + _getRetentionDays() + ' ngày)');
     }
     
     var _quickSyncTimer = null;
@@ -1448,21 +1770,14 @@
                     deltaSync(masterKeys[i]);
                 }
             }
-            if (_isEmployeeMode()) {
-                var todayKey = toDateKey(Date.now());
-                var yesterdayKey = toDateKey(Date.now() - 86400000);
-                var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
-                for (var j = 0; j < dateKeys.length; j++) {
-                    syncCollectionByDate(dateKeys[j], todayKey);
-                    syncCollectionByDate(dateKeys[j], yesterdayKey);
-                }
-                _cleanupOldData();
-            } else {
-                var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
-                for (var j = 0; j < dateKeys.length; j++) {
-                    deltaSync(dateKeys[j]);
-                }
+            // Quick sync chỉ chạy deltaSync (version-based) để lấy items mới
+            // Không chạy syncCollectionByDate vì smartSync đã fetch date-based rồi
+            var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
+            for (var j = 0; j < dateKeys.length; j++) {
+                deltaSync(dateKeys[j]);
             }
+            // Luôn cleanup dữ liệu cũ cho cả admin và employee
+            _cleanupOldData();
         }, 500);
     }
     
@@ -1667,11 +1982,42 @@
         
         var todayKey = toDateKey(Date.now());
         var datePromises = [];
-        
+
+        // Tối ưu: đọc syncMeta 1 lần cho mỗi collection, kiểm tra dateKeys trong memory
+        function _syncMissingDates(collection, requiredDateKeys) {
+            return getSyncMeta(collection).then(function(meta) {
+                var existingDateKeys = (meta && meta.dateKeys) || [];
+                var existingSet = {};
+                for (var i = 0; i < existingDateKeys.length; i++) {
+                    existingSet[existingDateKeys[i]] = true;
+                }
+                var missingDateKeys = [];
+                for (var i = 0; i < requiredDateKeys.length; i++) {
+                    if (!existingSet[requiredDateKeys[i]]) {
+                        missingDateKeys.push(requiredDateKeys[i]);
+                    }
+                }
+                if (missingDateKeys.length === 0) {
+                    // Đã có đủ dateKeys, chỉ chạy deltaSync
+                    return deltaSync(collection);
+                }
+                // Fetch từng ngày còn thiếu
+                var chain = Promise.resolve();
+                for (var i = 0; i < missingDateKeys.length; i++) {
+                    (function(dk) {
+                        chain = chain.then(function() {
+                            return syncCollectionByDate(collection, dk);
+                        });
+                    })(missingDateKeys[i]);
+                }
+                return chain;
+            });
+        }
+
         if (_isEmployeeMode()) {
             for (var d = 0; d < dateKeys.length; d++) {
                 (function(collection) {
-                    datePromises.push(syncCollectionByDate(collection, todayKey));
+                    datePromises.push(_syncMissingDates(collection, [todayKey]));
                 })(dateKeys[d]);
             }
         } else {
@@ -1681,11 +2027,7 @@
             );
             for (var d = 0; d < dateKeys.length; d++) {
                 (function(collection) {
-                    for (var k = 0; k < dateKeysList.length; k++) {
-                        (function(dk) {
-                            datePromises.push(syncCollectionByDate(collection, dk));
-                        })(dateKeysList[k]);
-                    }
+                    datePromises.push(_syncMissingDates(collection, dateKeysList));
                 })(dateKeys[d]);
             }
         }
@@ -1982,17 +2324,11 @@
         return getSyncMeta(collection).then(function(meta) {
             var dateKeys = (meta && meta.dateKeys) || [];
             
-            if (dateKeys.indexOf(dateKey) >= 0) {
-                return loadFromLocal(collection).then(function(data) {
-                    var filtered = [];
-                    for (var i = 0; i < data.length; i++) {
-                        if (data[i].dateKey === dateKey) filtered.push(data[i]);
-                    }
-                    return filtered;
-                });
-            }
+            // Luôn fetch từ Firebase để đảm bảo dữ liệu đầy đủ
+            // Không skip dựa vào dateKeys trong meta vì deltaSync có thể đã thêm
+            // dateKey vào meta nhưng chỉ với 1 item (không đầy đủ)
             
-            console.log('  📥 Fetching', collection, 'for date:', dateKey);
+            // console.log('  📥 Fetching', collection, 'for date:', dateKey);
             
             return new Promise(function(resolve, reject) {
                 var ref = _getDb().ref(CURRENT_SHOP_ID + '/' + collection);
@@ -2002,7 +2338,7 @@
                             dateKeys.push(dateKey);
                         }
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: (meta && meta.maxVersion) || 0, dateKeys: dateKeys });
-                        console.log('  📥 Fetched', collection, 'for', dateKey, ': 0 items (no data)');
+                        // console.log('  📥 Fetched', collection, 'for', dateKey, ': 0 items (no data)');
                         resolve([]);
                         return;
                     }
@@ -2038,7 +2374,7 @@
                         }
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
                         updateMetaOnFirebase(collection, maxVersion);
-                        console.log('  📥 Fetched', collection, 'for', dateKey, ':', items.length, 'items');
+                        // console.log('  📥 Fetched', collection, 'for', dateKey, ':', items.length, 'items');
                         resolve(items);
                     }).catch(function(err) {
                         console.error('  ❌ Error fetching', collection, 'by date:', err);
@@ -2351,7 +2687,8 @@
         // Master collections: fullSync (tables, menu, customers, ingredients, staffs...)
         // Date-based collections: syncCollectionByDate
         var isEmployee = _isEmployeeMode();
-        console.log('🔔 Force syncing collections from Firebase (master: fullSync, date-based: ' + (isEmployee ? 'today only' : '31 days') + ')...');
+        var retentionDays = _getRetentionDays();
+        console.log('🔔 Force syncing collections from Firebase (master: fullSync, date-based: ' + (isEmployee ? 'today only' : retentionDays + ' days') + ')...');
         
         syncMetaCache = {};
         
@@ -2381,7 +2718,7 @@
             dateKeysToFetch.push(todayKey);
         } else {
             dateKeysToFetch = getDateKeysBetween(
-                toDateKey(Date.now() - THIRTY_DAYS_MS),
+                toDateKey(Date.now() - _getRetentionMs()),
                 todayKey
             );
         }
@@ -2746,6 +3083,10 @@
                         });
                     }, 60000);
                 }
+                // PHASE 4: Khởi động periodic cleanup cache
+                _startPeriodicCleanup();
+                // DATA RETENTION: Khởi động cleanup dữ liệu cũ định kỳ (mỗi 6 tiếng)
+                _startPeriodicDataCleanup();
                 console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
                 return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
             });
@@ -2768,6 +3109,10 @@
         memoryCache = {};
         cacheVersion = {};
         syncMetaCache = {};
+        // PHASE 4: Dọn cache timestamps khi clear data
+        _cacheTimestamps = {};
+        _txDateCache = {};
+        _txDateCacheTimestamps = {};
         
         try {
             var lsPrefix = LS_SYNC_META_PREFIX + CURRENT_SHOP_ID + '_';
@@ -3248,7 +3593,18 @@
         _getDb: _getDb,
         reinitializeSubscriptions: _reinitializeSubscriptions,
         // Hàm database gốc (cho master-config.js dùng để luôn truy cập default Firebase)
-        _origFirebaseDatabase: _origFirebaseDatabase
+        _origFirebaseDatabase: _origFirebaseDatabase,
+        // PHASE 4: Lazy listener management
+        releaseListener: function(collection) { _releaseListener(collection); },
+        getActiveListeners: function() {
+            var result = {};
+            for (var col in _activeListeners) {
+                if (_activeListeners.hasOwnProperty(col)) {
+                    result[col] = { refCount: _activeListeners[col].refCount };
+                }
+            }
+            return result;
+        }
     };
 
     // Global export cho các module cũ gọi isAdminUser() trực tiếp (expense.js, v.v.)

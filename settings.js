@@ -3066,8 +3066,10 @@ function showPaymentMethodTransactions(paymentMethod) {
                 // Nợ: type='debt_payment' && paymentMethod='debt' (ghi nợ)
                 return tx.type === 'debt_payment' && tx.paymentMethod === 'debt';
             }
-            // cash, transfer, grab: paymentMethod khớp, không phải debt
-            return tx.paymentMethod === paymentMethod && tx.type !== 'debt_payment';
+            // cash, transfer, grab: paymentMethod khớp
+            // Chỉ loại trừ ghi nợ (type='debt_payment' && paymentMethod='debt')
+            // Giữ lại trả nợ bằng tiền mặt/chuyển khoản (type='debt_payment' && paymentMethod='cash'|'transfer')
+            return tx.paymentMethod === paymentMethod && !(tx.type === 'debt_payment' && tx.paymentMethod === 'debt');
         });
 
         // Sắp xếp theo thời gian giảm dần (mới nhất lên đầu)

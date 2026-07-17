@@ -154,47 +154,58 @@ function dismissLunarNotification() {
 
 // ========== THÔNG BÁO HEADER (ADMIN NHẬP) ==========
 function loadHeaderNotification() {
+    // OPTIMIZE: Đọc từ memory cache trước (nhanh, không block UI)
+    var cached = (typeof DB.getMemoryCache === 'function') ? DB.getMemoryCache(NOTIFICATIONS_COLLECTION) : null;
+    if (cached && cached.length > 0) {
+        _processNotifications(cached);
+        return;
+    }
+    // Fallback: đọc từ IndexedDB nếu memory cache chưa có
     DB.getAll(NOTIFICATIONS_COLLECTION).then(function(notifications) {
-        if (!notifications || notifications.length === 0) {
-            // FIX: Hiển thị thông báo mặc định khi chưa có dữ liệu từ Firebase
-            showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'Hệ Thống Bán Hàng') + ' - Chào mừng bạn!', '#f97316');
-            renderNotificationHistory([]);
-            return;
-        }
-        
-        // Sắp xếp theo thời gian, lấy cái mới nhất
-        notifications.sort(function(a, b) {
-            return (b.createdAt || 0) - (a.createdAt || 0);
-        });
-        
-        // Kiểm tra toggle tổng thể
-        var toggle = document.getElementById('notificationToggle');
-        var isEnabled = toggle ? toggle.checked : true;
-        
-        // Tìm thông báo mới nhất đang active (active !== false)
-        var latestActive = null;
-        for (var i = 0; i < notifications.length; i++) {
-            if (notifications[i].active !== false) {
-                latestActive = notifications[i];
-                break;
-            }
-        }
-        
-        if (latestActive && isEnabled) {
-            showHeaderNotification(latestActive.content || latestActive.message || "", latestActive.color || '#f97316');
-        } else if (isEnabled) {
-            // FIX: Nếu không có thông báo active nhưng toggle vẫn bật, hiển thị mặc định
-            showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'Hệ Thống Bán Hàng') + ' - Hệ thống sẵn sàng', '#64748b');
-        } else {
-            hideHeaderNotification();
-        }
-        
-        // Render lịch sử
-        renderNotificationHistory(notifications);
+        _processNotifications(notifications);
     }).catch(function() {
         // FIX: Khi có lỗi (offline), vẫn hiển thị thông báo mặc định
         showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'Hệ Thống Bán Hàng') + ' - Đang hoạt động', '#f97316');
     });
+}
+
+function _processNotifications(notifications) {
+    if (!notifications || notifications.length === 0) {
+        // FIX: Hiển thị thông báo mặc định khi chưa có dữ liệu từ Firebase
+        showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'Hệ Thống Bán Hàng') + ' - Chào mừng bạn!', '#f97316');
+        renderNotificationHistory([]);
+        return;
+    }
+    
+    // Sắp xếp theo thời gian, lấy cái mới nhất
+    notifications.sort(function(a, b) {
+        return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+    
+    // Kiểm tra toggle tổng thể
+    var toggle = document.getElementById('notificationToggle');
+    var isEnabled = toggle ? toggle.checked : true;
+    
+    // Tìm thông báo mới nhất đang active (active !== false)
+    var latestActive = null;
+    for (var i = 0; i < notifications.length; i++) {
+        if (notifications[i].active !== false) {
+            latestActive = notifications[i];
+            break;
+        }
+    }
+    
+    if (latestActive && isEnabled) {
+        showHeaderNotification(latestActive.content || latestActive.message || "", latestActive.color || '#f97316');
+    } else if (isEnabled) {
+        // FIX: Nếu không có thông báo active nhưng toggle vẫn bật, hiển thị mặc định
+        showHeaderNotification('☕ ' + (window.shopInfo && window.shopInfo.name ? window.shopInfo.name : 'Hệ Thống Bán Hàng') + ' - Hệ thống sẵn sàng', '#64748b');
+    } else {
+        hideHeaderNotification();
+    }
+    
+    // Render lịch sử
+    renderNotificationHistory(notifications);
 }
 
 function showHeaderNotification(text, color) {
