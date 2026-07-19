@@ -1,20 +1,11 @@
 // auth.js - Module đăng nhập/đăng ký POS
 // ES5, tương thích Android 6, iOS 12
 // Hỗ trợ đăng nhập bằng mã POS + user/pass, đăng ký POS mới
+// Tích hợp MASTER_CONFIG cho multi-tenant
 
 // ========== BIẾN GLOBAL ==========
 var authInitialized = false;
-
-// escapeHtml - định nghĩa sẵn để dùng trong auth.js (pos-app.js cũng có nhưng load sau)
-function escapeHtml(str) {
-    if (!str) return '';
-    return String(str).replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&';
-        if (m === '<') return '<';
-        if (m === '>') return '>';
-        return m;
-    });
-}
+var _lockMonitorRef = null; // Firebase ref để theo dõi trạng thái khóa POS
 
 // ========== KHỞI TẠO ==========
 function initAuth() {
@@ -27,9 +18,89 @@ function initAuth() {
         // Đã đăng nhập, ẩn màn hình login
         hideLoginScreen();
         applyRoleBasedUI(user);
+        
+        // Nếu là master admin, load danh sách POS
+        if (user.role === 'master_admin' && typeof loadMasterPosList === 'function') {
+            loadMasterPosList();
+        }
+        
+        // Nếu là POS user (không phải master admin), theo dõi trạng thái khóa
+        if (user.role !== 'master_admin' && user.shopCode) {
+            startLockMonitor(user.shopCode);
+        }
     } else {
         // Chưa đăng nhập, hiện màn hình login
         showLoginScreen();
+    }
+}
+
+// ========== THEO DÕI KHÓA POS ==========
+/**
+ * Theo dõi trạng thái khóa của POS trong shop_registry.
+ * Nếu POS bị khóa từ xa bởi Master Admin, tự động đăng xuất.
+ * @param {string} shopCode - Mã POS cần theo dõi
+ */
+function startLockMonitor(shopCode) {
+    // Dừng monitor cũ nếu có
+    stopLockMonitor();
+    
+    if (!shopCode) return;
+    
+    try {
+        // Dùng _origFirebaseDatabase để đọc từ default Firebase (shop_registry)
+        var db = (typeof DB !== 'undefined' && DB._origFirebaseDatabase)
+            ? DB._origFirebaseDatabase()
+            : (typeof firebase !== 'undefined' ? firebase.database() : null);
+        
+        if (!db) return;
+        
+        _lockMonitorRef = db.ref('shop_registry/' + shopCode + '/locked');
+        
+        // Lắng nghe sự thay đổi của trường locked
+        _lockMonitorRef.on('value', function(snapshot) {
+            var isLocked = snapshot.val();
+            if (isLocked === true) {
+                // POS bị khóa từ xa! Buộc đăng xuất
+                console.warn('🔒 POS "' + shopCode + '" đã bị khóa bởi Master Admin. Đang đăng xuất...');
+                
+                // Dừng monitor trước khi logout để tránh loop
+                stopLockMonitor();
+                
+                // Hiển thị thông báo
+                if (typeof showToast === 'function') {
+                    showToast('🔒 POS đã bị khóa bởi Master Admin. Đang đăng xuất...', 'error', 5000);
+                }
+                
+                // Đăng xuất
+                if (typeof DB !== 'undefined' && DB.logout) {
+                    DB.logout();
+                }
+                
+                // Reload trang sau 1.5 giây để reset toàn bộ
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1500);
+            }
+        }, function(error) {
+            // Lỗi permission - thường do chưa đăng nhập, bỏ qua
+            console.warn('[LockMonitor] Error:', error.message);
+        });
+    } catch(e) {
+        console.warn('[LockMonitor] Init error:', e.message);
+    }
+}
+
+/**
+ * Dừng theo dõi khóa POS.
+ */
+function stopLockMonitor() {
+    if (_lockMonitorRef) {
+        try {
+            _lockMonitorRef.off('value');
+        } catch(e) {
+            // Ignore
+        }
+        _lockMonitorRef = null;
     }
 }
 
@@ -45,20 +116,8 @@ function showLoginScreen() {
     if (loginForm) loginForm.style.display = 'block';
     if (registerForm) registerForm.style.display = 'none';
     
-    // Khôi phục thông tin đăng nhập đã lưu
-    var savedShopCode = localStorage.getItem('pos_saved_shopCode');
-    var savedUsername = localStorage.getItem('pos_saved_username');
-    var savedRemember = localStorage.getItem('pos_remember_login');
-    
-    var shopCodeInput = document.getElementById('loginShopCode');
-    var usernameInput = document.getElementById('loginUsername');
-    var rememberCheck = document.getElementById('rememberLogin');
-    
-    if (shopCodeInput && savedShopCode) shopCodeInput.value = savedShopCode;
-    if (usernameInput && savedUsername) usernameInput.value = savedUsername;
-    if (rememberCheck) rememberCheck.checked = (savedRemember === 'true');
-    
     // Focus vào ô nhập mã POS
+    var shopCodeInput = document.getElementById('loginShopCode');
     if (shopCodeInput) setTimeout(function() { shopCodeInput.focus(); }, 300);
 }
 
@@ -96,8 +155,15 @@ function handleLogin() {
     var user = username.value.trim();
     var pass = password.value;
     
-    if (!code || !user || !pass) {
-        if (errorEl) errorEl.innerText = 'Vui lòng nhập đầy đủ thông tin';
+    if (!user || !pass) {
+        if (errorEl) errorEl.innerText = 'Vui lòng nhập tên đăng nhập và mật khẩu';
+        return;
+    }
+    
+    // Nếu là master admin (admin123123), không cần mã POS
+    var isMasterAttempt = (user === 'admin123123' && pass === '123123');
+    if (!isMasterAttempt && !code) {
+        if (errorEl) errorEl.innerText = 'Vui lòng nhập mã POS';
         return;
     }
     
@@ -108,31 +174,23 @@ function handleLogin() {
     DB.login(code, user, pass).then(function(userData) {
         // Đăng nhập thành công
         if (errorEl) errorEl.innerText = '';
+        hideLoginScreen();
+        applyRoleBasedUI(userData);
+        var loginDisplayName = userData.displayName;
+        if (loginDisplayName && loginDisplayName.indexOf('Master Admin') === 0) {
+            loginDisplayName = 'Master';
+        }
+        showToast('Đăng nhập thành công! Chào ' + loginDisplayName, 'success');
         
-        // Lưu thông tin đăng nhập nếu checkbox "Ghi nhớ" được chọn
-        var rememberCheck = document.getElementById('rememberLogin');
-        if (rememberCheck && rememberCheck.checked) {
-            localStorage.setItem('pos_saved_shopCode', code);
-            localStorage.setItem('pos_saved_username', user);
-            localStorage.setItem('pos_remember_login', 'true');
-        } else {
-            localStorage.removeItem('pos_saved_shopCode');
-            localStorage.removeItem('pos_saved_username');
-            localStorage.removeItem('pos_remember_login');
+        // Master admin có nhập mã POS: vào POS đó với quyền master, không cần lock monitor
+        // Master admin không nhập mã POS: vào Master Control
+        // POS user thường: cần theo dõi khóa POS
+        if (userData.role !== 'master_admin' && code) {
+            startLockMonitor(code);
         }
         
-        // FIX: Đợi reload dữ liệu xong mới hiển thị UI
-        // Tránh hiển thị dữ liệu mặc định/rỗng trước khi load xong
-        reloadAppData().then(function() {
-            hideLoginScreen();
-            applyRoleBasedUI(userData);
-            showToast('Đăng nhập thành công! Chào ' + userData.displayName, 'success');
-        }).catch(function() {
-            // Nếu reload lỗi vẫn hiển thị UI để user có thể thao tác
-            hideLoginScreen();
-            applyRoleBasedUI(userData);
-            showToast('Đăng nhập thành công!', 'success');
-        });
+        // Reload lại dữ liệu cho shop mới
+        reloadAppData();
     }).catch(function(err) {
         if (errorEl) errorEl.innerText = err.message || 'Đăng nhập thất bại';
         if (btn) { btn.disabled = false; btn.innerText = 'Đăng nhập'; }
@@ -176,6 +234,9 @@ function handleRegister() {
         applyRoleBasedUI(userData);
         showToast('Đăng ký POS thành công!', 'success');
         
+        // Bắt đầu theo dõi khóa POS
+        startLockMonitor(code);
+        
         // Reload lại dữ liệu cho shop mới
         reloadAppData();
     }).catch(function(err) {
@@ -189,6 +250,9 @@ function handleRegister() {
 function handleLogout() {
     if (!confirm('Bạn có chắc muốn đăng xuất?')) return;
     
+    // Dừng theo dõi khóa POS
+    stopLockMonitor();
+    
     DB.logout();
     showToast('Đã đăng xuất', 'info');
     
@@ -196,23 +260,33 @@ function handleLogout() {
     window.location.reload();
 }
 
+// ========== HÀM KIỂM TRA QUYỀN GLOBAL ==========
+
+/**
+ * Kiểm tra user hiện tại có quyền admin không.
+ * Hỗ trợ: 'admin', 'master_admin', 'pos_admin'
+ * Dùng trong các file expense.js, history.js, settings.js, employees.js
+ */
+function isAdminUser() {
+    var user = typeof DB !== 'undefined' && DB.getCurrentUser ? DB.getCurrentUser() : null;
+    return user && (user.role === 'admin' || user.role === 'master_admin' || user.role === 'pos_admin');
+}
+
 // ========== PHÂN QUYỀN GIAO DIỆN ==========
 
 function applyRoleBasedUI(user) {
     if (!user) return;
     
-    // Xác định role thực tế: admin của POS mặc định (shopId === 'shop_default') cũng là master admin
-    var effectiveRole = user.role;
-    var isMasterAdmin = (user.role === 'master_admin') || (user.role === 'admin' && user.shopId === 'shop_default');
-    if (isMasterAdmin) {
-        effectiveRole = 'master_admin';
-    }
-    
     // Cập nhật tên nhân viên trên header
     var staffNameEl = document.querySelector('.staff-name');
     if (staffNameEl) {
-        var roleIcon = effectiveRole === 'master_admin' ? '👑' : (user.role === 'admin' ? '🛡️' : '👤');
-        staffNameEl.innerHTML = roleIcon + ' ' + escapeHtml(user.displayName);
+        var roleIcon = user.role === 'master_admin' ? '\uD83D\uDC51' : (user.role === 'admin' ? '\uD83D\uDEE1\uFE0F' : '\uD83D\uDC64');
+        var displayName = user.displayName;
+        // Rút gọn "Master Admin - ..." thành "Master"
+        if (displayName && displayName.indexOf('Master Admin') === 0) {
+            displayName = 'Master';
+        }
+        staffNameEl.innerHTML = roleIcon + ' ' + escapeHtml(displayName);
         staffNameEl.style.cursor = 'pointer';
         staffNameEl.title = 'Đăng xuất';
         staffNameEl.onclick = function() {
@@ -226,44 +300,30 @@ function applyRoleBasedUI(user) {
     var inventoryTab = document.querySelector('.tab-btn[data-tab="inventory"]');
     var reportTab = document.querySelector('.tab-btn[data-tab="report"]');
     var costTab = document.querySelector('.tab-btn[data-tab="cost"]');
-    var adminTab = document.querySelector('.tab-btn[data-tab="admin"]');
+    var masterTab = document.querySelector('.tab-btn[data-tab="master"]');
     
     if (user.role === 'master_admin') {
-        // Master Admin thực sự: chỉ thấy tab Admin + Settings
-        if (managerTab) managerTab.style.display = 'none';
-        if (staffTab) staffTab.style.display = 'none';
-        if (inventoryTab) inventoryTab.style.display = 'none';
-        if (reportTab) reportTab.style.display = 'none';
-        if (costTab) costTab.style.display = 'none';
-        if (adminTab) adminTab.style.display = '';
-        if (typeof loadAdminDashboard === 'function') {
-            setTimeout(loadAdminDashboard, 100);
-        }
-    } else if (isMasterAdmin) {
-        // Admin của POS mặc định: thấy cả tab quản lý + tab Admin
+        // Master admin: hiển thị đầy đủ như admin + thêm tab Master
         if (managerTab) managerTab.style.display = '';
         if (staffTab) staffTab.style.display = '';
         if (inventoryTab) inventoryTab.style.display = '';
         if (reportTab) reportTab.style.display = '';
         if (costTab) costTab.style.display = '';
-        if (adminTab) adminTab.style.display = '';
-        if (typeof loadAdminDashboard === 'function') {
-            setTimeout(loadAdminDashboard, 100);
-        }
+        if (masterTab) masterTab.style.display = '';
     } else if (user.role === 'admin') {
         if (managerTab) managerTab.style.display = '';
         if (staffTab) staffTab.style.display = '';
         if (inventoryTab) inventoryTab.style.display = '';
         if (reportTab) reportTab.style.display = '';
         if (costTab) costTab.style.display = '';
-        if (adminTab) adminTab.style.display = 'none';
+        if (masterTab) masterTab.style.display = 'none';
     } else {
         if (managerTab) managerTab.style.display = 'none';
         if (staffTab) staffTab.style.display = 'none';
         if (inventoryTab) inventoryTab.style.display = 'none';
         if (reportTab) reportTab.style.display = '';
         if (costTab) costTab.style.display = '';
-        if (adminTab) adminTab.style.display = 'none';
+        if (masterTab) masterTab.style.display = 'none';
     }
     
     // Hiển thị mã POS trong tab nhân viên
@@ -302,87 +362,15 @@ function reloadAppData() {
     
     // Kiểm tra online và force sync nếu cần
     if (DB.isOnline() && typeof DB.forceSyncFromFirebase === 'function') {
-        return DB.forceSyncFromFirebase().then(function() {
+        DB.forceSyncFromFirebase().then(function() {
             return doLoad();
         }).catch(function(err) {
             console.warn('⚠️ Force sync after login failed:', err);
             return doLoad();
         });
     } else {
-        return doLoad();
+        doLoad();
     }
-}
-
-// ========== ĐỔI MẬT KHẨU ==========
-
-function handleChangePassword() {
-    var currentPassEl = document.getElementById('changePassCurrent');
-    var newPassEl = document.getElementById('changePassNew');
-    var confirmPassEl = document.getElementById('changePassConfirm');
-    var statusEl = document.getElementById('changePasswordStatus');
-    
-    if (!currentPassEl || !newPassEl || !confirmPassEl || !statusEl) return;
-    
-    var currentPass = currentPassEl.value;
-    var newPass = newPassEl.value;
-    var confirmPass = confirmPassEl.value;
-    
-    // Kiểm tra đầu vào
-    if (!currentPass) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Vui lòng nhập mật khẩu hiện tại</span>';
-        currentPassEl.focus();
-        return;
-    }
-    if (!newPass) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Vui lòng nhập mật khẩu mới</span>';
-        newPassEl.focus();
-        return;
-    }
-    if (newPass.length < 4) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Mật khẩu mới phải có ít nhất 4 ký tự</span>';
-        newPassEl.focus();
-        return;
-    }
-    if (newPass !== confirmPass) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Mật khẩu xác nhận không khớp</span>';
-        confirmPassEl.focus();
-        return;
-    }
-    
-    // Kiểm tra mật khẩu hiện tại
-    var user = DB.getCurrentUser();
-    if (!user) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Bạn chưa đăng nhập</span>';
-        return;
-    }
-    
-    // Chỉ admin mới được đổi mật khẩu
-    if (user.role !== 'admin' && user.role !== 'master_admin') {
-        statusEl.innerHTML = '<span style="color:#ef4444;">Chỉ admin mới có thể đổi mật khẩu</span>';
-        return;
-    }
-    
-    // Xác thực mật khẩu hiện tại (so sánh với session đã lưu)
-    // Lưu ý: password được lưu trong session nhưng không hiển thị trong currentUser
-    // Nên cần kiểm tra qua DB.login() để xác thực
-    statusEl.innerHTML = '<span style="color:#fbbf24;">⏳ Đang xác thực...</span>';
-    
-    // Dùng DB.login để xác thực mật khẩu hiện tại
-    DB.login(user.shopCode, user.username, currentPass).then(function() {
-        // Xác thực thành công, tiến hành đổi mật khẩu
-        statusEl.innerHTML = '<span style="color:#fbbf24;">⏳ Đang đổi mật khẩu...</span>';
-        
-        return DB.changePassword(user.shopId, user.id, newPass);
-    }).then(function() {
-        statusEl.innerHTML = '<span style="color:#22c55e;">✅ Đổi mật khẩu thành công!</span>';
-        // Xóa các trường nhập
-        if (currentPassEl) currentPassEl.value = '';
-        if (newPassEl) newPassEl.value = '';
-        if (confirmPassEl) confirmPassEl.value = '';
-        showToast('🔑 Đã đổi mật khẩu thành công', 'success');
-    }).catch(function(err) {
-        statusEl.innerHTML = '<span style="color:#ef4444;">❌ ' + (err.message || 'Đổi mật khẩu thất bại') + '</span>';
-    });
 }
 
 // ========== QUẢN LÝ NHÂN VIÊN (ADMIN) ==========
@@ -406,3 +394,18 @@ function renderStaffList(staffs) {
 function showAddStaffForm() {}
 function hideAddStaffForm() {}
 function handleAddStaff() {}
+
+// Export global - employees.js sẽ ghi đè các hàm này khi load
+window.initAuth = initAuth;
+window.handleLogin = handleLogin;
+window.handleRegister = handleRegister;
+window.handleLogout = handleLogout;
+window.showRegisterForm = showRegisterForm;
+window.showLoginForm = showLoginForm;
+window.isAdminUser = isAdminUser;
+window.openStaffManager = openStaffManager;
+window.showAddStaffForm = showAddStaffForm;
+window.hideAddStaffForm = hideAddStaffForm;
+window.handleAddStaff = handleAddStaff;
+window.startLockMonitor = startLockMonitor;
+window.stopLockMonitor = stopLockMonitor;

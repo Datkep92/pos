@@ -116,9 +116,16 @@ body {
     font-size: 12px;              /* giảm từ 14px xuống 12px */
 }
 
-.staff-name { 
+.staff-name {
     font-size: 10px;              /* giảm từ 12px xuống 10px */
     opacity: 0.9;
+    transition: color 0.3s ease;
+}
+.staff-name.staff-online {
+    color: #4ade80 !important;    /* xanh lá - online */
+}
+.staff-name.staff-offline {
+    color: #ef4444 !important;    /* đỏ - offline */
 }
 
 .header-date {
@@ -3183,9 +3190,17 @@ body.modal-open {
 }
 
 .customer-info { flex: 1; min-width: 0; }
-.customer-name { font-weight: 600; margin-bottom: 4px; }
-.customer-phone { font-size: 12px; color: var(--text-secondary); }
-.customer-debt { font-weight: 700; color: var(--danger); white-space: nowrap; }
+.customer-name { font-weight: 600; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.customer-name .debt-inline { white-space: nowrap; flex-shrink: 0; }
+.customer-phone { font-size: 12px; color: var(--text-secondary); margin-bottom: 2px; }
+.customer-debt { font-size: 13px; line-height: 1.5; }
+.debt-total { color: var(--danger); font-weight: 700; }
+.debt-bracket { color: #94a3b8; }
+.debt-before { color: #64748b; font-weight: 500; }
+.debt-today { color: #f59e0b; font-weight: 600; }
+.debt-pay { color: #10b981; font-weight: 600; }
+.debt-change { color: #16a34a; font-weight: 600; margin-right: 8px; }
+.debt-prepaid { color: #8b5cf6; font-weight: 600; }
 
 @media (max-width: 480px) { .customer-card { padding: 10px; gap: 10px; } .customer-avatar { width: 38px; height: 38px; font-size: 16px; } .customer-name { font-size: 13px; } }
 @media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) { .customer-card { padding: 14px; } .customer-avatar { width: 48px; height: 48px; font-size: 20px; } }
@@ -3205,20 +3220,19 @@ body.modal-open {
 }
 
 .history-search {
-    margin-bottom: 12px;
+    flex: 1;
+    min-width: 0;
 }
-
 .history-search .search-input {
     width: 100%;
-    padding: 10px 14px;
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 30px;
-    font-size: 14px;
+    font-size: 13px;
     background: var(--surface);
     box-sizing: border-box;
     -webkit-appearance: none;
 }
-
 .history-search .search-input:focus {
     outline: none;
     border-color: var(--primary);
@@ -3234,6 +3248,67 @@ body.modal-open {
     background: var(--surface);
     font-size: 13px;
     -webkit-appearance: none;
+}
+
+/* History filter chips - Dòng 1: icon filter */
+.history-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0 4px 0;
+}
+/* Dòng 2: search + staff chips */
+.history-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 0 8px 0;
+}
+.history-staff-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+.filter-chip {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 16px;
+    line-height: 34px;
+    text-align: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    box-sizing: border-box;
+}
+.filter-chip:active {
+    transform: scale(0.9);
+}
+.filter-chip.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+.filter-chip-staff {
+    font-size: 13px;
+    font-weight: 700;
+    background: #f1f5f9;
+    border-color: #d1d5db;
+    color: #475569;
+}
+.filter-chip-staff.active {
+    background: #475569;
+    color: #fff;
+    border-color: #475569;
 }
 
 .history-list {
@@ -3269,7 +3344,31 @@ body.modal-open {
     font-size: 13px;
 }
 
-.history-time { font-weight: 600; color: var(--text-secondary); min-width: 48px; }
+.history-time {
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 48px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.history-time .history-elapsed {
+    font-size: 11px;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+.history-time .history-clock {
+    font-size: 14px;
+    font-weight: 800;
+    color: #1e40af;
+    background: #bfdbfe;
+    padding: 2px 10px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
 .history-location { color: var(--text); }
 
 .history-table-time {
@@ -3838,6 +3937,16 @@ body.modal-open {
     line-height: 1.2;
     text-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
+.change-toast .change-return {
+    color: #fef3c7;
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 6px;
+    padding: 6px 12px;
+    background: rgba(251, 191, 36, 0.15);
+    border-radius: 10px;
+    display: inline-block;
+}
 .change-toast .change-hint {
     color: #a7f3d0;
     font-size: 12px;
@@ -4167,6 +4276,251 @@ body.modal-open {
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--border);
+}
+
+/* Settings collapsible: khi thu gọn chỉ để lại title với padding nhỏ */
+.collapsible-section:not(.expanded) {
+    padding: 8px 14px !important;
+    margin-bottom: 6px !important;
+}
+.collapsible-section.expanded {
+    padding: 12px 14px !important;
+    margin-bottom: 8px !important;
+}
+
+/* Settings collapsible sections - toggle on title click */
+.collapsible-section {
+    margin-bottom: 8px;
+}
+.collapsible-section .settings-title {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+}
+.collapsible-section .settings-title:hover {
+    opacity: 0.8;
+}
+.settings-toggle-icon {
+    font-size: 12px;
+    color: #94a3b8;
+    transition: transform 0.2s ease;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+.collapsible-section.expanded .settings-toggle-icon {
+    transform: rotate(90deg);
+}
+.settings-section-body {
+    overflow: hidden;
+    transition: max-height 0.3s ease, margin-top 0.3s ease, padding-top 0.3s ease;
+}
+.collapsible-section:not(.expanded) .settings-section-body {
+    max-height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    border-top: none !important;
+}
+.collapsible-section.expanded .settings-section-body {
+    max-height: 2000px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* ===== BONUS FUND - Quỹ thưởng trách nhiệm ===== */
+.bonus-fund-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #1a3a2a, #0d2818);
+    border: 1px solid #2d6a4f;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.bonus-fund-summary:hover {
+    border-color: #40916c;
+    box-shadow: 0 0 12px rgba(45, 106, 79, 0.4);
+}
+.bonus-fund-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #95d5b2;
+}
+.bonus-fund-total {
+    font-size: 22px;
+    font-weight: 700;
+    color: #52b788;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.bonus-fund-total:hover {
+    color: #74c69d;
+    text-decoration: underline;
+}
+
+/* Modal chi tiết quỹ thưởng */
+.bonus-fund-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+.bonus-fund-nav-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background 0.2s;
+}
+.bonus-fund-nav-btn:hover {
+    background: var(--accent);
+    color: #fff;
+}
+.bonus-fund-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+#bonusFundDateRange {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Mỗi ngày trong modal */
+.bonus-fund-day {
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.bonus-fund-day-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--surface2);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+}
+.bonus-fund-day-total {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+/* Mỗi giao dịch trong ngày */
+.bonus-fund-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    transition: background 0.15s;
+}
+.bonus-fund-item:last-child {
+    border-bottom: none;
+}
+.bonus-fund-item:hover {
+    background: rgba(255,255,255,0.03);
+}
+.bonus-fund-item-icon {
+    width: 28px;
+    text-align: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.bonus-fund-item-info {
+    flex: 1;
+    padding: 0 8px;
+    min-width: 0;
+}
+.bonus-fund-item-desc {
+    color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bonus-fund-item-revenue {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+.bonus-fund-item-amount {
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+.bonus-fund-revenue-detail {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-right: 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.bonus-fund-item-amount.positive {
+    color: #52b788;
+}
+.bonus-fund-item-amount.negative {
+    color: #ef4444;
+}
+.bonus-fund-item-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.bonus-fund-item-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.15s;
+}
+.bonus-fund-item-btn:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.bonus-fund-item-btn.edit:hover {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+.bonus-fund-item-btn.delete:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+/* Empty state */
+.bonus-fund-empty {
+    text-align: center;
+    padding: 24px 16px;
+    color: var(--text-secondary);
+    font-size: 14px;
 }
 
 .settings-info {
@@ -5043,6 +5397,190 @@ body.modal-open {
     .cash-counter-total {
         font-size: 16px;
     }
+}
+
+/* ========== MODAL DANH SÁCH GIAO DỊCH THEO PHƯƠNG THỨC ========== */
+.pmtx-header {
+    display: flex;
+    padding: 8px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 2px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 8px 8px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.pmtx-row {
+    display: flex;
+    padding: 10px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    align-items: center;
+}
+.pmtx-row:hover {
+    background: #f1f5f9;
+}
+.pmtx-row:active {
+    background: #e2e8f0;
+}
+.pmtx-footer {
+    display: flex;
+    padding: 10px 14px;
+    border-top: 2px solid #e2e8f0;
+    margin-top: 4px;
+    background: #f8fafc;
+    border-radius: 0 0 8px 8px;
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e293b;
+    align-items: center;
+}
+.pmtx-col-stt {
+    width: 36px;
+    flex-shrink: 0;
+    color: #94a3b8;
+    font-size: 12px;
+}
+.pmtx-col-time {
+    width: 56px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #1e40af;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: #dbeafe;
+    padding: 3px 8px;
+    border-radius: 5px;
+    text-align: center;
+    letter-spacing: 0.8px;
+    border: 1px solid #bfdbfe;
+}
+.pmtx-col-items {
+    flex: 1;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 6px;
+    color: #334155;
+}
+.pmtx-col-qty {
+    width: 36px;
+    text-align: center;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+}
+.pmtx-col-amount {
+    width: 110px;
+    text-align: right;
+    flex-shrink: 0;
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.pmtx-footer .pmtx-col-amount {
+    color: #e74c3c;
+    font-size: 14px;
+}
+.pmtx-footer .pmtx-col-items {
+    color: #1e293b;
+    font-weight: 700;
+}
+
+/* ========== MODAL BÀN ĐANG HOẠT ĐỘNG (dạng lưới) ========== */
+.atm-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.atm-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+}
+.atm-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.atm-card-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1e293b;
+}
+.atm-card-total {
+    font-weight: 700;
+    font-size: 13px;
+    color: #e74c3c;
+}
+.atm-card-meta {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+}
+.atm-items {
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 4px;
+    margin-top: 4px;
+    flex: 1;
+}
+.atm-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 12px;
+}
+.atm-item-name {
+    flex: 1;
+    color: #334155;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+.atm-item-qty {
+    color: #64748b;
+    margin: 0 6px;
+    white-space: nowrap;
+    font-size: 11px;
+    min-width: 24px;
+    text-align: center;
+}
+.atm-item-total {
+    color: #0f172a;
+    font-weight: 500;
+    white-space: nowrap;
+    font-size: 12px;
+    min-width: 65px;
+    text-align: right;
+}
+.atm-grand-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    margin-top: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    background: #f1f5f9;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    color: #0f172a;
 }
 
 /* ========== TIỀN MẶT TẠI POS (Cash Counter + Đối soát) ========== */
