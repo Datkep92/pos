@@ -461,7 +461,8 @@ function showDeleteTableConfirm(tableId) {
         // Chống gian lận: nhân viên không thể xóa bàn sau khi đã chốt ngày
         // NÂNG CẤP: Admin không cần mật khẩu, vẫn mở modal xóa bàn
         if (typeof isDayClosed === 'function' && isDayClosed()) {
-            if (DB.isAdmin()) {
+            var currentUser = DB.getCurrentUser();
+            if (currentUser && currentUser.role === 'admin') {
                 // Admin: mở modal xóa bàn trực tiếp, không cần mật khẩu
                 document.getElementById('deleteTableModal').style.display = 'flex';
                 return;

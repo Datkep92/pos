@@ -93,8 +93,8 @@ function openExpenseModal() {
 
         // Mặc định nguồn tiền: Admin = QLTT, Staff = Két POS
         var currentUser = DB.getCurrentUser();
-        var _isAdmin = isAdminUser();
-        _expenseSelectedFundSource = _isAdmin ? 'management' : 'pos_cash';
+        var isAdminUser = currentUser && currentUser.role === 'admin';
+        _expenseSelectedFundSource = isAdminUser ? 'management' : 'pos_cash';
         switchFundSource(_expenseSelectedFundSource);
 
 
@@ -123,8 +123,8 @@ function openExpenseModal() {
 // ========== PHÂN QUYỀN CHI PHÍ ==========
 function applyExpenseRoleRestrictions() {
     var currentUser = DB.getCurrentUser();
-    var isStaff = currentUser && !isAdminUser();
-    var isAdmin = isAdminUser();
+    var isStaff = currentUser && currentUser.role !== 'admin';
+    var isAdmin = currentUser && currentUser.role === 'admin';
     // Selector hỗ trợ cả .fund-source-row (pos.html) và .cost-fund-source (index.html)
     var fundSourceRow = document.querySelector('.fund-source-row, .cost-fund-source');
     if (fundSourceRow) {
@@ -310,7 +310,7 @@ function _renderIngredientGrid(container, list) {
     }
 
     var currentUser = DB.getCurrentUser();
-    var isAdmin = isAdminUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
 
     var html = '';
     for (var i = 0; i < list.length; i++) {
@@ -407,7 +407,7 @@ function renderWasteTypeList() {
     }
 
     var currentUser = DB.getCurrentUser();
-    var isAdmin = isAdminUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
 
     var html = '';
     for (var i = 0; i < wasteCats.length; i++) {
@@ -483,8 +483,8 @@ function saveExpense() {
 
     // Cảnh báo admin khi dùng Két POS
     var currentUser = DB.getCurrentUser();
-    var _isAdmin = isAdminUser();
-    if (_isAdmin && fundSource === 'pos_cash') {
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    if (isAdminUser && fundSource === 'pos_cash') {
         var self = this;
         _showConfirmModal(
             '⚠️ Bạn đang dùng <strong>Két POS</strong> (tiền tại quầy).<br><br>Nhấn OK để xác nhận, hoặc Hủy để chuyển sang Quản lý thanh toán.',
@@ -884,12 +884,6 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSo
                 createdAt: new Date().toISOString()
             });
         }
-        // FIX: Dispatch pos_cash_update để cập nhật realtime Két POS ngay lập tức
-        try {
-            var evt = document.createEvent('CustomEvent');
-            evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'expense', fundSource: fundSource } });
-            window.dispatchEvent(evt);
-        } catch(e) {}
         return loadExpenseData();
     }).then(function() {
         showToast('✅ Đã thêm chi phí nguyên liệu ' + formatMoney(amount), 'success');
@@ -909,7 +903,7 @@ function saveIngredientExpense(ingredientId, ingredientName, qty, amount, fundSo
 }
 
 // ========== LƯU CHI PHÍ HAO PHÍ ==========
-function saveWasteExpense(categoryName, amount, fundSource) {
+function saveWasteExpense(categoryName, amount, fundSource, fundHistoryKey) {
     var now = new Date();
     var dateKey = typeof getTodayDateKey === 'function' ? getTodayDateKey() : now.toISOString().slice(0, 10);
 
@@ -964,7 +958,8 @@ function saveWasteExpense(categoryName, amount, fundSource) {
             dateKey: dateKey,
             createdAt: Date.now(),
             createdBy: (DB.getCurrentUser() && DB.getCurrentUser().id) || window.currentDeviceId || '',
-            deleted: false
+            deleted: false,
+            fundHistoryKey: fundHistoryKey || null
         };
         return DB.create('cost_transactions', costData);
     };
@@ -993,12 +988,6 @@ function saveWasteExpense(categoryName, amount, fundSource) {
                     createdAt: new Date().toISOString()
                 });
             }
-            // FIX: Dispatch pos_cash_update để cập nhật realtime Két POS ngay lập tức
-            try {
-                var evt = document.createEvent('CustomEvent');
-                evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'expense', fundSource: fundSource } });
-                window.dispatchEvent(evt);
-            } catch(e) {}
             return loadExpenseData();
         }).then(function() {
             showToast('✅ Đã thêm chi phí ' + formatMoney(amount), 'success');
@@ -1078,7 +1067,7 @@ function renderExpensesByDate(dateKey) {
 
     var allTx = expenseData.transactions || [];
     var currentUser = DB.getCurrentUser();
-    var _isAdmin = isAdminUser();
+    var isAdminUser = currentUser && currentUser.role === 'admin';
     var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
 
     var filtered = [];
@@ -1086,7 +1075,7 @@ function renderExpensesByDate(dateKey) {
         var tx = allTx[i];
         if (tx && tx.dateKey === dateKey && !tx.deleted) {
             // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
-            if (!_isAdmin && tx.fundSource !== 'pos_cash') continue;
+            if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
             filtered.push(tx);
         }
     }
@@ -1136,7 +1125,7 @@ function renderExpensesByDate(dateKey) {
         // Phân quyền:
         // - Admin: sửa/xóa được tất cả, có long-press context menu
         // - Staff: chỉ sửa/xóa được chi phí hôm nay (dateKey === today)
-        var canEdit = _isAdmin || (dateKey === today);
+        var canEdit = isAdminUser || (dateKey === today);
         var actionsHtml = '';
         if (canEdit) {
             // Cả admin và staff đều dùng context menu (click để mở)
@@ -1446,7 +1435,7 @@ function _showAdminContextMenu(txId, event) {
     if (!tx) return;
 
     var currentUser = DB.getCurrentUser();
-    var isAdmin = isAdminUser();
+    var isAdmin = currentUser && currentUser.role === 'admin';
 
     _adminContextTxId = txId;
     _adminContextMode = 'single';
@@ -1688,7 +1677,7 @@ var _adminIngredientMergeMode = false;
 
 function _adminShowIngredientContext(ingredientId, event) {
     var currentUser = DB.getCurrentUser();
-    if (!currentUser || !isAdminUser()) return;
+    if (!currentUser || currentUser.role !== 'admin') return;
 
     _adminIngredientContextId = ingredientId;
     _adminIngredientSelectedIds = [ingredientId];
@@ -2111,7 +2100,7 @@ var _adminWasteMergeMode = false;
 
 function _adminShowWasteContext(wasteId, event) {
     var currentUser = DB.getCurrentUser();
-    if (!currentUser || !isAdminUser()) return;
+    if (!currentUser || currentUser.role !== 'admin') return;
 
     _adminWasteContextId = wasteId;
     _adminWasteSelectedIds = [wasteId];
@@ -2508,7 +2497,7 @@ function renderMonthExpenseTotal() {
 
     var allTx = expenseData.transactions || [];
     var currentUser = DB.getCurrentUser();
-    var _isAdmin = isAdminUser();
+    var isAdminUser = currentUser && currentUser.role === 'admin';
     var now = new Date();
     // Dùng Date.UTC để tính start/end tháng đúng VN timezone
     var start = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)).toISOString().slice(0, 10);
@@ -2520,7 +2509,7 @@ function renderMonthExpenseTotal() {
         var tx = allTx[i];
         if (tx && !tx.deleted && tx.dateKey >= start && tx.dateKey <= end) {
             // Nhân viên: chỉ thấy giao dịch dùng Két POS (pos_cash)
-            if (!_isAdmin && tx.fundSource !== 'pos_cash') continue;
+            if (!isAdminUser && tx.fundSource !== 'pos_cash') continue;
             monthTxs.push(tx);
         }
     }
@@ -2654,8 +2643,8 @@ function editExpense(id) {
 
     // Phân quyền: admin sửa được tất cả, staff chỉ sửa được chi phí hôm nay
     var currentUser = DB.getCurrentUser();
-    var _isAdmin = isAdminUser();
-    if (!_isAdmin) {
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    if (!isAdminUser) {
         var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
         if (tx.dateKey !== today) {
             showToast('Bạn chỉ được sửa chi phí trong ngày hôm nay!', 'warning');
@@ -2708,6 +2697,18 @@ function confirmEditExpense(id) {
         return;
     }
 
+    // Lưu thông tin cũ để điều chỉnh quỹ sau này
+    var oldTx = _findTxInCache(id);
+    var oldAmount = oldTx ? oldTx.amount : 0;
+    var oldName = oldTx ? oldTx.categoryName : '';
+    var oldFundSource = oldTx ? oldTx.fundSource : '';
+    
+    // Xác định xem có cần điều chỉnh quỹ không
+    // - Cũ là "Quỹ trách nhiệm" + pos_cash → cần hoàn lại oldAmount
+    // - Mới là "Quỹ trách nhiệm" + pos_cash → cần trừ newAmount
+    var wasFundExpense = oldName === 'Quỹ trách nhiệm' && oldFundSource === 'pos_cash';
+    var willBeFundExpense = newName === 'Quỹ trách nhiệm'; // fundSource giữ nguyên pos_cash
+
     var updateData = {
         categoryName: newName,
         amount: newAmount
@@ -2733,6 +2734,19 @@ function confirmEditExpense(id) {
     DB.update('cost_transactions', id, updateData).then(function() {
         return loadExpenseData();
     }).then(function() {
+        // Điều chỉnh quỹ nếu liên quan đến "Quỹ trách nhiệm"
+        if (wasFundExpense && willBeFundExpense) {
+            // Cả cũ và mới đều là quỹ trách nhiệm → điều chỉnh chênh lệch
+            if (oldAmount !== newAmount) {
+                _adjustFundForExpenseChange('edit', oldAmount, newAmount);
+            }
+        } else if (wasFundExpense && !willBeFundExpense) {
+            // Đổi từ quỹ trách nhiệm → loại khác → hoàn lại toàn bộ
+            _adjustFundForExpenseChange('edit', oldAmount, 0);
+        } else if (!wasFundExpense && willBeFundExpense) {
+            // Đổi từ loại khác → quỹ trách nhiệm → trừ tiền (ghi nhận rút quỹ)
+            _adjustFundForExpenseChange('edit', 0, newAmount);
+        }
         showToast('✅ Đã cập nhật chi phí', 'success');
         cancelEditExpense();
         renderTodayExpenses();
@@ -2776,8 +2790,8 @@ function deleteExpense(id) {
 
     // Phân quyền: admin xóa được tất cả, staff chỉ xóa được chi phí hôm nay
     var currentUser = DB.getCurrentUser();
-    var _isAdmin = isAdminUser();
-    if (!_isAdmin) {
+    var isAdminUser = currentUser && currentUser.role === 'admin';
+    if (!isAdminUser) {
         var today = typeof getTodayDateKey === 'function' ? getTodayDateKey() : new Date().toISOString().slice(0, 10);
         if (tx.dateKey !== today) {
             showToast('Bạn chỉ được xóa chi phí trong ngày hôm nay!', 'warning');
@@ -2878,6 +2892,10 @@ function doDeleteExpense(tx, id, revertStock) {
     }).then(function() {
         return loadExpenseData();
     }).then(function() {
+        // Nếu xóa chi phí "Quỹ trách nhiệm" → hoàn lại tiền vào quỹ
+        if (tx && tx.categoryName === 'Quỹ trách nhiệm' && tx.fundSource === 'pos_cash' && tx.amount > 0) {
+            _adjustFundForExpenseChange('delete', tx.amount, 0);
+        }
         showToast('🗑️ Đã xóa chi phí', 'success');
         renderTodayExpenses();
         renderMonthExpenseTotal();
@@ -2886,6 +2904,62 @@ function doDeleteExpense(tx, id, revertStock) {
         console.error('Delete expense error:', err);
         showToast('Lỗi khi xóa chi phí!', 'error');
     });
+}
+
+// Điều chỉnh quỹ trách nhiệm khi xóa/sửa chi phí liên quan
+// type: 'delete' | 'edit'
+// oldAmount: số tiền cũ của chi phí
+// newAmount: số tiền mới (0 nếu xóa)
+function _adjustFundForExpenseChange(type, oldAmount, newAmount) {
+    try {
+        var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+        var fundRef = firebase.database().ref(shopId + '/responsibility_fund');
+        
+        fundRef.child('balance').once('value').then(function(snapshot) {
+            var currentBalance = snapshot.val() || 0;
+            
+            // Tính số tiền cần điều chỉnh
+            // Xóa: hoàn lại oldAmount (balance + oldAmount)
+            // Sửa: hoàn oldAmount, trừ newAmount (balance + oldAmount - newAmount)
+            var adjustment = oldAmount - newAmount;
+            var newBalance = currentBalance + adjustment;
+            
+            // Nếu sửa tăng số tiền, kiểm tra không vượt quá quỹ
+            // (adjustment âm = đang trừ thêm tiền từ quỹ)
+            // Cho phép âm quỹ nhưng cảnh báo
+            if (adjustment < 0 && newBalance < 0) {
+                // Cảnh báo quỹ sẽ âm nhưng vẫn cho phép
+            }
+            
+            var note = '';
+            if (type === 'delete') {
+                note = 'Hoàn lại từ xóa chi phí';
+            } else {
+                note = 'Điều chỉnh từ sửa chi phí (cũ: ' + formatMoney(oldAmount) + ' → mới: ' + formatMoney(newAmount) + ')';
+            }
+            
+            var historyEntry = {
+                type: 'refund',
+                amount: adjustment,
+                balanceBefore: currentBalance,
+                balanceAfter: newBalance,
+                note: note,
+                createdAt: Date.now(),
+                createdBy: window.currentDeviceId || 'system'
+            };
+            
+            var historyRef = fundRef.child('history').push();
+            var updates = {};
+            updates['balance'] = newBalance;
+            updates['history/' + historyRef.key] = historyEntry;
+            
+            return fundRef.update(updates);
+        }).catch(function(err) {
+            // Bỏ qua lỗi, không ảnh hưởng chính
+        });
+    } catch (e) {
+        // Bỏ qua lỗi
+    }
 }
 
 // ========== GẮN SỰ KIỆN ==========

@@ -1274,11 +1274,9 @@ function updateCartQty(idx, delta) {
 // ========== TẠO BÀN MỚI - TỰ ĐỘNG (phiên bản đơn giản) ==========
 // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt (dùng chung)
 // FIX: Bỏ điều kiện menuItem.ingredients - dùng _getIngredientsForItem để hỗ trợ variant
-// FIX Phase 1: _checkAndDeductIngredients - KHÔNG reject, luôn resolve thành công
-// Mọi lỗi DB.update hoặc log đều được catch và log, không ảnh hưởng đến giao dịch
 function _checkAndDeductIngredients(items) {
     _buildLookups();
-    var promises = [];
+    var updates = [];
     for (var i = 0; i < items.length; i++) {
         var orderItem = items[i];
         var baseName = orderItem.name.replace(/\s*\([^)]*\)/g, '').trim();
@@ -1291,34 +1289,31 @@ function _checkAndDeductIngredients(items) {
                 if (ing) {
                     var needed = _getConvertedQuantity(ing, req.quantity * orderItem.qty, req.unit);
                     // Cho phép âm kho - không chặn giao dịch khi hết nguyên liệu
+                    // Deduct
                     ing.stock = (ing.stock || 0) - needed;
-                    // FIX: Catch lỗi DB.update để không reject promise chain
-                    promises.push(DB.update('ingredients', ing.id, { stock: ing.stock }).catch(function(err) {
-                        console.error('[INGREDIENT] DB.update lỗi (đã bỏ qua):', err);
-                    }));
+                    updates.push(DB.update('ingredients', ing.id, { stock: ing.stock }));
+                    
+                    var unit = ing.unit || '';
+                    var note = 'Bán: ' + orderItem.name + ' x' + orderItem.qty + ' (-' + Math.round(needed * 1000) / 1000 + ' ' + unit + ')';
+                    _logIngredientTransaction(ing.id, 'export', Math.round(needed * 1000) / 1000, unit, note).catch(function(err) {
+                        console.error('Log export error:', err);
+                    });
                 }
             }
         }
     }
-    // FIX: Luôn resolve thành công, không reject dù có lỗi DB
-    return Promise.all(promises).then(function() {
-        return true;
-    }).catch(function(err) {
-        console.error('[INGREDIENT] Lỗi không mong đợi (đã bỏ qua):', err);
-        return true; // Luôn trả về true để không chặn giao dịch
-    });
+    return Promise.all(updates);
 }
 
-// FIX Phase 1: handleCreateNewTable - tách ingredient ra background
+// OPTIMIZE: handleCreateNewTable - suppress realtime, gộp checkStock+deductIngredients
+// FIX: Dùng window.cachedTables thay vì DB.getAll('tables') để tránh query DB mỗi lần
 function handleCreateNewTable() {
     if (!tempOrder.length) {
         showToast('Chưa có món nào trong giỏ!', 'warning');
         return;
     }
     
-    // Clone items trước khi clear
-    var items = _cloneArr(tempOrder);
-    
+    // OPTIMIZE: Suppress realtime notifications
     DB.suppressRealtime();
     
     // Lấy danh sách bàn hiện tại từ memory cache
@@ -1328,10 +1323,11 @@ function handleCreateNewTable() {
     var numbers = [];
     for (var i = 0; i < allTables.length; i++) {
         var name = allTables[i].name;
-        var num = parseInt(name.replace(/\D/g, ''));
+        var num = parseInt(name.replace(/\D/g, '')); // Lấy số từ tên
         if (!isNaN(num)) numbers.push(num);
     }
     
+    // Tìm số lớn nhất
     var maxNum = Math.max.apply(null, numbers);
     if (maxNum === -Infinity) maxNum = 0;
     
@@ -1340,8 +1336,9 @@ function handleCreateNewTable() {
     
     var now = new Date();
     var tableId = Date.now().toString();
-    var initTotal = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
-    var initItems = items.map(function(item) { return { name: item.name, qty: item.qty }; });
+    var initTotal = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+    // Lưu danh sách món vừa thêm
+    var initItems = tempOrder.map(function(item) { return { name: item.name, qty: item.qty }; });
     var currentUser = DB.getCurrentUser();
     var newTable = {
         id: tableId,
@@ -1349,7 +1346,7 @@ function handleCreateNewTable() {
         status: 'occupied',
         time: now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
         startTime: now.toISOString(),
-        items: _cloneArr(items),
+        items: _cloneArr(tempOrder),
         total: initTotal,
         customerId: selectedCustomer ? selectedCustomer.id : null,
         customerName: selectedCustomer ? selectedCustomer.name : null,
@@ -1358,8 +1355,12 @@ function handleCreateNewTable() {
         createdByRole: (currentUser && currentUser.role) || ''
     };
     
-    // FIX Phase 1: Chỉ chờ DB.create, ingredient chạy background
-    DB.create('tables', newTable, tableId).then(function() {
+    // OPTIMIZE: Gộp checkStock + deductIngredients, chạy song song với DB.create
+    var createPromise = DB.create('tables', newTable, tableId);
+    var stockPromise = _checkAndDeductIngredients(tempOrder);
+    
+    Promise.all([createPromise, stockPromise]).then(function() {
+        // Xóa draft nếu đang chỉnh sửa draft
         if (currentDraftId) {
             return deleteDraft(currentDraftId);
         }
@@ -1368,9 +1369,13 @@ function handleCreateNewTable() {
         selectedCustomer = null;
         currentDraftId = null;
         closeModal('orderModal');
+        
+        // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
         DB.flushRealtime();
+        
         return renderTables();
     }).then(function() {
+        // Thêm class table-new để chạy hiệu ứng glow 30s
         var card = document.querySelector('.table-card[data-id="' + tableId + '"]');
         if (card) card.classList.add('table-new');
         showToast('✅ Đã tạo ' + tableName, 'success');
@@ -1379,17 +1384,11 @@ function handleCreateNewTable() {
         DB.flushRealtime();
         showToast(err.message || 'Lỗi!', 'error');
     });
-    
-    // FIX Phase 1: Ingredient deduction chạy background
-    setTimeout(function() {
-        _checkAndDeductIngredients(items).then(function() {
-            console.log('[INGREDIENT] Đã trừ nguyên liệu cho bàn mới:', tableName);
-        });
-    }, 0);
 }
 
 // ========== XỬ LÝ THÊM VÀO BÀN HIỆN TẠI ==========
-// FIX Phase 1: handleAddToExistingTable - tách ingredient ra background
+// OPTIMIZE: handleAddToExistingTable - suppress realtime, gộp checkStock+deductIngredients
+// FIX: Dùng window.cachedTables thay vì DB.get('tables', ...) để tránh query DB mỗi lần
 function handleAddToExistingTable() {
     if (!tempOrder.length) {
         showToast('Chưa có món nào trong giỏ!', 'warning');
@@ -1400,9 +1399,7 @@ function handleAddToExistingTable() {
         return;
     }
     
-    // Clone items trước khi clear
-    var items = _cloneArr(tempOrder);
-    
+    // OPTIMIZE: Suppress realtime notifications
     DB.suppressRealtime();
     
     // Lấy bàn từ memory cache
@@ -1421,10 +1418,13 @@ function handleAddToExistingTable() {
         return;
     }
     
-    // Chuẩn bị dữ liệu cập nhật bàn
+    // OPTIMIZE: Gộp checkStock + deductIngredients thành 1 lần duyệt
+    var stockPromise = _checkAndDeductIngredients(tempOrder);
+    
+    // Chuẩn bị dữ liệu cập nhật bàn (có thể tính song song)
     var existingItems = table.items || [];
-    for (var i = 0; i < items.length; i++) {
-        existingItems.push(_cloneArr([items[i]])[0]);
+    for (var i = 0; i < tempOrder.length; i++) {
+        existingItems.push(_cloneArr([tempOrder[i]])[0]);
     }
     
     var newTotal = existingItems.reduce(function(sum, item) {
@@ -1433,16 +1433,19 @@ function handleAddToExistingTable() {
     
     var recentAdds = table.recentAdds || [];
     var now = new Date();
-    var addedItems = items.map(function(item) { return { name: item.name, qty: item.qty }; });
+    var addedItems = tempOrder.map(function(item) { return { name: item.name, qty: item.qty }; });
     recentAdds.push({ items: addedItems, time: now.toISOString() });
     if (recentAdds.length > 2) recentAdds.shift();
     
-    // FIX Phase 1: Chỉ chờ DB.update, ingredient chạy background
-    DB.update('tables', String(currentAddToTableId), {
+    // OPTIMIZE: Chạy song song checkStock+deductIngredients và DB.update
+    var updatePromise = DB.update('tables', String(currentAddToTableId), {
         items: existingItems,
         total: newTotal,
         recentAdds: recentAdds
-    }).then(function() {
+    });
+    
+    Promise.all([stockPromise, updatePromise]).then(function() {
+        // Xóa draft nếu đang chỉnh sửa draft
         if (currentDraftId) {
             return deleteDraft(currentDraftId);
         }
@@ -1451,9 +1454,13 @@ function handleAddToExistingTable() {
         selectedCustomer = null;
         currentDraftId = null;
         closeModal('orderModal');
+        
+        // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
         DB.flushRealtime();
+        
         return renderTables();
     }).then(function() {
+        // Thêm class table-new để chạy hiệu ứng glow 30s
         var card = document.querySelector('.table-card[data-id="' + currentAddToTableId + '"]');
         if (card) card.classList.add('table-new');
         showToast('✅ Đã thêm món vào bàn', 'success');
@@ -1461,13 +1468,6 @@ function handleAddToExistingTable() {
         DB.flushRealtime();
         showToast(err.message || 'Lỗi khi thêm món!', 'error');
     });
-    
-    // FIX Phase 1: Ingredient deduction chạy background
-    setTimeout(function() {
-        _checkAndDeductIngredients(items).then(function() {
-            console.log('[INGREDIENT] Đã trừ nguyên liệu cho bàn:', table.name);
-        });
-    }, 0);
 }
 
 // Biến lưu trạng thái toast tiền dư cho takeaway
@@ -1557,26 +1557,26 @@ function handleTakeawayPayment(method) {
     _processTakeawayDirect(method);
 }
 
-// FIX Phase 1: _processTakeawayDirect - Optimistic UI
-// 1. Lưu transaction vào IndexedDB NGAY (không chờ ingredient)
-// 2. Ingredient deduction chạy background (fire-and-forget)
-// 3. Không block giao dịch dù ingredient có lỗi
+// OPTIMIZE: _processTakeawayDirect - đóng modal ngay, song song hóa Promise, batch ingredients
+// FIX: Dùng items (đã clone) thay vì tempOrder cho _checkAndDeductIngredients
+// vì closeModal có thể clear tempOrder
 function _processTakeawayDirect(method) {
     if (!tempOrder.length) return;
     
-    // Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
     var items = _cloneArr(tempOrder);
     var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
     var now = new Date();
     
-    // Đóng modal ngay lập tức
+    // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý thanh toán...', 'info', 0);
     
-    // Suppress realtime notifications trong quá trình batch operations
+    // OPTIMIZE: Suppress realtime notifications trong quá trình batch operations
     DB.suppressRealtime();
     
-    // Kiểm tra credit của khách
+    // FIX: Kiểm tra credit của khách - chỉ kiểm tra nếu chưa qua _takeawayChangeToastPay
+    // (vì _takeawayChangeToastPay đã lưu tiền dư và set _skipOrderCreditCheck = true)
     var creditUsed = 0;
     var customerInfo = selectedCustomer ? { id: selectedCustomer.id, name: selectedCustomer.name } : null;
     
@@ -1586,79 +1586,99 @@ function _processTakeawayDirect(method) {
             total = total - creditUsed;
         }
     }
+    // Reset flag sau khi đã xử lý
     _skipOrderCreditCheck = false;
     
-    // FIX Phase 1: Lưu transaction vào IndexedDB NGAY, ingredient chạy background
-    // Bước 1: Lưu history trước (quan trọng nhất - ghi nhận giao dịch)
-    var creditPromise = Promise.resolve();
-    if (creditUsed > 0 && selectedCustomer) {
-        creditPromise = useCustomerCredit(selectedCustomer.id, creditUsed, 'Trừ tiền dư khi mua mang đi');
-    }
-    
-    var historyPromise = addHistory({
-        type: 'takeaway',
-        amount: total,
-        paymentMethod: method,
-        items: items,
-        customer: customerInfo,
-        tableName: null,
-        note: 'Mang đi - ' + (method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản') + (creditUsed > 0 ? ' (dùng ' + formatMoney(creditUsed) + ' tiền dư)' : ''),
-        createdAt: now.toISOString(),
-        dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+    // OPTIMIZE: Dùng _checkAndDeductIngredients thay vì inline
+    // FIX: Dùng items (đã clone) thay vì tempOrder
+    var stockAndDeductPromise = _checkAndDeductIngredients(items).then(function() {
+        return true;
+    }).catch(function(err) {
+        showToast('⚠️ ' + (err.message || 'Hết nguyên liệu'), 'error');
+        return false;
     });
     
-    // Chạy credit + history song song (cả 2 đều quan trọng cho giao dịch)
-    Promise.all([creditPromise, historyPromise]).then(function() {
-        DB.flushRealtime();
-        
-        // AUDIT: Nếu thanh toán tiền mặt, kiểm tra két
-        if (method === 'cash') {
-            handleCashPayment(total, null, {type: 'takeaway', tableName: null, customer: customerInfo}).catch(function(err) {
-                console.error('[AUDIT] handleCashPayment lỗi:', err);
-            });
+    stockAndDeductPromise.then(function(result) {
+        if (!result) {
+            hideToast(_paymentToastId);
+            DB.flushRealtime();
+            return;
         }
         
-        // Gửi thông báo Telegram giao dịch
-        if (typeof notifyPaymentToTelegram === 'function') {
-            notifyPaymentToTelegram({
-                type: 'takeaway',
-                amount: total,
-                paymentMethod: method,
-                items: items,
-                tableName: null,
-                customer: customerInfo,
-                createdAt: now.toISOString()
-            });
+        // OPTIMIZE: Chạy song song credit + addHistory
+        var creditPromise = Promise.resolve();
+        if (creditUsed > 0 && selectedCustomer) {
+            creditPromise = useCustomerCredit(selectedCustomer.id, creditUsed, 'Trừ tiền dư khi mua mang đi');
         }
         
-        // Xóa draft (fire-and-forget)
-        if (currentDraftId) {
-            deleteDraft(currentDraftId);
-        }
+        var historyPromise = addHistory({
+            type: 'takeaway',
+            amount: total,
+            paymentMethod: method,
+            items: items,
+            customer: customerInfo,
+            tableName: null,
+            note: 'Mang đi - ' + (method === 'cash' ? 'Tiền mặt' : 'Chuyển khoản') + (creditUsed > 0 ? ' (dùng ' + formatMoney(creditUsed) + ' tiền dư)' : ''),
+            createdAt: now.toISOString(),
+            dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+        });
         
-        tempOrder = [];
-        selectedCustomer = null;
-        currentDraftId = null;
+        // FIX: Đồng bộ dateKey trong DB.create - normalizeIndexedFields sẽ tính lại dateKey theo local time
+        // Nhưng createdAt vẫn là ISO string (UTC) - cần đảm bảo dateKey đúng local time
+        // DB.create sẽ gọi saveToLocal -> normalizeIndexedFields -> toDateKey dùng getFullYear/getMonth/getDate (local)
         
-        hideToast(_paymentToastId);
-        var msg = '✅ Đã thanh toán đơn mang đi thành công';
-        if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
-        showToast(msg, 'success');
-        if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
-        _dispatchPosCashUpdate();
+        // OPTIMIZE: Chạy song song creditPromise + historyPromise
+        Promise.all([creditPromise, historyPromise]).then(function() {
+            // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
+            DB.flushRealtime();
+            
+            // AUDIT: Nếu thanh toán tiền mặt, kiểm tra két
+            // handleCashPayment luôn tồn tại (định nghĩa trong pos.html)
+            if (method === 'cash') {
+                handleCashPayment(total, null, {type: 'takeaway', tableName: null, customer: customerInfo}).catch(function(err) {
+                    console.error('[AUDIT] handleCashPayment lỗi:', err);
+                });
+            }
+            
+            // Gửi thông báo Telegram giao dịch (cho tất cả phương thức)
+            if (typeof notifyPaymentToTelegram === 'function') {
+                notifyPaymentToTelegram({
+                    type: 'takeaway',
+                    amount: total,
+                    paymentMethod: method,
+                    items: items,
+                    tableName: null,
+                    customer: customerInfo,
+                    createdAt: now.toISOString()
+                });
+            }
+            
+            // Xóa draft (fire-and-forget)
+            if (currentDraftId) {
+                deleteDraft(currentDraftId);
+            }
+            
+            tempOrder = [];
+            selectedCustomer = null;
+            currentDraftId = null;
+            
+            hideToast(_paymentToastId);
+            var msg = '✅ Đã thanh toán đơn mang đi thành công';
+            if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
+            showToast(msg, 'success');
+            if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
+            // Cập nhật doanh thu pos-cash-info realtime
+            _dispatchPosCashUpdate();
+        }).catch(function(err) {
+            hideToast(_paymentToastId);
+            DB.flushRealtime();
+            showToast(err.message || 'Lỗi khi thanh toán!', 'error');
+        });
     }).catch(function(err) {
         hideToast(_paymentToastId);
         DB.flushRealtime();
-        showToast(err.message || 'Lỗi khi thanh toán!', 'error');
+        showToast('❌ Lỗi xử lý nguyên liệu: ' + (err.message || err), 'error');
     });
-    
-    // FIX Phase 1: Ingredient deduction chạy background - KHÔNG block giao dịch
-    // Dùng setTimeout để tách khỏi call stack hiện tại
-    setTimeout(function() {
-        _checkAndDeductIngredients(items).then(function() {
-            console.log('[INGREDIENT] Đã trừ nguyên liệu cho đơn mang đi');
-        });
-    }, 0);
 }
 
 // ========== HIỂN THỊ SỐ TIỀN DƯ KHI CHỌN MỆNH GIÁ (MANG ĐI) ==========
@@ -1681,7 +1701,13 @@ function takeawayCashPayWithDenom(givenAmount) {
     // Lưu givenAmount
     _takeawayChangeGivenAmount = givenAmount;
     
-    // Tạo toast đặc biệt to, nổi bật - chỉ hiển thị tiền dư trả lại khách
+    // Kiểm tra nếu có chọn khách hàng và có tiền dư
+    var creditNote = '';
+    if (change > 0 && selectedCustomer) {
+        creditNote = '<div style="font-size:12px;color:#d97706;margin-top:6px;">💡 ' + selectedCustomer.name + ' có ' + formatMoney(change) + ' tiền dư sẽ được lưu làm tiền trả trước</div>';
+    }
+    
+    // Tạo toast đặc biệt to, nổi bật
     var toast = document.createElement('div');
     toast.className = 'change-toast';
     toast.id = 'changeToast';
@@ -1689,7 +1715,7 @@ function takeawayCashPayWithDenom(givenAmount) {
         '<div class="change-label">💵 TIỀN DƯ</div>' +
         '<div class="change-given">Khách đưa: ' + formatMoney(givenAmount) + '</div>' +
         '<div class="change-amount">' + formatMoney(change) + '</div>' +
-        '<div class="change-return">🔄 Trả lại khách: <strong>' + formatMoney(change) + '</strong></div>' +
+        creditNote +
         '<div style="display:flex;gap:8px;margin-top:10px;">' +
             '<button onclick="_takeawayChangeToastPay()" style="flex:1;padding:10px;border-radius:40px;border:none;background:#f97316;color:#fff;font-weight:700;font-size:14px;cursor:pointer;-webkit-appearance:none;">✅ Thanh toán</button>' +
             '<button onclick="_hideTakeawayChangeToast()" style="padding:10px 16px;border-radius:40px;border:none;background:#475569;color:#fff;font-size:13px;cursor:pointer;-webkit-appearance:none;">✕</button>' +
@@ -1699,8 +1725,24 @@ function takeawayCashPayWithDenom(givenAmount) {
 }
 
 function _takeawayChangeToastPay() {
+    var givenAmount = _takeawayChangeGivenAmount;
     _hideTakeawayChangeToast();
-    // Đơn giản: chỉ thanh toán tiền mặt, không lưu tiền dư vào credit
+    
+    // Nếu có chọn khách và tiền dư > 0, lưu credit trước
+    if (tempOrder.length && selectedCustomer) {
+        var total = tempOrder.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
+        var change = givenAmount - total;
+        if (change > 0) {
+            addCustomerCredit(selectedCustomer.id, change, 'Trả dư khi mua mang đi').then(function() {
+                showToast('💰 Đã lưu ' + formatMoney(change) + ' tiền dư cho ' + selectedCustomer.name, 'success');
+                // FIX: Đánh dấu đã qua _takeawayChangeToastPay để handleTakeawayPayment
+                // và _processTakeawayDirect không kiểm tra credit thêm lần nữa
+                _skipOrderCreditCheck = true;
+                handleTakeawayPayment('cash');
+            });
+            return;
+        }
+    }
     handleTakeawayPayment('cash');
 }
 
@@ -1712,100 +1754,111 @@ function _hideTakeawayChangeToast() {
     _takeawayChangeGivenAmount = 0;
 }
 
-// FIX Phase 1: handleGrabOrder - Optimistic UI
-// Lưu transaction NGAY, ingredient chạy background
+// OPTIMIZE: handleGrabOrder - đóng modal ngay, song song hóa Promise, batch ingredients
 function handleGrabOrder() {
     if (!tempOrder.length) {
         showToast('Chưa có món nào trong giỏ!', 'warning');
         return;
     }
     
-    // Clone items TRƯỚC khi đóng modal
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
     var items = _cloneArr(tempOrder);
     var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
     var now = new Date();
     
-    // Đóng modal ngay lập tức
+    // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý đơn Grab...', 'info', 0);
     
-    // Suppress realtime notifications
+    // OPTIMIZE: Suppress realtime notifications trong quá trình batch operations
     DB.suppressRealtime();
     
-    // FIX Phase 1: Lưu transaction NGAY, không chờ ingredient
-    addHistory({
-        type: 'grab',
-        amount: total,
-        paymentMethod: 'grab',
-        items: items,
-        customer: null,
-        tableName: null,
-        note: 'Đơn Grab',
-        createdAt: now.toISOString(),
-        dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
-    }).then(function() {
-        DB.flushRealtime();
-        
-        // Gửi thông báo Telegram giao dịch Grab
-        if (typeof notifyPaymentToTelegram === 'function') {
-            notifyPaymentToTelegram({
-                type: 'grab',
-                amount: total,
-                paymentMethod: 'grab',
-                items: items,
-                tableName: null,
-                customer: null,
-                createdAt: now.toISOString()
-            });
+    // OPTIMIZE: Dùng _checkAndDeductIngredients thay vì inline
+    // FIX: Dùng items (đã clone) thay vì tempOrder
+    var stockAndDeductPromise = _checkAndDeductIngredients(items).then(function() {
+        return true;
+    }).catch(function(err) {
+        showToast('⚠️ ' + (err.message || 'Hết nguyên liệu'), 'error');
+        return false;
+    });
+    
+    stockAndDeductPromise.then(function(result) {
+        if (!result) {
+            hideToast(_paymentToastId);
+            DB.flushRealtime();
+            return;
         }
         
-        // Xóa draft (fire-and-forget)
-        if (currentDraftId) {
-            deleteDraft(currentDraftId);
-        }
-        
-        tempOrder = [];
-        selectedCustomer = null;
-        currentDraftId = null;
-        
-        hideToast(_paymentToastId);
-        showToast('✅ Đã tạo đơn Grab thành công', 'success');
-        if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
-        _dispatchPosCashUpdate();
+        addHistory({
+            type: 'grab',
+            amount: total,
+            paymentMethod: 'grab',
+            items: items,
+            customer: null,
+            tableName: null,
+            note: 'Đơn Grab',
+            createdAt: now.toISOString(),
+            dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+        }).then(function() {
+            // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
+            DB.flushRealtime();
+            
+            // Gửi thông báo Telegram giao dịch Grab
+            if (typeof notifyPaymentToTelegram === 'function') {
+                notifyPaymentToTelegram({
+                    type: 'grab',
+                    amount: total,
+                    paymentMethod: 'grab',
+                    items: items,
+                    tableName: null,
+                    customer: null,
+                    createdAt: now.toISOString()
+                });
+            }
+            
+            // Xóa draft (fire-and-forget)
+            if (currentDraftId) {
+                deleteDraft(currentDraftId);
+            }
+            
+            tempOrder = [];
+            selectedCustomer = null;
+            currentDraftId = null;
+            
+            hideToast(_paymentToastId);
+            showToast('✅ Đã tạo đơn Grab thành công', 'success');
+            if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
+            // Cập nhật doanh thu pos-cash-info realtime
+            _dispatchPosCashUpdate();
+        }).catch(function(err) {
+            hideToast(_paymentToastId);
+            DB.flushRealtime();
+            showToast(err.message || 'Lỗi khi tạo đơn Grab!', 'error');
+        });
     }).catch(function(err) {
         hideToast(_paymentToastId);
         DB.flushRealtime();
-        showToast(err.message || 'Lỗi khi tạo đơn Grab!', 'error');
+        showToast('❌ Lỗi xử lý nguyên liệu: ' + (err.message || err), 'error');
     });
-    
-    // FIX Phase 1: Ingredient deduction chạy background
-    setTimeout(function() {
-        _checkAndDeductIngredients(items).then(function() {
-            console.log('[INGREDIENT] Đã trừ nguyên liệu cho đơn Grab');
-        });
-    }, 0);
 }
 
-// FIX Phase 1: handleDebtOrder - TUẦN TỰ, không song song
-// 1. Lưu history TRƯỚC (tạo id duy nhất)
-// 2. Dùng id đó để gọi addCustomerDebt (đảm bảo 1-1)
-// 3. Ingredient chạy background
+// OPTIMIZE: handleDebtOrder - đóng modal ngay, song song hóa Promise, batch ingredients
 function handleDebtOrder() {
     if (!tempOrder.length) {
         showToast('Chưa có món nào trong giỏ!', 'warning');
         return;
     }
     
-    // Clone items TRƯỚC khi đóng modal
+    // OPTIMIZE: Clone items TRƯỚC khi đóng modal (vì closeModal có thể clear tempOrder)
     var items = _cloneArr(tempOrder);
     var total = items.reduce(function(sum, item) { return sum + (item.price * item.qty); }, 0);
     var now = new Date();
     
-    // Đóng modal ngay lập tức
+    // OPTIMIZE: Đóng modal ngay lập tức
     closeModal('orderModal');
     _paymentToastId = showToast('⏳ Đang xử lý ghi nợ...', 'info', 0);
     
-    // Suppress realtime notifications
+    // OPTIMIZE: Suppress realtime notifications trong quá trình batch operations
     DB.suppressRealtime();
     
     // Hiển thị modal chọn khách hàng
@@ -1820,15 +1873,54 @@ function handleDebtOrder() {
         var creditUsed = 0;
         var debtNote = 'Ghi nợ - ' + customer.name;
         
-        // FIX Phase 1: KHÔNG gọi addHistory ở đây - addCustomerDebt đã tự gọi addHistory bên trong
-        // Chỉ gọi addCustomerDebt, nó sẽ tự tạo transaction history
-        addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items).then(function(debtResult) {
-            debtAmount = debtResult.debtAmount;
-            creditUsed = debtResult.creditUsed;
+        // OPTIMIZE: Dùng _checkAndDeductIngredients thay vì inline
+        // FIX: Dùng items (đã clone) thay vì tempOrder
+        var stockAndDeductPromise = _checkAndDeductIngredients(items).then(function() {
+            return true;
+        }).catch(function(err) {
+            showToast('⚠️ ' + (err.message || 'Hết nguyên liệu'), 'error');
+            return false;
+        });
+        
+        stockAndDeductPromise.then(function(result) {
+            if (!result) {
+                hideToast(_paymentToastId);
+                DB.flushRealtime();
+                return;
+            }
             
+            // OPTIMIZE: Pre-calculate debtAmount và creditUsed từ memory cache
+            // để chạy song song addCustomerDebt + addHistory thay vì tuần tự
+            var creditBalance = customer.creditBalance || 0;
+            var preCreditUsed = Math.min(creditBalance, total);
+            var preDebtAmount = total - preCreditUsed;
+            
+            // Chạy song song addCustomerDebt và addHistory
+            var debtPromise = addCustomerDebt(customer.id, total, 'Mua hàng tại quầy', items);
+            var historyPromise = addHistory({
+                type: 'debt_payment',
+                amount: preDebtAmount,
+                paymentMethod: 'debt',
+                items: items,
+                customer: { id: customer.id, name: customer.name },
+                tableName: null,
+                note: debtNote + (preCreditUsed > 0 ? ' (đã dùng ' + formatMoney(preCreditUsed) + ' tiền dư)' : ''),
+                createdAt: now.toISOString(),
+                dateKey: now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+            });
+            
+            return Promise.all([debtPromise, historyPromise]).then(function(results) {
+                // Lấy kết quả thực tế từ addCustomerDebt (để đảm bảo chính xác)
+                var debtResult = results[0];
+                debtAmount = debtResult.debtAmount;
+                creditUsed = debtResult.creditUsed;
+            });
+        }).then(function() {
+            // OPTIMIZE: Flush realtime sau khi tất cả operations hoàn tất
             DB.flushRealtime();
             
-            // Gửi thông báo Telegram
+            // Gửi thông báo Telegram giao dịch ghi nợ
+            // FIX: Sửa type từ 'takeaway' thành 'debt_payment' để phân biệt với thanh toán mang đi
             if (typeof notifyPaymentToTelegram === 'function') {
                 notifyPaymentToTelegram({
                     type: 'debt_payment',
@@ -1856,19 +1948,13 @@ function handleDebtOrder() {
             showToast(msg, 'success');
             if (typeof renderRecentTransactions === 'function') renderRecentTransactions();
             if (typeof renderCustomerList === 'function') renderCustomerList();
+            // Cập nhật doanh thu pos-cash-info realtime
             _dispatchPosCashUpdate();
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
             showToast(err.message || 'Lỗi khi ghi nợ!', 'error');
         });
-        
-        // FIX Phase 1: Ingredient deduction chạy background
-        setTimeout(function() {
-            _checkAndDeductIngredients(items).then(function() {
-                console.log('[INGREDIENT] Đã trừ nguyên liệu cho đơn ghi nợ');
-            });
-        }, 0);
     });
 }
 

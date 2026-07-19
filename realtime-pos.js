@@ -8,50 +8,6 @@ var _tableTimerId = null;
 // P0: Cache DOM references cho timer - tránh querySelectorAll mỗi giây
 var _tableCardCache = {};
 var _tableCardCacheDirty = false;
-// PHASE 4: Periodic cleanup cho table caches - tránh memory leak
-var _tableCacheCleanupId = null;
-var _TABLE_CACHE_CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 phút
-
-function _startTableCacheCleanup() {
-    if (_tableCacheCleanupId) return;
-    _tableCacheCleanupId = setInterval(function() {
-        var grid = document.getElementById('tablesGrid');
-        if (!grid) return;
-        var existingCards = grid.querySelectorAll('.table-card:not(.table-create-btn)');
-        var existingIds = {};
-        for (var i = 0; i < existingCards.length; i++) {
-            existingIds[existingCards[i].getAttribute('data-id')] = true;
-        }
-        // Dọn _tableVersionCache - xóa entries không còn trong DOM
-        var removed = 0;
-        for (var id in _tableVersionCache) {
-            if (_tableVersionCache.hasOwnProperty(id) && !existingIds[id]) {
-                delete _tableVersionCache[id];
-                removed++;
-            }
-        }
-        // Dọn _tableCardCache và _tableCardElCache - xóa entries không còn trong DOM
-        for (var id in _tableCardCache) {
-            if (_tableCardCache.hasOwnProperty(id) && !existingIds[id]) {
-                delete _tableCardCache[id];
-                delete _tableCardElCache[id];
-                removed++;
-            }
-        }
-        if (removed > 0) {
-            console.log('[Realtime] 🧹 Table cache cleanup: đã xóa ' + removed + ' entries không còn trong DOM');
-        }
-    }, _TABLE_CACHE_CLEANUP_INTERVAL);
-}
-
-// Helper: rút gọn tên hiển thị - "Master Admin - Milano 259" => "Master"
-function _displayName(name) {
-    if (!name) return '';
-    if (name.indexOf('Master Admin') === 0) {
-        return 'Master';
-    }
-    return name;
-}
 
 function _debounceRealtime(key, fn, delay) {
     delay = delay || 100;
@@ -171,7 +127,7 @@ function updateRecentToast() {
             }
             var itemInfo = totalItems > 0 ? totalItems + ' món' : '';
             
-            var staffHtml = tx.createdByName ? ' <span class="toast-staff">👤 ' + escapeHtml(_displayName(tx.createdByName)) + '</span>' : '';
+            var staffHtml = tx.createdByName ? ' <span class="toast-staff">👤 ' + escapeHtml(tx.createdByName) + '</span>' : '';
             
             // Gom các phần tử lại: icon + nhãn + số món + staff
             var infoParts = [];
@@ -284,7 +240,7 @@ function createTableCard(table) {
         actionBtnsHtml = '<span class="table-act-row">' + actionBtnsHtml + '</span>';
     }
     
-    var creatorHtml = table.createdByName ? '<span class="table-creator">👤 ' + escapeHtml(_displayName(table.createdByName)) + '</span>' : '';
+    var creatorHtml = table.createdByName ? '<span class="table-creator">👤 ' + escapeHtml(table.createdByName) + '</span>' : '';
     
     div.innerHTML =
         '<div class="table-header">' +
@@ -353,7 +309,7 @@ function updateTableCard(card, table) {
     // Cập nhật creator
     var creatorSpan = card.querySelector('.table-creator');
     if (creatorSpan) {
-        creatorSpan.innerHTML = table.createdByName ? '👤 ' + escapeHtml(_displayName(table.createdByName)) : '';
+        creatorSpan.innerHTML = table.createdByName ? '👤 ' + escapeHtml(table.createdByName) : '';
     }
     
     // FIX: Cập nhật action buttons động
@@ -411,9 +367,6 @@ function updateTableCard(card, table) {
 }
 
 // ========== UPDATE TABLES DIFF (optimized) ==========
-// P2: Cache _version của mỗi table card để tránh update không cần thiết
-var _tableVersionCache = {};
-
 function updateTablesDiff(newTables) {
     // FIX: Hiển thị TẤT CẢ bàn, kể cả bàn trống (không có items)
     // Bàn trống vẫn cần hiển thị để người dùng có thể thêm món
@@ -448,7 +401,6 @@ function updateTablesDiff(newTables) {
             existingIds[id].remove();
             // P1: Đánh dấu cache dirty
             _tableCardCacheDirty = true;
-            delete _tableVersionCache[id];
         }
     }
     
@@ -458,21 +410,12 @@ function updateTablesDiff(newTables) {
         var table = activeTables[i];
         var existingCard = existingIds[table.id];
         if (existingCard) {
-            // P2: Chỉ update nếu _version thay đổi (tránh update không cần thiết)
-            var oldVersion = _tableVersionCache[table.id];
-            var newVersion = table._version || table.updatedAt || 0;
-            if (oldVersion !== newVersion) {
-                updateTableCard(existingCard, table);
-                _tableVersionCache[table.id] = newVersion;
-            }
+            updateTableCard(existingCard, table);
         } else {
             if (!fragment) fragment = document.createDocumentFragment();
-            var newCard = createTableCard(table);
-            fragment.appendChild(newCard);
+            fragment.appendChild(createTableCard(table));
             // P1: Đánh dấu cache dirty
             _tableCardCacheDirty = true;
-            // P2: Cache version cho card mới
-            _tableVersionCache[table.id] = table._version || table.updatedAt || 0;
         }
     }
     if (fragment) grid.appendChild(fragment);
@@ -633,15 +576,11 @@ function initRealtime() {
     // ============================================================
     // TABLES
     // ============================================================
-    // Subscribe cũ: cập nhật cachedTables + doanh thu
+    // Subscribe cũ: cập nhật cachedTables (KHÔNG gọi loadPosCashData để tránh double execution với event bus)
     DB.subscribe('tables', function(newTables) {
         if (!newTables) return;
         cachedTables = newTables;
         tablesCacheTime = Date.now();
-        // Cập nhật doanh thu pos-cash-info khi bàn thay đổi (clear bàn, gộp bàn...)
-        if (typeof loadPosCashData === 'function') {
-            loadPosCashData();
-        }
         // Fallback: nếu đang ở tab tables, re-render toàn bộ (dự phòng)
         if (currentTab !== 'tables') return;
         _renderNow('tables_render', function() {
@@ -665,25 +604,16 @@ function initRealtime() {
             if (!existingCard) {
                 grid.appendChild(createTableCard(item));
                 _tableCardCacheDirty = true;
-                // P2: Cache version cho card mới
-                _tableVersionCache[item.id] = item._version || item.updatedAt || 0;
             }
         } else if (event.type === 'changed') {
-            // P2: Kiểm tra version trước khi update
-            var oldVersion = _tableVersionCache[item.id];
-            var newVersion = item._version || item.updatedAt || 0;
-            if (oldVersion === newVersion) return;
             var existingCard = grid.querySelector('.table-card[data-id="' + item.id + '"]');
             if (existingCard) {
                 updateTableCard(existingCard, item);
-                _tableVersionCache[item.id] = newVersion;
             } else {
                 grid.appendChild(createTableCard(item));
                 _tableCardCacheDirty = true;
-                _tableVersionCache[item.id] = newVersion;
             }
         } else if (event.type === 'removed') {
-            delete _tableVersionCache[item.id];
             var existingCard = grid.querySelector('.table-card[data-id="' + item.id + '"]');
             if (existingCard && existingCard.parentNode) {
                 existingCard.remove();
@@ -692,12 +622,16 @@ function initRealtime() {
         }
     });
     
-    // NÂNG CẤP: Khi fullSync hoàn thành, re-render toàn bộ tables
+    // NÂNG CẤP: Khi fullSync hoàn thành, re-render toàn bộ tables + cập nhật pos-cash-info
     DB.on('tables:synced', function() {
-        if (currentTab !== 'tables') return;
         DB.getAll('tables').then(function(allTables) {
             cachedTables = allTables;
             tablesCacheTime = Date.now();
+            // Cập nhật pos-cash-info khi tables thay đổi (clear bàn, gộp bàn...)
+            if (typeof loadPosCashData === 'function') {
+                loadPosCashData();
+            }
+            if (currentTab !== 'tables') return;
             updateTablesDiff(allTables);
             if (typeof startTableTimer === 'function') startTableTimer();
         });
@@ -875,20 +809,7 @@ function initRealtime() {
                     } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
                         managerApplyFilter();
                     }
-                    // FIX: Cập nhật Két POS realtime - dispatch event để settings.js load lại pos-cash data
-                    try {
-                        var evt = document.createEvent('CustomEvent');
-                        evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_sub' } });
-                        window.dispatchEvent(evt);
-                    } catch(e) {}
                 });
-            } else {
-                // Fallback: nếu loadExpenseData chưa có, vẫn dispatch để settings.js xử lý
-                try {
-                    var evt = document.createEvent('CustomEvent');
-                    evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_sub' } });
-                    window.dispatchEvent(evt);
-                } catch(e) {}
             }
         }, 100);
     });
@@ -904,19 +825,7 @@ function initRealtime() {
                     } else if (currentTab === 'manager' && typeof managerApplyFilter === 'function') {
                         managerApplyFilter();
                     }
-                    // FIX: Cập nhật Két POS realtime - dispatch event để settings.js load lại pos-cash data
-                    try {
-                        var evt = document.createEvent('CustomEvent');
-                        evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_eventbus' } });
-                        window.dispatchEvent(evt);
-                    } catch(e) {}
                 });
-            } else {
-                try {
-                    var evt = document.createEvent('CustomEvent');
-                    evt.initCustomEvent('pos_cash_update', true, true, { detail: { source: 'cost_transactions_eventbus' } });
-                    window.dispatchEvent(evt);
-                } catch(e) {}
             }
         }, 100);
     });
@@ -946,12 +855,10 @@ function initRealtime() {
     // ============================================================
     // DAILY BALANCES
     // ============================================================
-    // Subscribe cũ: cập nhật daily_balances
+    // Subscribe cũ: cập nhật daily_balances (KHÔNG gọi loadPosCashData để tránh double execution với event bus)
     DB.subscribe('daily_balances', function() {
         _debounceRealtime('daily_balances', function() {
-            if (typeof loadPosCashData === 'function') {
-                loadPosCashData();
-            }
+            // daily_balances đã được xử lý bởi event bus bên dưới
         }, 200);
     });
     // NÂNG CẤP: Event Bus handler cho daily_balances
@@ -997,13 +904,10 @@ function initRealtime() {
     // ============================================================
     // TRANSACTIONS
     // ============================================================
-    // Subscribe cũ: cập nhật transactions cache
+    // Subscribe cũ: cập nhật transactions cache (CHỈ updateRecentToast, không gọi loadPosCashData để tránh double execution)
     DB.subscribe('transactions', function() {
         _debounceRealtime('transactions', function() {
             updateRecentToast();
-            if (typeof loadPosCashData === 'function') {
-                loadPosCashData();
-            }
             if (currentTab === 'history') {
                 renderHistoryByDate(currentHistoryDate);
             }
@@ -1019,27 +923,6 @@ function initRealtime() {
             }
             if (currentTab === 'history') {
                 renderHistoryByDate(currentHistoryDate);
-            }
-        }, 200);
-    });
-
-    // ============================================================
-    // BONUS FUND (Quỹ thưởng trách nhiệm)
-    // ============================================================
-    // Subscribe cũ: cập nhật bonus_fund
-    DB.subscribe('bonus_fund', function() {
-        _debounceRealtime('bonus_fund', function() {
-            if (typeof refreshBonusFund === 'function') {
-                refreshBonusFund();
-            }
-        }, 300);
-    });
-    // NÂNG CẤP: Event Bus handler cho bonus_fund
-    DB.on('bonus_fund:*', function(event) {
-        if (!event || !event.data) return;
-        _debounceRealtime('bonus_fund_ui', function() {
-            if (typeof refreshBonusFund === 'function') {
-                refreshBonusFund();
             }
         }, 200);
     });
@@ -1305,7 +1188,4 @@ function initRealtime() {
     setTimeout(function() {
         updateRecentToast();
     }, 500);
-
-    // PHASE 4: Khởi động periodic cleanup cho table caches
-    _startTableCacheCleanup();
 }

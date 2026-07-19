@@ -49,74 +49,6 @@ window.shopConfig = {
     telegramExpenseToken: ''
 };
 
-// PHASE 4: Deferred loading queue - các tác vụ không critical sẽ chạy sau
-var _deferredTasks = [];
-function _addDeferredTask(name, fn) {
-    _deferredTasks.push({ name: name, fn: fn });
-}
-function _runDeferredTasks() {
-    if (_deferredTasks.length === 0) return;
-    // OPTIMIZE: Dùng requestIdleCallback để chạy khi CPU rảnh, không block UI
-    // Fallback về setTimeout nếu browser không hỗ trợ requestIdleCallback
-    var useIdleCallback = typeof window.requestIdleCallback === 'function';
-    
-    function _executeNextTask() {
-        if (_deferredTasks.length === 0) return;
-        var task = _deferredTasks.shift(); // Lấy task đầu tiên, chạy từng cái một
-        console.log('[Deferred] ⏳ Đang chạy: ' + task.name);
-        try {
-            var result = task.fn();
-            if (result && typeof result.then === 'function') {
-                result.then(function() {
-                    console.log('[Deferred] ✅ Hoàn thành: ' + task.name);
-                    // Lên lịch chạy task tiếp theo khi CPU rảnh
-                    if (_deferredTasks.length > 0) {
-                        if (useIdleCallback) {
-                            requestIdleCallback(_executeNextTask, { timeout: 1000 });
-                        } else {
-                            setTimeout(_executeNextTask, 50); // Delay nhẹ để UI có thời gian response
-                        }
-                    }
-                }).catch(function(err) {
-                    console.warn('[Deferred] ⚠️ Lỗi ' + task.name + ':', err);
-                    if (_deferredTasks.length > 0) {
-                        if (useIdleCallback) {
-                            requestIdleCallback(_executeNextTask, { timeout: 1000 });
-                        } else {
-                            setTimeout(_executeNextTask, 50);
-                        }
-                    }
-                });
-            } else {
-                console.log('[Deferred] ✅ Hoàn thành: ' + task.name);
-                if (_deferredTasks.length > 0) {
-                    if (useIdleCallback) {
-                        requestIdleCallback(_executeNextTask, { timeout: 1000 });
-                    } else {
-                        setTimeout(_executeNextTask, 50);
-                    }
-                }
-            }
-        } catch(e) {
-            console.warn('[Deferred] ⚠️ Lỗi ' + task.name + ':', e);
-            if (_deferredTasks.length > 0) {
-                if (useIdleCallback) {
-                    requestIdleCallback(_executeNextTask, { timeout: 1000 });
-                } else {
-                    setTimeout(_executeNextTask, 50);
-                }
-            }
-        }
-    }
-    
-    // Bắt đầu chạy task đầu tiên khi CPU rảnh
-    if (useIdleCallback) {
-        requestIdleCallback(_executeNextTask, { timeout: 1000 });
-    } else {
-        setTimeout(_executeNextTask, 50);
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     // OPTIMIZE: Khôi phục UI từ sessionStorage ngay lập tức (nếu có)
     // Giúp UI hiển thị ngay trong khi chờ DB.init() và loadData() hoàn tất
@@ -148,6 +80,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }).then(function() {
         return loadDraftOrders();
     }).then(function() {
+        // Ẩn màn hình loading sau khi khởi tạo xong
+        _hideLoadingScreen();
+
         // FIX: Khởi tạo realtime subscriptions SAU KHI DB đã sẵn sàng và data đã load
         // Tránh race condition: subscribeWithPolling gọi callback khi memoryCache còn rỗng
         initRealtime();
@@ -162,69 +97,24 @@ document.addEventListener('DOMContentLoaded', function() {
             restoreRecentToastState();
         }
         renderCurrentTime();
-        
-        // PHASE 4: Deferred loading - các module không critical chạy sau UI
         if (typeof initNotifications === 'function') {
-            _addDeferredTask('initNotifications', initNotifications);
+            initNotifications();
         }
         // Khởi tạo chat nội bộ
         if (typeof initChat === 'function') {
-            _addDeferredTask('initChat', initChat);
+            initChat();
         }
         // OPTIMIZE: Khởi tạo event delegation cho menu grid (thay vì inline onclick)
         if (typeof _initMenuEventDelegation === 'function') {
-            _addDeferredTask('initMenuEventDelegation', _initMenuEventDelegation);
+            _initMenuEventDelegation();
         }
-        // PHASE 4: Deferred load non-critical data (customers, ingredients, tables)
-        // OPTIMIZE: Dùng memory cache thay vì IndexedDB reads để không block UI thread
-        // loadData() đã load các collection này vào memory cache và window object rồi
-        _addDeferredTask('loadCustomers', function() {
-            // Đọc từ memory cache (nhanh, không block UI) thay vì IndexedDB
-            var cached = (typeof DB.getMemoryCache === 'function') ? DB.getMemoryCache('customers') : null;
-            if (cached) {
-                customers = cached;
-                window.customers = customers;
-                return Promise.resolve();
-            }
-            // Fallback: chỉ đọc IndexedDB nếu memory cache không có
-            return DB.getAll('customers').then(function(list) {
-                customers = list;
-                window.customers = customers;
-            });
-        });
-        _addDeferredTask('loadIngredients', function() {
-            var cached = (typeof DB.getMemoryCache === 'function') ? DB.getMemoryCache('ingredients') : null;
-            if (cached) {
-                ingredients = cached;
-                window.ingredients = ingredients;
-                return Promise.resolve();
-            }
-            return DB.getAll('ingredients').then(function(list) {
-                ingredients = list;
-                window.ingredients = ingredients;
-            });
-        });
-        _addDeferredTask('loadTables', function() {
-            var cached = (typeof DB.getMemoryCache === 'function') ? DB.getMemoryCache('tables') : null;
-            if (cached) {
-                cachedTables = cached;
-                tablesCacheTime = Date.now();
-                return Promise.resolve();
-            }
-            return DB.getAll('tables').then(function(list) {
-                cachedTables = list;
-                tablesCacheTime = Date.now();
-            });
-        });
-        
-        // Chạy deferred tasks sau 2s để UI kịp render
-        setTimeout(_runDeferredTasks, 2000);
-        
         setInterval(renderCurrentTime, 30000);
         showToast('POS sẵn sàng', 'success');
     }).catch(function(err) {
         // FIX: Catch mọi lỗi để đảm bảo UI không bị treo
         console.error('❌ Initialization error:', err);
+        // Ẩn loading ngay cả khi có lỗi để không bị treo màn hình
+        _hideLoadingScreen();
         showToast('⚠️ Lỗi khởi tạo: ' + (err.message || 'unknown'), 'error', 4000);
         // Vẫn cố gắng khởi tạo event listeners để nút bấm hoạt động
         try {
@@ -235,6 +125,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Hàm ẩn màn hình loading với hiệu ứng mượt
+function _hideLoadingScreen() {
+    var el = document.getElementById('loadingScreen');
+    if (el) {
+        el.classList.add('hidden');
+        // Xóa khỏi DOM sau khi animation kết thúc để giải phóng bộ nhớ
+        setTimeout(function() {
+            if (el.parentNode) {
+                el.parentNode.removeChild(el);
+            }
+        }, 500);
+    }
+}
 
 // FIX: Kiểm tra dữ liệu local có rỗng không (do IndexedDB bị xóa)
 function _isDataEmpty() {
@@ -259,7 +163,6 @@ function loadData() {
     // Nếu memoryCache có đủ menu + customers -> dùng luôn, không cần đợi IndexedDB
     if (menuFromCache && customersFromCache) {
         menuItems = menuFromCache;
-        _invalidateMenuCache();
         menuItems.sort(function(a, b) {
             var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
             var orderB = (b.sortOrder !== undefined && b.sortOrder !== null) ? b.sortOrder : 9999;
@@ -323,7 +226,6 @@ function loadData() {
         DB.getShopConfig()
     ]).then(function(results) {
         menuItems = results[0] || [];
-        _invalidateMenuCache();
         // Sắp xếp menuItems theo sortOrder để kéo thả hoạt động đúng
         menuItems.sort(function(a, b) {
             var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
@@ -456,24 +358,8 @@ function initEventListeners() {
     var nextDayBtn = document.getElementById('nextDayBtn');
     if (nextDayBtn) nextDayBtn.onclick = function() { changeHistoryDate(1); };
 
-    // FIX: Event delegation cho filter-chip (cả trong #historyFilterChips và #historyStaffChips)
-    // Dùng delegation trên container cha để tránh phải gán lại listener khi staff chips được tạo động
-    var historyView = document.getElementById('historyView');
-    if (historyView) {
-        historyView.addEventListener('click', function(e) {
-            var chip = e.target;
-            // Kiểm tra nếu click vào .filter-chip (hoặc .staff-chip)
-            if (chip && chip.classList && chip.classList.contains('filter-chip')) {
-                // Bỏ active tất cả chip
-                var allChips = document.querySelectorAll('#historyFilterChips .filter-chip, #historyStaffChips .filter-chip');
-                for (var j = 0; j < allChips.length; j++) {
-                    allChips[j].classList.remove('active');
-                }
-                chip.classList.add('active');
-                renderHistoryByDate(currentHistoryDate);
-            }
-        });
-    }
+    var historyFilter = document.getElementById('historyFilter');
+    if (historyFilter) historyFilter.onchange = function() { renderHistoryByDate(currentHistoryDate); };
 
     var reportPrevDayBtn = document.getElementById('reportPrevDayBtn');
     if (reportPrevDayBtn) reportPrevDayBtn.onclick = function() { changeReportDate(-1); };
@@ -562,13 +448,13 @@ function switchTab(tabId) {
             if (typeof applyExpenseRoleRestrictions === 'function') applyExpenseRoleRestrictions();
         } else if (tabId === 'manager') {
             if (typeof managerApplyFilter === 'function') managerApplyFilter();
+        } else if (tabId === 'admin') {
+            if (typeof loadAdminDashboard === 'function') {
+                setTimeout(loadAdminDashboard, 50);
+            }
         } else if (tabId === 'settings') {
             if (typeof initSettingsTab === 'function') {
                 initSettingsTab();
-            }
-        } else if (tabId === 'master') {
-            if (typeof initMasterTab === 'function') {
-                initMasterTab();
             }
         } else if (tabId === 'takeaway') {
             if (typeof _renderTakeawayCategories === 'function') _renderTakeawayCategories();
@@ -703,9 +589,6 @@ document.querySelectorAll('.modal').forEach(function(modal) {
 
 var _SESSION_CACHE_TTL = 86400000; // 24h
 
-// PHASE 2: Debounce để tránh ghi sessionStorage quá nhiều lần
-var _sessionCacheDebounceTimer = null;
-
 function _saveToSessionCache() {
     try {
         sessionStorage.setItem('pos_menuItems', JSON.stringify(menuItems));
@@ -715,18 +598,6 @@ function _saveToSessionCache() {
     } catch(e) {
         // sessionStorage đầy hoặc không khả dụng, bỏ qua
     }
-}
-
-// PHASE 2: Gọi _saveToSessionCache với debounce 500ms
-// Được gọi từ DB.create/update/remove để session cache luôn đồng bộ
-function _debouncedSaveSessionCache() {
-    if (_sessionCacheDebounceTimer) {
-        clearTimeout(_sessionCacheDebounceTimer);
-    }
-    _sessionCacheDebounceTimer = setTimeout(function() {
-        _sessionCacheDebounceTimer = null;
-        _saveToSessionCache();
-    }, 500);
 }
 
 function _restoreFromSessionCache() {
@@ -746,7 +617,6 @@ function _restoreFromSessionCache() {
         
         if (menuData) {
             menuItems = JSON.parse(menuData);
-            _invalidateMenuCache();
             window.menuItems = menuItems;
         }
         if (customersData) {
@@ -946,51 +816,43 @@ function _takeawaySaveCustomIds() {
     } catch(e) {}
 }
 
-// PHASE 3: Cache HTML cho menu items để tránh rebuild lại mỗi lần
-// PHASE 4: Giới hạn kích thước cache để tránh memory leak
-var _menuHtmlCache = {};
-var _menuFilteredCache = null;
-var _menuFilterKey = '';
-var _MENU_HTML_CACHE_MAX = 20; // Tối đa 20 filter keys trong cache
-
-function _getMenuFilterKey() {
-    return (_takeawayCategory || 'all') + '|' + (_takeawaySearch || '');
-}
-
-function _invalidateMenuCache() {
-    _menuHtmlCache = {};
-    _menuFilteredCache = null;
-    _menuFilterKey = '';
-}
-
-// PHASE 4: Giới hạn kích thước _menuHtmlCache - xóa entries cũ nhất khi vượt quá limit
-function _trimMenuHtmlCache() {
-    var keys = Object.keys(_menuHtmlCache);
-    if (keys.length <= _MENU_HTML_CACHE_MAX) return;
-    // Xóa các entries cũ nhất (không phải filter key hiện tại)
-    var toRemove = keys.length - _MENU_HTML_CACHE_MAX;
-    var removed = 0;
-    for (var i = 0; i < keys.length && removed < toRemove; i++) {
-        if (keys[i] !== _menuFilterKey) {
-            delete _menuHtmlCache[keys[i]];
-            removed++;
-        }
-    }
-}
-
 // ========== TAKEAWAY TAB - RENDER MENU ==========
 function _renderTakeawayMenu() {
     var container = document.getElementById('takeawayMenuGrid');
     if (!container) return;
-    
-    var filterKey = _getMenuFilterKey();
-    
-    // PHASE 3: Kiểm tra cache trước
-    if (_menuFilterKey === filterKey && _menuFilteredCache && _menuHtmlCache[filterKey]) {
-        container.innerHTML = _menuHtmlCache[filterKey];
+    var filtered = [];
+    for (var i = 0; i < menuItems.length; i++) {
+        var item = menuItems[i];
+        // Nếu chọn "Tùy chỉnh" thì chỉ hiển thị món trong danh sách custom
+        if (_takeawayCategory === 'custom') {
+            _takeawayLoadCustomIds();
+            if (_takeawayCustomIds.indexOf(item.id) === -1) continue;
+        } else if (_takeawayCategory !== 'all' && item.categoryId !== _takeawayCategory) {
+            continue;
+        }
+        // Lọc theo tìm kiếm
+        if (_takeawaySearch && item.name && item.name.toLowerCase().indexOf(_takeawaySearch) === -1) continue;
+        filtered.push(item);
+    }
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-text">Không có món nào</div>';
         return;
     }
-    
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var item = filtered[i];
+        var price = item.price || 0;
+        html += '<div class="takeaway-menu-item" onclick="_takeawayAddItem(' + i + ')" data-index="' + i + '">' +
+            '<div class="item-name">' + escapeHtml(item.name || '') + '</div>' +
+            '<div class="item-price">' + formatMoney(price) + '</div>' +
+        '</div>';
+    }
+    container.innerHTML = html;
+}
+
+// ========== TAKEAWAY TAB - ADD ITEM TO CART ==========
+function _takeawayAddItem(menuIndex) {
+    // Tìm item trong filtered list
     var filtered = [];
     for (var i = 0; i < menuItems.length; i++) {
         var item = menuItems[i];
@@ -1002,87 +864,6 @@ function _renderTakeawayMenu() {
         }
         if (_takeawaySearch && item.name && item.name.toLowerCase().indexOf(_takeawaySearch) === -1) continue;
         filtered.push(item);
-    }
-    
-    _menuFilteredCache = filtered;
-    _menuFilterKey = filterKey;
-    
-    if (filtered.length === 0) {
-        var emptyHtml = '<div class="empty-text">Không có món nào</div>';
-        _menuHtmlCache[filterKey] = emptyHtml;
-        _trimMenuHtmlCache();
-        container.innerHTML = emptyHtml;
-        return;
-    }
-    
-    // PHASE 3: Chunked rendering - chia nhỏ batch để không block UI
-    var CHUNK_SIZE = 50;
-    var totalItems = filtered.length;
-    var currentIndex = 0;
-    
-    // Clear container trước
-    container.innerHTML = '';
-    
-    function renderChunk() {
-        var fragment = document.createDocumentFragment();
-        var end = Math.min(currentIndex + CHUNK_SIZE, totalItems);
-        for (var i = currentIndex; i < end; i++) {
-            var item = filtered[i];
-            var price = item.price || 0;
-            var div = document.createElement('div');
-            div.className = 'takeaway-menu-item';
-            div.setAttribute('data-index', i);
-            // Dùng closure để capture đúng index
-            div.onclick = (function(idx) {
-                return function() { _takeawayAddItem(idx); };
-            })(i);
-            
-            var nameDiv = document.createElement('div');
-            nameDiv.className = 'item-name';
-            nameDiv.textContent = item.name || '';
-            
-            var priceDiv = document.createElement('div');
-            priceDiv.className = 'item-price';
-            priceDiv.textContent = formatMoney(price);
-            
-            div.appendChild(nameDiv);
-            div.appendChild(priceDiv);
-            fragment.appendChild(div);
-        }
-        container.appendChild(fragment);
-        currentIndex = end;
-        
-        if (currentIndex < totalItems) {
-            // Còn items, schedule chunk tiếp theo
-            setTimeout(renderChunk, 0);
-        }
-    }
-    
-    renderChunk();
-}
-
-// ========== TAKEAWAY TAB - ADD ITEM TO CART ==========
-function _takeawayAddItem(menuIndex) {
-    // PHASE 3: Dùng cached filtered list thay vì filter lại từ đầu
-    var filterKey = _getMenuFilterKey();
-    var filtered;
-    if (_menuFilterKey === filterKey && _menuFilteredCache) {
-        filtered = _menuFilteredCache;
-    } else {
-        filtered = [];
-        for (var i = 0; i < menuItems.length; i++) {
-            var item = menuItems[i];
-            if (_takeawayCategory === 'custom') {
-                _takeawayLoadCustomIds();
-                if (_takeawayCustomIds.indexOf(item.id) === -1) continue;
-            } else if (_takeawayCategory !== 'all' && item.categoryId !== _takeawayCategory) {
-                continue;
-            }
-            if (_takeawaySearch && item.name && item.name.toLowerCase().indexOf(_takeawaySearch) === -1) continue;
-            filtered.push(item);
-        }
-        _menuFilteredCache = filtered;
-        _menuFilterKey = filterKey;
     }
     var menuItem = filtered[menuIndex];
     if (!menuItem) return;

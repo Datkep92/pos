@@ -727,7 +727,6 @@ function empUpdateDailyRevenue(dateStr) {
 
             var total = 0;
             var cash = 0, transfer = 0, grab = 0;
-            var debtPayment = 0, prepayment = 0;
             var orderCount = 0;
 
             for (var i = 0; i < transactions.length; i++) {
@@ -741,8 +740,6 @@ function empUpdateDailyRevenue(dateStr) {
                 if (tx.paymentMethod === 'cash') cash += amt;
                 else if (tx.paymentMethod === 'transfer') transfer += amt;
                 else if (tx.paymentMethod === 'grab') grab += amt;
-                else if (tx.paymentMethod === 'debt_payment') debtPayment += amt;
-                else if (tx.paymentMethod === 'prepayment') prepayment += amt;
             }
 
             // Ghi lên Firebase - chỉ 1 node nhẹ
@@ -752,8 +749,6 @@ function empUpdateDailyRevenue(dateStr) {
                 cash: cash,
                 transfer: transfer,
                 grab: grab,
-                debtPayment: debtPayment,
-                prepayment: prepayment,
                 orderCount: orderCount,
                 updatedAt: Date.now()
             }).catch(function(err) {
