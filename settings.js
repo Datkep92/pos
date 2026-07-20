@@ -393,6 +393,7 @@ function loadPosCashData(targetDate) {
         var grabCount = 0, grabAmount = 0;
         var debtCount = 0, debtAmount = 0;
         var debtPaymentCount = 0, debtPaymentAmount = 0; // Khách trả nợ bằng tiền mặt/chuyển khoản
+        var prepaidCount = 0, prepaidAmount = 0; // Khách đưa trước bằng tiền mặt/chuyển khoản
         for (var i = 0; i < transactions.length; i++) {
             var tx = transactions[i];
             var amt = tx.amount || 0;
@@ -400,13 +401,16 @@ function loadPosCashData(targetDate) {
                 debtCount++;
                 debtAmount += amt;
             } else if (tx.paymentMethod === 'cash' || tx.paymentMethod === 'transfer' || tx.paymentMethod === 'grab') {
-                // Phân biệt: khách trả nợ (type='debt_payment') vs doanh thu bán hàng thông thường
+                // Tất cả giao dịch cash/transfer/grab đều tính vào tổng doanh thu (kể cả trả nợ, prepaid)
+                totalCount++;
+                totalRevenue += amt;
+                // Thống kê riêng theo loại giao dịch
                 if (tx.type === 'debt_payment') {
                     debtPaymentCount++;
                     debtPaymentAmount += amt;
-                } else {
-                    totalCount++;
-                    totalRevenue += amt;
+                } else if (tx.type === 'prepaid') {
+                    prepaidCount++;
+                    prepaidAmount += amt;
                 }
                 if (tx.paymentMethod === 'cash') {
                     cashCount++;
@@ -491,6 +495,8 @@ function loadPosCashData(targetDate) {
             debtAmount: debtAmount,
             debtPaymentCount: debtPaymentCount,
             debtPaymentAmount: debtPaymentAmount,
+            prepaidCount: prepaidCount,
+            prepaidAmount: prepaidAmount,
             // Bàn đang hoạt động
             activeTables: activeTables,
             activeTableTotal: activeTableTotal,
@@ -588,8 +594,13 @@ function renderCashCounter(isAdmin) {
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'cash\')" title="Xem danh sách giao dịch tiền mặt"><span>💵 Tiền mặt</span><span>' + data.cashCount + ' đơn - ' + formatMoney(data.cashRevenue) + '</span></div>';
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'transfer\')" title="Xem danh sách giao dịch chuyển khoản"><span>💳 Chuyển khoản</span><span>' + data.transferCount + ' đơn - ' + formatMoney(data.transferAmount) + '</span></div>';
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'grab\')" title="Xem danh sách giao dịch Grab"><span>🛵 Grab</span><span>' + data.grabCount + ' đơn - ' + formatMoney(data.grabAmount) + '</span></div>';
+        // Divider: phân cách doanh thu bán hàng và các khoản khác
+        html += '        <div style="border-top:1px dashed #cbd5e1;margin:4px 0;"></div>';
         if (data.debtPaymentCount > 0) {
             html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'debt_payment\')" title="Xem danh sách khách trả nợ"><span>💳 Khách trả nợ</span><span>' + data.debtPaymentCount + ' đơn - ' + formatMoney(data.debtPaymentAmount) + '</span></div>';
+        }
+        if (data.prepaidCount > 0) {
+            html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'prepaid\')" title="Xem danh sách khách đưa trước"><span>💰 Khách đưa trước</span><span>' + data.prepaidCount + ' đơn - ' + formatMoney(data.prepaidAmount) + '</span></div>';
         }
         if (data.debtCount > 0) {
             html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'debt\')" title="Xem danh sách giao dịch nợ"><span>📝 Nợ trong ngày</span><span>' + data.debtCount + ' đơn - ' + formatMoney(data.debtAmount) + '</span></div>';
@@ -668,8 +679,13 @@ html += '        <div class="pos-cash-row" style="cursor:pointer;" onclick="show
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'cash\')" title="Xem danh sách giao dịch tiền mặt"><span>💵 Tiền mặt</span><span>' + data.cashCount + ' đơn' + (data.isClosed ? ' - ' + formatMoney(data.cashRevenue) : '') + '</span></div>';
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'transfer\')" title="Xem danh sách giao dịch chuyển khoản"><span>💳 Chuyển khoản</span><span>' + data.transferCount + ' đơn' + (data.isClosed ? ' - ' + formatMoney(data.transferAmount) : '') + '</span></div>';
         html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'grab\')" title="Xem danh sách giao dịch Grab"><span>🛵 Grab</span><span>' + data.grabCount + ' đơn' + (data.isClosed ? ' - ' + formatMoney(data.grabAmount) : '') + '</span></div>';
+        // Divider: phân cách doanh thu bán hàng và các khoản khác
+        html += '        <div style="border-top:1px dashed #cbd5e1;margin:4px 0;"></div>';
         if (data.debtPaymentCount > 0) {
             html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'debt_payment\')" title="Xem danh sách khách trả nợ"><span>💳 Khách trả nợ</span><span>' + data.debtPaymentCount + ' đơn - ' + formatMoney(data.debtPaymentAmount) + '</span></div>';
+        }
+        if (data.prepaidCount > 0) {
+            html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'prepaid\')" title="Xem danh sách khách đưa trước"><span>💰 Khách đưa trước</span><span>' + data.prepaidCount + ' đơn - ' + formatMoney(data.prepaidAmount) + '</span></div>';
         }
         if (data.debtCount > 0) {
             html += '        <div class="pos-cash-row" style="padding-left:8px;cursor:pointer;" onclick="showPaymentMethodTransactions(\'debt\')" title="Xem danh sách giao dịch nợ"><span>📝 Nợ trong ngày</span><span>' + data.debtCount + ' đơn - ' + formatMoney(data.debtAmount) + '</span></div>';
@@ -3062,7 +3078,9 @@ var _paymentMethodLabels = {
     'cash': '💵 Tiền mặt',
     'transfer': '💳 Chuyển khoản',
     'grab': '🛵 Grab',
-    'debt': '📝 Nợ'
+    'debt': '📝 Nợ',
+    'debt_payment': '💳 Khách trả nợ',
+    'prepaid': '💰 Khách đưa trước'
 };
 
 function showPaymentMethodTransactions(paymentMethod) {
@@ -3103,6 +3121,10 @@ function showPaymentMethodTransactions(paymentMethod) {
             if (paymentMethod === 'debt_payment') {
                 // Khách trả nợ: type='debt_payment' && paymentMethod !== 'debt' (cash/transfer)
                 return tx.type === 'debt_payment' && tx.paymentMethod !== 'debt';
+            }
+            if (paymentMethod === 'prepaid') {
+                // Khách đưa trước: type='prepaid'
+                return tx.type === 'prepaid';
             }
             // cash, transfer, grab: paymentMethod khớp
             // Chỉ loại trừ ghi nợ (type='debt_payment' && paymentMethod='debt')
