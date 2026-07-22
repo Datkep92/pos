@@ -18,6 +18,14 @@ function initMasterTab() {
     var container = document.getElementById('masterView');
     if (!container) return;
 
+    // OPTIMIZE: Kiểm tra nếu master-container đã được render thì không render lại
+    // Tránh render lại toàn bộ mỗi lần click tab
+    var existing = container.querySelector('.master-container');
+    if (existing) {
+        // Container đã có, không cần render lại
+        return;
+    }
+
     // Render header
     container.innerHTML =
         '<div class="master-container">' +

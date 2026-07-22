@@ -1882,6 +1882,8 @@ function showQuickCreateMenuItem() {
         var c = cats[i];
         catOptions += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
     }
+    // Thêm option tạo danh mục mới
+    catOptions += '<option value="__new__">➕ Thêm danh mục mới...</option>';
 
     var overlay = document.createElement('div');
     overlay.id = 'quickCreateOverlay';
@@ -1900,9 +1902,13 @@ function showQuickCreateMenuItem() {
                 '</div>' +
                 '<div class="quick-create-field">' +
                     '<label>Danh mục</label>' +
-                    '<select id="quickCreateCategory" class="form-input">' +
+                    '<select id="quickCreateCategory" class="form-input" onchange="_onQuickCreateCategoryChange(this)">' +
                         catOptions +
                     '</select>' +
+                '</div>' +
+                '<div class="quick-create-field" id="quickCreateNewCatField" style="display:none;">' +
+                    '<label>Tên danh mục mới</label>' +
+                    '<input type="text" id="quickCreateNewCatName" class="form-input" placeholder="Nhập tên danh mục..." autocomplete="off">' +
                 '</div>' +
                 '<div class="quick-create-field">' +
                     '<label>Giá bán</label>' +
@@ -1944,6 +1950,20 @@ function showQuickCreateMenuItem() {
     }
 }
 
+// Khi chọn category thay đổi - hiện/ẩn ô nhập tên danh mục mới
+function _onQuickCreateCategoryChange(select) {
+    var newCatField = document.getElementById('quickCreateNewCatField');
+    var newCatInput = document.getElementById('quickCreateNewCatName');
+    if (select.value === '__new__') {
+        newCatField.style.display = '';
+        if (newCatInput) {
+            newCatInput.focus();
+        }
+    } else {
+        newCatField.style.display = 'none';
+    }
+}
+
 function closeQuickCreateMenuItem() {
     var overlay = document.getElementById('quickCreateOverlay');
     if (overlay) overlay.remove();
@@ -1975,6 +1995,64 @@ function confirmQuickCreateMenuItem() {
         return;
     }
 
+    // Nếu chọn tạo danh mục mới
+    if (categoryId === '__new__') {
+        var newCatInput = document.getElementById('quickCreateNewCatName');
+        var newCatName = newCatInput ? newCatInput.value.trim() : '';
+        if (!newCatName) {
+            showToast('❌ Vui lòng nhập tên danh mục mới', 'error');
+            if (newCatInput) newCatInput.focus();
+            return;
+        }
+
+        closeQuickCreateMenuItem();
+        showToast('⏳ Đang tạo danh mục...', 'warning');
+
+        // Tìm sortOrder cao nhất cho category
+        var maxCatSort = 0;
+        var cats = window.menuCategories || [];
+        for (var i = 0; i < cats.length; i++) {
+            var s = cats[i].sortOrder || 0;
+            if (s > maxCatSort) maxCatSort = s;
+        }
+
+        // Tạo category trước
+        var newCategory = {
+            name: newCatName,
+            sortOrder: maxCatSort + 1,
+            createdAt: new Date().toISOString()
+        };
+
+        DB.create('menu_categories', newCategory).then(function(savedCat) {
+            // Category đã được tạo, giờ tạo menu item với categoryId mới
+            var maxSort = 0;
+            for (var i = 0; i < menuItems.length; i++) {
+                var s = menuItems[i].sortOrder || 0;
+                if (s > maxSort) maxSort = s;
+            }
+
+            var newItem = {
+                name: name,
+                categoryId: savedCat.id,
+                price: price,
+                sortOrder: maxSort + 1,
+                hasVariants: false,
+                createdAt: new Date().toISOString()
+            };
+
+            return DB.create('menu', newItem);
+        }).then(function(saved) {
+            showToast('✅ Đã tạo danh mục "' + newCatName + '" và món "' + name + '"', 'success');
+            // Menu + Category sẽ tự cập nhật qua realtime subscription
+        }).catch(function(err) {
+            console.error('Lỗi tạo danh mục + món:', err);
+            showToast('❌ Lỗi: ' + (err.message || 'unknown'), 'error');
+        });
+
+        return;
+    }
+
+    // Trường hợp bình thường: chọn danh mục có sẵn
     // Tìm sortOrder cao nhất để thêm món mới xuống cuối
     var maxSort = 0;
     for (var i = 0; i < menuItems.length; i++) {
@@ -2083,6 +2161,7 @@ window._initMenuEventDelegation = _initMenuEventDelegation;
 window.showQuickCreateMenuItem = showQuickCreateMenuItem;
 window.closeQuickCreateMenuItem = closeQuickCreateMenuItem;
 window.confirmQuickCreateMenuItem = confirmQuickCreateMenuItem;
+window._onQuickCreateCategoryChange = _onQuickCreateCategoryChange;
 // Export takeaway helpers (dùng trong inline onclick)
 window.takeawayCashPayWithDenom = takeawayCashPayWithDenom;
 window._takeawayChangeToastPay = _takeawayChangeToastPay;

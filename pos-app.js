@@ -117,17 +117,51 @@ function _runDeferredTasks() {
     }
 }
 
+// Loading screen helpers
+function _updateLoadingText(text) {
+    var el = document.getElementById('loadingText');
+    if (el) el.innerText = text;
+}
+function _hideLoadingScreen() {
+    var overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        // Xóa khỏi DOM sau khi animation kết thúc để giải phóng bộ nhớ
+        setTimeout(function() {
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }, 500);
+    }
+}
+// Cập nhật tên quán trên loading screen (nếu đã có shopInfo)
+function _updateLoadingShopName() {
+    var titleEl = document.getElementById('loadingTitle');
+    if (!titleEl) return;
+    var name = '';
+    if (window.shopInfo && window.shopInfo.name) {
+        name = window.shopInfo.name;
+    } else if (window._cachedShopName) {
+        name = window._cachedShopName;
+    }
+    if (name) {
+        titleEl.textContent = name;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // OPTIMIZE: Khôi phục UI từ sessionStorage ngay lập tức (nếu có)
     // Giúp UI hiển thị ngay trong khi chờ DB.init() và loadData() hoàn tất
     _restoreFromSessionCache();
     
+    _updateLoadingText('Đang kết nối cơ sở dữ liệu...');
+    
     // FIX: Gọi DB.init() TRƯỚC, sau đó mới initRealtime()
     // Đảm bảo database đã sẵn sàng trước khi đăng ký subscriptions
     DB.init().then(function() {
+        _updateLoadingText('Đang xác thực...');
         if (typeof initAuth === 'function') {
             initAuth();
         }
+        _updateLoadingText('Đang tải dữ liệu...');
         return loadData();
     }).then(function() {
         // OPTIMIZE: Lưu vào sessionCache sau khi loadData thành công
@@ -136,8 +170,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // FIX: Kiểm tra nếu dữ liệu rỗng (IndexedDB bị xóa) -> force sync từ Firebase
         if (_isDataEmpty()) {
             console.log('⚠️ Local data empty, forcing sync from Firebase...');
+            _updateLoadingText('Đang đồng bộ dữ liệu từ server...');
             return DB.forceSyncFromFirebase().then(function() {
                 console.log('✅ Force sync completed, reloading data...');
+                _updateLoadingText('Đang tải lại dữ liệu...');
                 return loadData();
             }).catch(function(err) {
                 // FIX: Nếu force sync thất bại (offline, timeout...), vẫn tiếp tục
@@ -146,10 +182,12 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     }).then(function() {
+        _updateLoadingText('Đang tải đơn tạm...');
         return loadDraftOrders();
     }).then(function() {
         // FIX: Khởi tạo realtime subscriptions SAU KHI DB đã sẵn sàng và data đã load
         // Tránh race condition: subscribeWithPolling gọi callback khi memoryCache còn rỗng
+        _updateLoadingText('Đang khởi tạo kết nối thời gian thực...');
         initRealtime();
         
         // Mặc định hiển thị tab Mang đi (mangdi.html),
@@ -221,10 +259,14 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(_runDeferredTasks, 2000);
         
         setInterval(renderCurrentTime, 30000);
+        
+        // Ẩn loading screen và hiển thị thông báo sẵn sàng
+        _hideLoadingScreen();
         showToast('POS sẵn sàng', 'success');
     }).catch(function(err) {
         // FIX: Catch mọi lỗi để đảm bảo UI không bị treo
         console.error('❌ Initialization error:', err);
+        _hideLoadingScreen();
         showToast('⚠️ Lỗi khởi tạo: ' + (err.message || 'unknown'), 'error', 4000);
         // Vẫn cố gắng khởi tạo event listeners để nút bấm hoạt động
         try {
@@ -289,6 +331,11 @@ function loadData() {
                 shopInfo = null;
             }
             window.shopInfo = shopInfo;
+            // Cache tên quán để loading screen có thể hiển thị
+            if (shopInfo && shopInfo.name) {
+                window._cachedShopName = shopInfo.name;
+                _updateLoadingShopName();
+            }
             var shopNameEl = document.getElementById('shopNameHeader');
             if (shopNameEl && shopInfo && shopInfo.name) {
                 shopNameEl.textContent = shopInfo.name;
@@ -331,7 +378,22 @@ function loadData() {
             return orderA - orderB;
         });
         menuCategories = results[1] || [];
-        customers = results[2] || [];
+        
+        // FIX: Khi IndexedDB trả về rỗng (do fullSync đang clear + rewrite),
+        // giữ nguyên dữ liệu từ sessionStorage để tránh mất khách hàng
+        // Race condition: fullSync() clear IndexedDB trước, sau đó mới lưu từng item qua chain
+        // Nếu loadData() đọc giữa lúc đó, IndexedDB trả về [] -> ghi đè customers = []
+        var customersFromDB = results[2] || [];
+        if (customersFromDB.length > 0) {
+            customers = customersFromDB;
+        } else if (window.customers && window.customers.length > 0) {
+            // Giữ nguyên dữ liệu từ sessionStorage (đã được _restoreFromSessionCache khôi phục)
+            console.log('[LoadData] IndexedDB customers rỗng, giữ dữ liệu từ sessionStorage:', window.customers.length, 'khách');
+            customers = window.customers;
+        } else {
+            customers = [];
+        }
+        
         // Load shop info từ IndexedDB (ưu tiên)
         var shopInfoList = results[3] || [];
         if (shopInfoList.length > 0) {

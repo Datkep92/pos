@@ -7737,3 +7737,66 @@ html, body, .app, .main-content {
     opacity: 1;
     background: rgba(239,68,68,0.15);
 }
+
+/* ========== LOADING SCREEN ========== */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #0f172a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.4s ease;
+}
+
+.loading-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 20px;
+    max-width: 90vw;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(249, 115, 22, 0.2);
+    border-top-color: #f97316;
+    border-radius: 50%;
+    animation: loadingSpin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes loadingSpin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-title {
+    font-size: 16px;
+    color: #e2e8f0;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.3;
+    max-width: 280px;
+    min-height: 1.3em;
+}
+
+.loading-text {
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 400;
+    text-align: center;
+    line-height: 1.4;
+    max-width: 280px;
+}

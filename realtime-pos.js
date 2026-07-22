@@ -432,6 +432,14 @@ function updateTablesDiff(newTables) {
     }
     
     var existingCards = grid.querySelectorAll('.table-card:not(.table-create-btn)');
+    
+    // FIX Android 6: Nếu số bàn từ IndexedDB ít hơn số bàn đang hiển thị trên màn hình
+    // thì KHÔNG xóa gì cả - tránh mất bàn do IndexedDB đọc lỗi trên Android 6
+    if (activeTables.length < existingCards.length) {
+        console.warn('[Realtime] Tables count giảm từ ' + existingCards.length + ' xuống ' + activeTables.length + ' - bỏ qua update để tránh mất bàn');
+        return;
+    }
+    
     var existingIds = {};
     for (var i = 0; i < existingCards.length; i++) {
         existingIds[existingCards[i].getAttribute('data-id')] = existingCards[i];

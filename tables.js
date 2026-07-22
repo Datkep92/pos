@@ -696,6 +696,11 @@ function _processPaymentDirect(tableId, method) {
             if (creditUsed > 0) msg += ' (đã dùng ' + formatMoney(creditUsed) + ' tiền dư)';
             showToast(msg, 'success');
             _dispatchPosCashUpdate();
+            // FIX Android 6: Gọi renderTables() để đồng bộ UI sau thanh toán
+            // Tránh trường hợp IndexedDB đọc lỗi làm mất bàn trên Android 6
+            if (typeof renderTables === 'function') {
+                renderTables();
+            }
         }).catch(function(err) {
             hideToast(_paymentToastId);
             DB.flushRealtime();
@@ -970,6 +975,11 @@ function debtAtTable(tableId) {
                         var msg = '💰 Đã ghi nợ ' + formatMoney(debtAmount) + ' cho ' + customer.name;
                         if (creditUsed > 0) msg += ' (đã trừ ' + formatMoney(creditUsed) + ' tiền dư)';
                         showToast(msg, 'success');
+                        
+                        // FIX Android 6: Gọi renderTables() để đồng bộ UI sau ghi nợ
+                        if (typeof renderTables === 'function') {
+                            renderTables();
+                        }
                         
                         // In hóa đơn (fire-and-forget, không chờ)
                         var printCheck = document.getElementById('printAfterPaymentCheck');

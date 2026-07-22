@@ -193,6 +193,11 @@
     var memoryCache = {};
     var cacheVersion = {};
     
+    // FIX: Đánh dấu collection đang được fullSync để tránh race condition
+    // Khi fullSync() clear IndexedDB + memoryCache, nếu loadFromLocal() đọc giữa lúc đó
+    // sẽ trả về [] -> gây mất dữ liệu (vd: customers chỉ hiện 2/10)
+    var _syncingCollections = {}; // { collection: true }
+    
     // ========== PHASE 2: Memory Cache theo ngày ==========
     var _currentDateKey = toDateKey(Date.now()); // Ngày hiện tại
     var MEMORY_CACHE_LIMITS = {
@@ -286,10 +291,24 @@
         var now = Date.now();
         var totalRemoved = 0;
         
+        // Các master collections KHÔNG bị xóa khỏi memory cache vì:
+        // 1. Dữ liệu ít thay đổi, cần luôn sẵn sàng cho UI
+        // 2. Nếu bị xóa, loadData() sẽ fallback về IndexedDB có thể trả về [] (race condition với fullSync)
+        // 3. Gây lỗi hiển thị thiếu dữ liệu (vd: customers chỉ hiện 2/10)
+        var _masterCollections = {
+            customers: true,
+            menu: true,
+            menu_categories: true,
+            ingredients: true,
+            tables: true,
+            info: true
+        };
+        
         // Dọn memoryCache items quá hạn
         for (var col in memoryCache) {
             if (!memoryCache.hasOwnProperty(col)) continue;
             if (col === 'transactions') continue; // transactions đã có cơ chế riêng
+            if (_masterCollections[col]) continue; // master collections giữ nguyên
             var keys = Object.keys(memoryCache[col]);
             for (var i = 0; i < keys.length; i++) {
                 var key = keys[i];
@@ -583,6 +602,10 @@
             // PHASE 2: Xóa cache query transactions khi có thay đổi
             if (collection === 'transactions' && normalized.dateKey) {
                 _invalidateTxDateCache(normalized.dateKey);
+                // Xóa luôn manager cache để realtime cập nhật big-value
+                if (typeof window._invalidateManagerCache === 'function') {
+                    window._invalidateManagerCache();
+                }
             }
             
             // PHASE 2: Cập nhật session cache realtime (nếu pos-app.js đã load)
@@ -722,6 +745,10 @@
                     // Xóa cache query transactions SAU KHI IndexedDB đã xóa xong
                     if (collection === 'transactions' && deletedDateKey) {
                         _invalidateTxDateCache(deletedDateKey);
+                        // Xóa luôn manager cache để realtime cập nhật big-value
+                        if (typeof window._invalidateManagerCache === 'function') {
+                            window._invalidateManagerCache();
+                        }
                     }
                     // Gọi _notifyLocal SAU KHI IndexedDB đã xóa xong
                     _notifyLocal(collection, { type: 'removed', item: { id: id }, collection: collection });
@@ -1290,14 +1317,62 @@
         return dbReady.then(function() {
             if (!localDB || !localDB.objectStoreNames.contains('transactions')) return [];
             
-            // LUÔN query IndexedDB để có dữ liệu đầy đủ, không chỉ dựa vào memory cache
-            // Memory cache chỉ chứa transactions của ngày hiện tại (Phase 2 optimization)
+            // OPTIMIZE: Kiểm tra _txDateCache trước - nếu tất cả các ngày trong range đã có cache thì dùng luôn
+            var allDateKeys = getDateKeysBetween(startDateKey, endDateKey);
+            var cachedResults = [];
+            var allCached = true;
+            var typeSuffix = '|' + type;
+            
+            for (var d = 0; d < allDateKeys.length; d++) {
+                var cacheKey = allDateKeys[d] + typeSuffix;
+                if (_txDateCache[cacheKey]) {
+                    var cacheTime = _txDateCacheTimestamps[cacheKey] || 0;
+                    if ((Date.now() - cacheTime) < _TX_DATE_CACHE_TTL) {
+                        // Cache còn hạn, gộp vào kết quả
+                        for (var t = 0; t < _txDateCache[cacheKey].length; t++) {
+                            cachedResults.push(_txDateCache[cacheKey][t]);
+                        }
+                        continue;
+                    }
+                }
+                // Thử cache với type='all' nếu type cụ thể không có
+                var cacheKeyAll = allDateKeys[d] + '|all';
+                if (_txDateCache[cacheKeyAll]) {
+                    var cacheTimeAll = _txDateCacheTimestamps[cacheKeyAll] || 0;
+                    if ((Date.now() - cacheTimeAll) < _TX_DATE_CACHE_TTL) {
+                        // Cache 'all' còn hạn, filter theo type
+                        for (var t = 0; t < _txDateCache[cacheKeyAll].length; t++) {
+                            var item = _txDateCache[cacheKeyAll][t];
+                            if (type === 'all' || item.type === type) {
+                                cachedResults.push(item);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                allCached = false;
+                break;
+            }
+            
+            if (allCached && cachedResults.length > 0) {
+                // Cập nhật memory cache
+                if (!memoryCache.transactions) memoryCache.transactions = {};
+                for (var i = 0; i < cachedResults.length; i++) {
+                    memoryCache.transactions[cachedResults[i].id] = cachedResults[i];
+                }
+                return cachedResults;
+            }
+            
+            // OPTIMIZE: Dùng IDBKeyRange.bound() để chỉ query transactions trong range cần
+            // thay vì getAll() rồi filter trong JS - giảm lượng dữ liệu truyền từ IndexedDB
             localPromise = new Promise(function(resolve, reject) {
                 var tx = localDB.transaction(['transactions'], 'readonly');
                 var store = tx.objectStore('transactions');
                 var req;
                 if (store.indexNames.contains('dateKey')) {
-                    req = store.index('dateKey').getAll();
+                    // Chỉ lấy transactions trong date range, không lấy tất cả
+                    var range = IDBKeyRange.bound(startDateKey, endDateKey, false, false);
+                    req = store.index('dateKey').getAll(range);
                 } else {
                     req = store.getAll();
                 }
@@ -1306,18 +1381,16 @@
                     for (var i = 0; i < rows.length; i++) {
                         _fixDateKeyIfNeeded(rows[i]);
                     }
-                    // Dùng r.dateKey thay vì toDateKey(r.date) vì _fixDateKeyIfNeeded đã đảm bảo dateKey đúng
-                    var filtered = rows.filter(function(r) {
-                        var dk = r.dateKey || toDateKey(r.date);
-                        return dk >= startDateKey && dk <= endDateKey;
-                    });
-                    if (type !== 'all') filtered = filtered.filter(function(r) { return r.type === type; });
+                    // rows đã được IndexedDB filter theo dateKey range, chỉ cần filter type nếu cần
+                    if (type !== 'all') {
+                        rows = rows.filter(function(r) { return r.type === type; });
+                    }
                     // Cập nhật memory cache với dữ liệu từ IndexedDB
                     if (!memoryCache.transactions) memoryCache.transactions = {};
                     for (var i = 0; i < rows.length; i++) {
                         memoryCache.transactions[rows[i].id] = rows[i];
                     }
-                    resolve(filtered);
+                    resolve(rows);
                 };
                 req.onerror = function() { reject(req.error); };
             });
@@ -1331,8 +1404,7 @@
                     }
                 }
                 
-                // Bước 2: Xác định tất cả các ngày trong range
-                var allDateKeys = getDateKeysBetween(startDateKey, endDateKey);
+                // Bước 2: Xác định tất cả các ngày trong range (đã tính ở trên)
                 
                 // Bước 3: Tìm những ngày còn thiếu (chưa có trong local)
                 var missingDateKeys = [];
@@ -2073,6 +2145,12 @@
                 
                 _setSuppressRealtime(true);
                 
+                // FIX: Đánh dấu collection đang được fullSync
+                // Để loadFromLocal() biết không đọc từ IndexedDB đã bị clear
+                if (isMaster) {
+                    _syncingCollections[collection] = true;
+                }
+                
                 if (isMaster && memoryCache[collection]) {
                     memoryCache[collection] = {};
                 }
@@ -2138,17 +2216,20 @@
                         saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
                         updateMetaOnFirebase(collection, maxVersion);
                         _setSuppressRealtime(false);
+                        if (isMaster) delete _syncingCollections[collection];
                         _emit(collection + ':synced', { collection: collection, count: count, timestamp: Date.now() });
                         resolve();
                     });
                 }).catch(function(err) {
                     console.error('  ❌ Error full syncing ' + collection + ': ', err);
                     _setSuppressRealtime(false);
+                    if (isMaster) delete _syncingCollections[collection];
                     resolve();
                 });
             }, function(err) {
                 console.error('  ❌ Firebase read error for ' + collection + ': ', err);
                 _setSuppressRealtime(false);
+                if (isMaster) delete _syncingCollections[collection];
                 resolve();
             });
         });
