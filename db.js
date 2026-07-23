@@ -62,10 +62,15 @@
         
         if (!customConfig || !customConfig.databaseURL) {
             console.log('ℹ️ No custom Firebase config, using default');
+            // Reset về URL mặc định
+            _databaseURL = firebaseConfig.databaseURL;
             return Promise.resolve(false);
         }
         
         try {
+            // Cập nhật databaseURL cho REST API shallow requests
+            _databaseURL = customConfig.databaseURL;
+            
             // Tạo tên app duy nhất để tránh xung đột
             var appName = 'secondary_' + Date.now();
             _secondaryApp = firebase.initializeApp(customConfig, appName);
@@ -180,11 +185,14 @@
     // Lấy danh sách keys từ Firebase (chỉ keys, không lấy data)
     // Dùng REST API shallow=true để tối ưu băng thông
     // Fallback về SDK once('value') nếu REST API lỗi
+    
+    // Lưu databaseURL để dùng cho REST API (Firebase Database Reference.toString() không hoạt động)
+    var _databaseURL = firebaseConfig.databaseURL;
+    
     function _getFirebaseKeys(collection) {
-        var dbRef = _getDb();
-        var dbUrl = dbRef.toString();
-        // Xác định URL đúng cho REST API
-        var baseUrl = dbUrl.replace(/\/$/, '');
+        // Xây dựng URL cho REST API shallow=true
+        // Firebase REST API: https://<databaseURL>/<path>.json?shallow=true
+        var baseUrl = _databaseURL.replace(/\/$/, '');
         var url = baseUrl + '/' + encodeURIComponent(CURRENT_SHOP_ID) + '/' + encodeURIComponent(collection) + '.json?shallow=true';
         
         // Thử dùng fetch với shallow=true trước
