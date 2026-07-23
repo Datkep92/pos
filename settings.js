@@ -252,6 +252,16 @@ function getTodayDateKey() {
 }
 
 function initQuickCashCounter() {
+    var today = getTodayDateKey();
+
+    // TỐI ƯU: Nếu đã có dữ liệu cho ngày hôm nay trong cache, chỉ cần render lại UI
+    // Không cần gọi loadPosCashData() (6 requests Firebase/IndexedDB) và _subscribeDayClosedRealtime() (7 listeners)
+    // Logic realtime vẫn hoạt động: child_* events, db_update, pos_cash_update vẫn gọi loadPosCashData() bình thường
+    if (_posCashData && _posCashData.dateKey === today) {
+        renderCashCounter();
+        return;
+    }
+
     cashCounts = {};
     for (var i = 0; i < CASH_DENOMS.length; i++) {
         cashCounts[CASH_DENOMS[i].value] = 0;
