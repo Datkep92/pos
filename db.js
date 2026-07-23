@@ -606,6 +606,10 @@
                 if (typeof window._invalidateManagerCache === 'function') {
                     window._invalidateManagerCache();
                 }
+                // Xóa luôn employee manager cache để realtime cập nhật tổng lương
+                if (typeof window._invalidateEmpManagerCache === 'function') {
+                    window._invalidateEmpManagerCache();
+                }
             }
             
             // PHASE 2: Cập nhật session cache realtime (nếu pos-app.js đã load)
@@ -748,6 +752,10 @@
                         // Xóa luôn manager cache để realtime cập nhật big-value
                         if (typeof window._invalidateManagerCache === 'function') {
                             window._invalidateManagerCache();
+                        }
+                        // Xóa luôn employee manager cache để realtime cập nhật tổng lương
+                        if (typeof window._invalidateEmpManagerCache === 'function') {
+                            window._invalidateEmpManagerCache();
                         }
                     }
                     // Gọi _notifyLocal SAU KHI IndexedDB đã xóa xong
