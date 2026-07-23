@@ -144,7 +144,10 @@
             var detail = e.detail;
             if (!detail || !detail.collection) return;
             if (_selectedCloseDate) return;
-            if (detail.collection === 'transactions' || detail.collection === 'tables' || detail.collection === 'cost_transactions') {
+            // Lắng nghe tất cả collection liên quan đến POS cash:
+            // transactions, tables, cost_transactions, manager_cash_pickups
+            if (detail.collection === 'transactions' || detail.collection === 'tables' ||
+                detail.collection === 'cost_transactions' || detail.collection === 'manager_cash_pickups') {
                 loadPosCashData();
             }
         } catch (e) {
@@ -165,6 +168,99 @@
     window.addEventListener('db_update', _onPosCashDbUpdate);
     window.removeEventListener('pos_cash_update', _onPosCashLocalUpdate);
     window.addEventListener('pos_cash_update', _onPosCashLocalUpdate);
+})();
+
+// ============================================================
+// LẮNG NGHE REALTIME: cost_transactions + manager_cash_pickups
+// Đăng ký NGAY KHI LOAD, không phụ thuộc vào tab Settings
+// Đảm bảo thiết bị khác nhận được realtime khi có thay đổi
+// ============================================================
+(function _initGlobalRealtime() {
+    // Đợi Firebase sẵn sàng rồi mới đăng ký listener
+    var _waitForFirebase = setInterval(function() {
+        try {
+            if (typeof firebase === 'undefined' || !firebase.database) return;
+            var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : null;
+            if (!shopId) return;
+            
+            clearInterval(_waitForFirebase);
+            var dbRef = firebase.database().ref(shopId);
+            
+            // Lắng nghe cost_transactions để cập nhật cache realtime
+            dbRef.child('cost_transactions').on('child_added', function(snapshot) {
+                var key = snapshot.key;
+                var val = snapshot.val();
+                if (val) {
+                    if (!_costTxCache) _costTxCache = {};
+                    val.id = key;
+                    _costTxCache[key] = val;
+                    _costTxCacheLoaded = true;
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+            dbRef.child('cost_transactions').on('child_changed', function(snapshot) {
+                var key = snapshot.key;
+                var val = snapshot.val();
+                if (val) {
+                    if (!_costTxCache) _costTxCache = {};
+                    val.id = key;
+                    _costTxCache[key] = val;
+                    _costTxCacheLoaded = true;
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+            dbRef.child('cost_transactions').on('child_removed', function(snapshot) {
+                var key = snapshot.key;
+                if (_costTxCache && _costTxCache[key]) {
+                    delete _costTxCache[key];
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+            
+            // Lắng nghe manager_cash_pickups để cập nhật cache realtime
+            dbRef.child('manager_cash_pickups').on('child_added', function(snapshot) {
+                var key = snapshot.key;
+                var val = snapshot.val();
+                if (val) {
+                    if (!_pickupsCache) _pickupsCache = {};
+                    val.id = key;
+                    _pickupsCache[key] = val;
+                    _pickupsCacheLoaded = true;
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+            dbRef.child('manager_cash_pickups').on('child_changed', function(snapshot) {
+                var key = snapshot.key;
+                var val = snapshot.val();
+                if (val) {
+                    if (!_pickupsCache) _pickupsCache = {};
+                    val.id = key;
+                    _pickupsCache[key] = val;
+                    _pickupsCacheLoaded = true;
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+            dbRef.child('manager_cash_pickups').on('child_removed', function(snapshot) {
+                var key = snapshot.key;
+                if (_pickupsCache && _pickupsCache[key]) {
+                    delete _pickupsCache[key];
+                    if (!_selectedCloseDate) {
+                        loadPosCashData();
+                    }
+                }
+            });
+        } catch(e) {}
+    }, 1000);
 })();
 
 // ============================================================
@@ -297,9 +393,11 @@ function _subscribeDayClosedRealtime() {
         var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
         var dbRef = firebase.database().ref(shopId);
 
-        // 1. Lắng nghe thay đổi trên daily_balances hôm nay
+        // Lắng nghe thay đổi trên daily_balances hôm nay
         // Khi nhân viên A chốt ngày (ghi difference + isClosed lên Firebase),
         // nhân viên B và admin sẽ nhận được cập nhật realtime và reload UI
+        // LƯU Ý: cost_transactions và manager_cash_pickups đã được lắng nghe
+        // bởi _initGlobalRealtime() ngay khi settings.js load (xem phần đầu file)
         dbRef.child('daily_balances/' + today).on('value', function(snapshot) {
             var data = snapshot.val();
             if (data) {
@@ -308,83 +406,6 @@ function _subscribeDayClosedRealtime() {
                 _dayClosedCache = newIsClosed;
                 // Chỉ reload nếu không đang xem ngày khác (không có _selectedCloseDate)
                 // Tránh reset về ngày hôm nay khi đang xem ngày trước đó
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-
-        // 2. Lắng nghe thay đổi trên manager_cash_pickups (Tiền QL nhận)
-        // Dùng child_* events thay vì .on('value') để chỉ tải dữ liệu thay đổi
-        // Khi admin nhập pickup ở máy A, máy B nhận được child_added và cập nhật cache
-        dbRef.child('manager_cash_pickups').on('child_added', function(snapshot) {
-            var key = snapshot.key;
-            var val = snapshot.val();
-            if (val) {
-                if (!_pickupsCache) _pickupsCache = {};
-                val.id = key;
-                _pickupsCache[key] = val;
-                _pickupsCacheLoaded = true;
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-        dbRef.child('manager_cash_pickups').on('child_changed', function(snapshot) {
-            var key = snapshot.key;
-            var val = snapshot.val();
-            if (val) {
-                if (!_pickupsCache) _pickupsCache = {};
-                val.id = key;
-                _pickupsCache[key] = val;
-                _pickupsCacheLoaded = true;
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-        dbRef.child('manager_cash_pickups').on('child_removed', function(snapshot) {
-            var key = snapshot.key;
-            if (_pickupsCache && _pickupsCache[key]) {
-                delete _pickupsCache[key];
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-
-        // 3. Lắng nghe thay đổi trên cost_transactions (Chi phí Két POS)
-        // Dùng child_* events để chỉ tải dữ liệu thay đổi, cập nhật cache
-        dbRef.child('cost_transactions').on('child_added', function(snapshot) {
-            var key = snapshot.key;
-            var val = snapshot.val();
-            if (val) {
-                if (!_costTxCache) _costTxCache = {};
-                val.id = key;
-                _costTxCache[key] = val;
-                _costTxCacheLoaded = true;
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-        dbRef.child('cost_transactions').on('child_changed', function(snapshot) {
-            var key = snapshot.key;
-            var val = snapshot.val();
-            if (val) {
-                if (!_costTxCache) _costTxCache = {};
-                val.id = key;
-                _costTxCache[key] = val;
-                _costTxCacheLoaded = true;
-                if (!_selectedCloseDate) {
-                    loadPosCashData();
-                }
-            }
-        });
-        dbRef.child('cost_transactions').on('child_removed', function(snapshot) {
-            var key = snapshot.key;
-            if (_costTxCache && _costTxCache[key]) {
-                delete _costTxCache[key];
                 if (!_selectedCloseDate) {
                     loadPosCashData();
                 }
@@ -1175,6 +1196,12 @@ function saveManagerPickup() {
         remainingPosCash: remainingPosCash
     };
 
+    // Cập nhật cache ngay lập tức để loadPosCashData() thấy dữ liệu mới
+    // (vì child_added từ Firebase có thể chưa kịp gửi về)
+    if (!_pickupsCache) _pickupsCache = {};
+    _pickupsCache[pickupId] = pickupData;
+    _pickupsCacheLoaded = true;
+
     // Bước 1: Lưu vào IndexedDB qua DB.create trước -> memoryCache được cập nhật ngay
     // -> realtime subscription nhận notify -> UI cập nhật
     if (typeof DB !== 'undefined' && typeof DB.create === 'function') {
@@ -1210,6 +1237,12 @@ function deleteManagerPickup(pickupId) {
     }
 
     var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
+
+    // Cập nhật cache ngay lập tức (xóa khỏi _pickupsCache)
+    // để loadPosCashData() không còn thấy item đã xóa
+    if (_pickupsCache && _pickupsCache[pickupId]) {
+        delete _pickupsCache[pickupId];
+    }
 
     // Bước 1: Xóa trên Firebase
     var dbRef = firebase.database().ref(shopId + '/manager_cash_pickups/' + pickupId);
