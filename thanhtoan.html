@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Quyết Toán</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: #f2f2f7;
+            padding: 12px;
+            padding-bottom: 40px;
+        }
+
+        .app {
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            padding: 16px 0 12px;
+            font-size: 22px;
+            font-weight: 700;
+            color: #1c1c1e;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .header span {
+            background: #007aff;
+            color: #fff;
+            font-size: 14px;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        .card-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #1c1c1e;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title .badge {
+            font-size: 12px;
+            background: #e9ecef;
+            color: #495057;
+            padding: 0 10px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .input-group:last-of-type {
+            border-bottom: none;
+        }
+
+        .input-group label {
+            font-size: 14px;
+            color: #3a3a3c;
+            flex: 0 0 120px;
+            font-weight: 500;
+        }
+
+        .input-group .input-wrap {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .input-group input {
+            width: 100%;
+            height: 40px;
+            border: none;
+            background: transparent;
+            font-size: 16px;
+            text-align: right;
+            padding: 0 4px;
+            font-weight: 500;
+            color: #1c1c1e;
+            outline: none;
+            min-width: 0;
+        }
+        .input-group .prefix {
+            font-size: 13px;
+            color: #8e8e93;
+            font-weight: 500;
+            padding-right: 2px;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0 4px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #1c1c1e;
+            border-top: 2px dashed #e5e5ea;
+            margin-top: 6px;
+        }
+        .total-row .num {
+            color: #007aff;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 16px;
+            margin: 4px 0 2px;
+        }
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 14px;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .result-item .label {
+            color: #6c6c70;
+        }
+        .result-item .value {
+            font-weight: 600;
+            color: #1c1c1e;
+        }
+        .result-item.full {
+            grid-column: 1 / -1;
+        }
+        .result-item.highlight .value {
+            font-size: 17px;
+            color: #007aff;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .status-badge.green {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-badge.red {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-badge.blue {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .divider {
+            border: none;
+            border-top: 2px dashed #e5e5ea;
+            margin: 10px 0;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .btn {
+            flex: 1;
+            height: 46px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .btn:active {
+            opacity: 0.7;
+        }
+        .btn-reset {
+            background: #f1f1f4;
+            color: #ff3b30;
+        }
+        .btn-copy {
+            background: #007aff;
+            color: #fff;
+        }
+
+        @media (max-width: 420px) {
+            .input-group label {
+                flex: 0 0 95px;
+                font-size: 13px;
+            }
+            .input-group input {
+                font-size: 15px;
+            }
+            .result-grid {
+                gap: 2px 10px;
+            }
+            .result-item {
+                font-size: 13px;
+                padding: 5px 0;
+            }
+        }
+
+        @media (min-width: 600px) {
+            body {
+                padding: 24px;
+            }
+            .app {
+                max-width: 560px;
+            }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #0a0a0c;
+            }
+            .card {
+                background: #1c1c1e;
+            }
+            .card-title {
+                color: #f2f2f7;
+            }
+            .card-title .badge {
+                background: #2c2c2e;
+                color: #aeaeb2;
+            }
+            .input-group {
+                border-bottom-color: #2c2c2e;
+            }
+            .input-group label {
+                color: #aeaeb2;
+            }
+            .input-group input {
+                color: #f2f2f7;
+            }
+            .total-row {
+                color: #f2f2f7;
+                border-top-color: #2c2c2e;
+            }
+            .total-row .num {
+                color: #0a84ff;
+            }
+            .result-item .label {
+                color: #8e8e93;
+            }
+            .result-item .value {
+                color: #f2f2f7;
+            }
+            .result-item.highlight .value {
+                color: #0a84ff;
+            }
+            .divider {
+                border-top-color: #2c2c2e;
+            }
+            .btn-reset {
+                background: #2c2c2e;
+                color: #ff453a;
+            }
+            .btn-copy {
+                background: #0a84ff;
+                color: #fff;
+            }
+            .status-badge.green {
+                background: #1e3a2a;
+                color: #6ddb8a;
+            }
+            .status-badge.red {
+                background: #3e1a1a;
+                color: #ff6b6b;
+            }
+            .status-badge.blue {
+                background: #1a2a3e;
+                color: #6bc8ff;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+
+        <div class="header">
+            📊 Quyết Toán
+            <span>v2</span>
+        </div>
+
+        <!-- ====== QUÁN ====== -->
+        <div class="card">
+            <div class="card-title">
+                🏪 Quán
+                <span class="badge">Thu - Chi</span>
+            </div>
+
+            <div class="input-group">
+                <label>Tiền mặt</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="cashIncome" type="text" inputmode="decimal" value="37.200.000" />
+                </div>
+            </div>
+            <div class="input-group">
+                <label>Chuyển khoản</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="bankIncome" type="text" inputmode="decimal" value="13.853.000" />
+                </div>
+            </div>
+            <div class="total-row">
+                <span>📥 Tổng thu</span>
+                <span class="num" id="shopIncomeTotal">0</span>
+            </div>
+
+            <div style="height:10px"></div>
+
+            <div class="input-group">
+                <label>Nguyên liệu</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="materialCost" type="text" inputmode="decimal" value="14.286.000" />
+                </div>
+            </div>
+            <div class="input-group">
+                <label>Lương nhân viên</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="salaryCost" type="text" inputmode="decimal" value="7.480.000" />
+                </div>
+            </div>
+            <div class="total-row">
+                <span>📤 Tổng chi</span>
+                <span class="num" id="shopCostTotal">0</span>
+            </div>
+        </div>
+
+        <!-- ====== BÁC DIỆU ====== -->
+        <div class="card">
+            <div class="card-title">
+                👤 Bác Diệu
+                <span class="badge">Thu - Chi</span>
+            </div>
+
+            <div class="input-group">
+                <label>Doanh thu Grab</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="grabIncome" type="text" inputmode="decimal" value="9.615.000" />
+                </div>
+            </div>
+            <div class="input-group">
+                <label>Thu cà phê</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="coffeeIncome" type="text" inputmode="decimal" value="600.000" />
+                </div>
+            </div>
+            <div class="total-row">
+                <span>📥 Tổng thu</span>
+                <span class="num" id="dieuIncomeTotal">0</span>
+            </div>
+
+            <div style="height:10px"></div>
+
+            <div class="input-group">
+                <label>Chi cà phê + NL</label>
+                <div class="input-wrap">
+                    <span class="prefix">đ</span>
+                    <input id="dieuCost" type="text" inputmode="decimal" value="12.445.000" />
+                </div>
+            </div>
+            <div class="total-row">
+                <span>📤 Tổng chi</span>
+                <span class="num" id="dieuCostTotal">0</span>
+            </div>
+        </div>
+
+        <!-- ====== KẾT QUẢ ====== -->
+        <div class="card">
+            <div class="card-title">
+                📊 Kết quả
+                <span class="badge">Tổng hợp</span>
+            </div>
+
+            <div class="result-grid">
+                <div class="result-item full highlight">
+                    <span class="label">💎 Lợi nhuận</span>
+                    <span class="value" id="profit">0</span>
+                </div>
+                <div class="result-item full">
+                    <span class="label">Chênh lệch Bác Diệu</span>
+                    <span class="value" id="difference">0</span>
+                </div>
+                <div class="result-item full">
+                    <span class="label">Trạng thái</span>
+                    <span id="status" class="status-badge green">-</span>
+                </div>
+            </div>
+
+            <hr class="divider" />
+
+            <div class="result-grid">
+                <div class="result-item full highlight">
+                    <span class="label">👫 Mỗi người được chia</span>
+                    <span class="value" id="share">0</span>
+                </div>
+                <div class="result-item">
+                    <span class="label">🏪 Quán nhận</span>
+                    <span class="value" id="shopReceive">0</span>
+                </div>
+                <div class="result-item">
+                    <span class="label">👤 Bác Diệu nhận</span>
+                    <span class="value" id="dieuReceive">0</span>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn btn-reset" id="resetBtn">↻ Reset</button>
+                <button class="btn btn-copy" id="copyBtn">📋 Copy</button>
+            </div>
+        </div>
+
+        <div style="text-align:center;font-size:12px;color:#8e8e93;padding:16px 0 4px;">
+            Dữ liệu tự động lưu · nhập số không dấu
+        </div>
+    </div>
+
+    <script>
+        function num(id) {
+            const v = document.getElementById(id).value.replace(/[^0-9]/g, '');
+            return Number(v) || 0;
+        }
+
+        function money(n) {
+            return Math.round(n).toLocaleString('vi-VN');
+        }
+
+        function formatInput(e) {
+            const raw = e.target.value.replace(/[^0-9]/g, '');
+            e.target.value = raw ? Number(raw).toLocaleString('vi-VN') : '';
+            calc();
+        }
+
+        document.querySelectorAll('input').forEach(el => {
+            el.addEventListener('input', formatInput);
+            el.addEventListener('focus', function() {
+                this.setSelectionRange(this.value.length, this.value.length);
+            });
+        });
+
+        function calc() {
+            // QUÁN
+            const cash = num('cashIncome');
+            const bank = num('bankIncome');
+            const shopIncome = cash + bank;
+
+            const material = num('materialCost');
+            const salary = num('salaryCost');
+            const shopCost = material + salary;
+
+            // BÁC DIỆU
+            const grab = num('grabIncome');
+            const coffeeIncome = num('coffeeIncome');
+            const dieuIncome = grab + coffeeIncome;
+
+            const dieuCost = num('dieuCost');
+
+            // TÍNH TOÁN
+            const profit = shopIncome - shopCost;
+            const diff = dieuIncome - dieuCost;
+
+            // Lợi nhuận sau khi trả nợ = profit - |diff| (nếu diff < 0)
+            let profitAfterDebt;
+            if (diff < 0) {
+                profitAfterDebt = profit - Math.abs(diff);
+            } else {
+                profitAfterDebt = profit + diff;
+            }
+
+            // Mỗi người = profitAfterDebt / 2
+            const share = profitAfterDebt / 2;
+
+            let shopReceive, dieuReceive, statusText, statusClass;
+
+            if (diff < 0) {
+                const debtAmt = Math.abs(diff);
+                // QUÁN NHẬN = SHARE (KHÔNG TRỪ NỢ)
+                shopReceive = share;
+                dieuReceive = share + debtAmt;
+                statusText = '🟢 Quán nợ Bác Diệu ' + money(debtAmt);
+                statusClass = 'green';
+            } else if (diff > 0) {
+                shopReceive = share + diff;
+                dieuReceive = share;
+                statusText = '🔴 Bác Diệu nợ Quán ' + money(diff);
+                statusClass = 'red';
+            } else {
+                shopReceive = share;
+                dieuReceive = share;
+                statusText = '✅ Đã cân bằng';
+                statusClass = 'blue';
+            }
+
+            // RENDER
+            document.getElementById('shopIncomeTotal').innerText = money(shopIncome);
+            document.getElementById('shopCostTotal').innerText = money(shopCost);
+            document.getElementById('dieuIncomeTotal').innerText = money(dieuIncome);
+            document.getElementById('dieuCostTotal').innerText = money(dieuCost);
+
+            document.getElementById('profit').innerText = money(profit);
+            document.getElementById('difference').innerText = money(diff);
+
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = statusText;
+            statusEl.className = 'status-badge ' + statusClass;
+
+            document.getElementById('share').innerText = money(share);
+            document.getElementById('shopReceive').innerText = money(shopReceive);
+            document.getElementById('dieuReceive').innerText = money(dieuReceive);
+
+            saveData();
+        }
+
+        function saveData() {
+            const data = {};
+            document.querySelectorAll('input').forEach(el => {
+                data[el.id] = el.value;
+            });
+            localStorage.setItem('qt_calc', JSON.stringify(data));
+        }
+
+        function loadData() {
+            try {
+                const data = JSON.parse(localStorage.getItem('qt_calc') || '{}');
+                Object.keys(data).forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = data[id];
+                });
+            } catch (_) {}
+        }
+
+        document.getElementById('resetBtn').onclick = function() {
+            if (!confirm('Xoá toàn bộ dữ liệu?')) return;
+            document.querySelectorAll('input').forEach(el => el.value = '');
+            localStorage.removeItem('qt_calc');
+            calc();
+        };
+
+        document.getElementById('copyBtn').onclick = function() {
+            const lines = [
+                '===== QUYẾT TOÁN =====',
+                '',
+                '🏪 QUÁN',
+                'Tổng thu: ' + document.getElementById('shopIncomeTotal').innerText,
+                'Tổng chi: ' + document.getElementById('shopCostTotal').innerText,
+                '',
+                '👤 BÁC DIỆU',
+                'Tổng thu: ' + document.getElementById('dieuIncomeTotal').innerText,
+                'Tổng chi: ' + document.getElementById('dieuCostTotal').innerText,
+                '',
+                '----------------------------',
+                'Lợi nhuận: ' + document.getElementById('profit').innerText,
+                'Chênh lệch: ' + document.getElementById('difference').innerText,
+                document.getElementById('status').innerText,
+                '',
+                'Mỗi người được chia: ' + document.getElementById('share').innerText,
+                '🏪 Quán nhận: ' + document.getElementById('shopReceive').innerText,
+                '👤 Bác Diệu nhận: ' + document.getElementById('dieuReceive').innerText,
+            ];
+            navigator.clipboard.writeText(lines.join('\n')).then(() => {
+                alert('✅ Đã copy kết quả!');
+            }).catch(() => {
+                alert('⚠️ Không thể copy, hãy copy thủ công.');
+            });
+        };
+
+        loadData();
+        calc();
+    </script>
+</body>
+</html>
