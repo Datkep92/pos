@@ -132,6 +132,202 @@
     var listeners = {};
     var _unsubscribeFns = {}; // { collection: [function] } - lưu các hàm unsubscribe để cleanup
     
+    // ========== PHASE 5: DEDUP & RECONCILE ==========
+    // _processedKeys: chống trùng lặp khi xử lý realtime events
+    // Khi tab resume, Firebase SDK reconnect -> child_added fire lại cho tất cả items
+    // _processedKeys ngăn không cho xử lý items đã được xử lý trong vòng _PROCESSED_KEYS_TTL ms
+    var _processedKeys = {}; // { collection: { itemId: timestamp } }
+    var _PROCESSED_KEYS_TTL = 10000; // 10 giây - đủ để chờ deltaSync hoàn tất
+    
+    function _isRecentlyProcessed(collection, key) {
+        if (_processedKeys[collection] && _processedKeys[collection][key]) {
+            var age = Date.now() - _processedKeys[collection][key];
+            if (age < _PROCESSED_KEYS_TTL) {
+                return true;
+            }
+            // Hết hạn, xóa để tránh memory leak
+            delete _processedKeys[collection][key];
+        }
+        return false;
+    }
+    
+    function _markProcessed(collection, key) {
+        if (!_processedKeys[collection]) _processedKeys[collection] = {};
+        _processedKeys[collection][key] = Date.now();
+    }
+    
+    // Cleanup _processedKeys định kỳ - tránh memory leak
+    function _cleanupProcessedKeys() {
+        var now = Date.now();
+        for (var col in _processedKeys) {
+            if (_processedKeys.hasOwnProperty(col)) {
+                for (var key in _processedKeys[col]) {
+                    if (_processedKeys[col].hasOwnProperty(key)) {
+                        if (now - _processedKeys[col][key] > _PROCESSED_KEYS_TTL) {
+                            delete _processedKeys[col][key];
+                        }
+                    }
+                }
+                // Xóa collection object nếu rỗng
+                if (Object.keys(_processedKeys[col]).length === 0) {
+                    delete _processedKeys[col];
+                }
+            }
+        }
+    }
+    
+    // ========== PHASE 5: RECONCILIATION ENGINE ==========
+    // Lấy danh sách keys từ Firebase (chỉ keys, không lấy data)
+    // Dùng REST API shallow=true để tối ưu băng thông
+    // Fallback về SDK once('value') nếu REST API lỗi
+    function _getFirebaseKeys(collection) {
+        var dbRef = _getDb();
+        var dbUrl = dbRef.toString();
+        // Xác định URL đúng cho REST API
+        var baseUrl = dbUrl.replace(/\/$/, '');
+        var url = baseUrl + '/' + encodeURIComponent(CURRENT_SHOP_ID) + '/' + encodeURIComponent(collection) + '.json?shallow=true';
+        
+        // Thử dùng fetch với shallow=true trước
+        if (typeof fetch === 'function') {
+            return fetch(url, { cache: 'no-store' }).then(function(res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            }).then(function(data) {
+                var keys = {};
+                if (data && typeof data === 'object') {
+                    for (var key in data) {
+                        if (data.hasOwnProperty(key)) keys[key] = true;
+                    }
+                }
+                return keys;
+            }).catch(function() {
+                // Fallback: dùng SDK once('value') và chỉ lấy keys
+                return _getFirebaseKeysViaSDK(collection);
+            });
+        }
+        
+        // Fallback: dùng SDK
+        return _getFirebaseKeysViaSDK(collection);
+    }
+    
+    function _getFirebaseKeysViaSDK(collection) {
+        return new Promise(function(resolve) {
+            _getDb().ref(CURRENT_SHOP_ID + '/' + collection).once('value', function(snapshot) {
+                var keys = {};
+                if (snapshot.exists()) {
+                    var val = snapshot.val();
+                    for (var key in val) {
+                        if (val.hasOwnProperty(key)) keys[key] = true;
+                    }
+                }
+                resolve(keys);
+            }, function() {
+                resolve({});
+            });
+        });
+    }
+    
+    // Reconciliation: So sánh keys giữa Firebase và local
+    // - Keys thiếu (có trên Firebase, không trong local) → tải bổ sung
+    // - Keys dư (có trong local, không trên Firebase) → xóa khỏi local
+    // Chỉ áp dụng cho MASTER_COLLECTIONS (tables, customers, menu, ...)
+    // Date-based collections dùng deltaSync riêng
+    function reconcileCollection(collection) {
+        if (!isOnline) return Promise.resolve({ added: 0, removed: 0 });
+        
+        var isMaster = MASTER_COLLECTIONS[collection];
+        if (!isMaster) {
+            // Date-based collections không reconcile (dùng deltaSync)
+            return deltaSync(collection).then(function() {
+                return { added: 0, removed: 0 };
+            });
+        }
+        
+        return _getFirebaseKeys(collection).then(function(fbKeys) {
+            // Lấy local keys từ memory cache
+            var localKeys = {};
+            if (memoryCache[collection]) {
+                for (var key in memoryCache[collection]) {
+                    if (memoryCache[collection].hasOwnProperty(key)) {
+                        localKeys[key] = true;
+                    }
+                }
+            }
+            
+            // Tìm keys thiếu (có trên Firebase, không trong local)
+            var missingKeys = [];
+            for (var key in fbKeys) {
+                if (fbKeys.hasOwnProperty(key) && !localKeys[key]) {
+                    missingKeys.push(key);
+                }
+            }
+            
+            // Tìm keys dư (có trong local, không trên Firebase)
+            var extraKeys = [];
+            for (var key in localKeys) {
+                if (localKeys.hasOwnProperty(key) && !fbKeys[key]) {
+                    extraKeys.push(key);
+                }
+            }
+            
+            if (missingKeys.length === 0 && extraKeys.length === 0) {
+                return { added: 0, removed: 0 };
+            }
+            
+            console.log('[Reconcile] ' + collection + ': thiếu ' + missingKeys.length + ', dư ' + extraKeys.length);
+            
+            var addedCount = 0;
+            var removedCount = 0;
+            var chain = Promise.resolve();
+            
+            // Tải items thiếu từ Firebase
+            if (missingKeys.length > 0) {
+                var fbRef = _getDb().ref(CURRENT_SHOP_ID + '/' + collection);
+                for (var i = 0; i < missingKeys.length; i++) {
+                    (function(missingKey) {
+                        chain = chain.then(function() {
+                            return fbRef.child(missingKey).once('value').then(function(itemSnapshot) {
+                                if (itemSnapshot.exists()) {
+                                    var src = itemSnapshot.val() || {};
+                                    var item = { id: missingKey };
+                                    for (var p in src) {
+                                        if (src.hasOwnProperty(p)) item[p] = src[p];
+                                    }
+                                    if (item._version === undefined) item._version = 1;
+                                    return saveToLocal(collection, item).then(function() {
+                                        addedCount++;
+                                    });
+                                }
+                            });
+                        });
+                    })(missingKeys[i]);
+                }
+            }
+            
+            // Xóa items dư khỏi local
+            if (extraKeys.length > 0) {
+                for (var i = 0; i < extraKeys.length; i++) {
+                    (function(extraKey) {
+                        chain = chain.then(function() {
+                            return deleteFromLocal(collection, extraKey).then(function() {
+                                removedCount++;
+                            });
+                        });
+                    })(extraKeys[i]);
+                }
+            }
+            
+            return chain.then(function() {
+                if (addedCount > 0 || removedCount > 0) {
+                    console.log('[Reconcile] ✅ ' + collection + ': thêm ' + addedCount + ', xóa ' + removedCount);
+                    // Phát sự kiện reconcile hoàn tất
+                    _emit(collection + ':reconciled', { collection: collection, added: addedCount, removed: removedCount, timestamp: Date.now() });
+                }
+                return { added: addedCount, removed: removedCount };
+            });
+        });
+    }
+    
     // ========== SYNC META ==========
     var SYNC_META_STORE = 'sync_meta';
     var syncMetaCache = {}; // memory cache cho sync_meta
@@ -1556,13 +1752,24 @@
             handlers.onAdded = function(snapshot) {
                 if (!snapshot.exists()) return;
                 var key = snapshot.key;
+                
+                // PHASE 5: Dedup check - tránh xử lý items đã được xử lý gần đây
+                if (_isRecentlyProcessed(collection, key)) return;
+                
                 var src = snapshot.val() || {};
                 var item = { id: key };
                 for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
                 
                 if (collection !== 'tables') {
                     var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-                    if (localItem && (localItem._version || 0) > (item._version || 0)) return;
+                    if (localItem) {
+                        // So sánh _version trước
+                        if ((localItem._version || 0) > (item._version || 0)) return;
+                        // Nếu _version bằng nhau, so sánh _syncedAt (server timestamp)
+                        if ((localItem._version || 0) === (item._version || 0)) {
+                            if (localItem._syncedAt && item._syncedAt && localItem._syncedAt >= item._syncedAt) return;
+                        }
+                    }
                 }
                 
                 if (collection === 'transactions' && memoryCache.transactions && memoryCache.transactions[key]) {
@@ -1570,20 +1777,33 @@
                     if (localTx._version >= 1 && !localTx._syncedAt) return;
                 }
                 
+                _markProcessed(collection, key);
                 saveToLocal(collection, item).then(emitUpdate);
             };
             handlers.onChanged = function(snapshot) {
                 if (!snapshot.exists()) return;
                 var key = snapshot.key;
+                
+                // PHASE 5: Dedup check
+                if (_isRecentlyProcessed(collection, key)) return;
+                
                 var src = snapshot.val() || {};
                 var item = { id: key };
                 for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
                 
                 if (collection !== 'tables') {
                     var localItem = memoryCache[collection] ? memoryCache[collection][key] : null;
-                    if (localItem && (localItem._version || 0) > (item._version || 0)) return;
+                    if (localItem) {
+                        // So sánh _version trước
+                        if ((localItem._version || 0) > (item._version || 0)) return;
+                        // Nếu _version bằng nhau, so sánh _syncedAt
+                        if ((localItem._version || 0) === (item._version || 0)) {
+                            if (localItem._syncedAt && item._syncedAt && localItem._syncedAt >= item._syncedAt) return;
+                        }
+                    }
                 }
                 
+                _markProcessed(collection, key);
                 saveToLocal(collection, item).then(emitUpdate);
             };
             handlers.onRemoved = function(snapshot) {
@@ -1845,23 +2065,31 @@
             _quickSyncTimer = null;
             if (!isOnline) return;
             console.log('📡 Quick sync on resume...');
-            // P3: Thay fullSync('tables') bằng deltaSync('tables')
-            // tables đã có realtime listener (child_added/changed/removed), không cần fullSync
-            deltaSync('tables');
+            
+            // Master collections: reconcile (so sánh keys Firebase vs local, thêm thiếu, xóa dư)
             var masterKeys = Object.keys(MASTER_COLLECTIONS);
+            var chain = Promise.resolve();
             for (var i = 0; i < masterKeys.length; i++) {
-                if (masterKeys[i] !== 'tables') {
-                    deltaSync(masterKeys[i]);
-                }
+                (function(collection) {
+                    chain = chain.then(function() {
+                        return reconcileCollection(collection);
+                    });
+                })(masterKeys[i]);
             }
-            // Quick sync chỉ chạy deltaSync (version-based) để lấy items mới
-            // Không chạy syncCollectionByDate vì smartSync đã fetch date-based rồi
+            
+            // Date-based collections: deltaSync (version-based, chỉ lấy items mới hơn)
             var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
             for (var j = 0; j < dateKeys.length; j++) {
-                deltaSync(dateKeys[j]);
+                (function(collection) {
+                    chain = chain.then(function() {
+                        return deltaSync(collection);
+                    });
+                })(dateKeys[j]);
             }
-            // Luôn cleanup dữ liệu cũ cho cả admin và employee
-            _cleanupOldData();
+            
+            chain.then(function() {
+                _cleanupOldData();
+            });
         }, 500);
     }
     
@@ -1871,18 +2099,26 @@
             isOnline = true;
             showToast('📡 Đã kết nối mạng', 'success');
             processSyncQueue();
-            // P6: Thay fullSync('tables') bằng deltaSync('tables')
-            // tables đã có realtime listener, không cần fullSync khi online
-            deltaSync('tables');
+            
+            // Master collections: reconcile (so sánh keys Firebase vs local, thêm thiếu, xóa dư)
             var masterKeys = Object.keys(MASTER_COLLECTIONS);
+            var chain = Promise.resolve();
             for (var i = 0; i < masterKeys.length; i++) {
-                if (masterKeys[i] !== 'tables') {
-                    deltaSync(masterKeys[i]);
-                }
+                (function(collection) {
+                    chain = chain.then(function() {
+                        return reconcileCollection(collection);
+                    });
+                })(masterKeys[i]);
             }
+            
+            // Date-based collections: deltaSync
             var dateKeys = Object.keys(DATE_BASED_COLLECTIONS);
             for (var j = 0; j < dateKeys.length; j++) {
-                deltaSync(dateKeys[j]);
+                (function(collection) {
+                    chain = chain.then(function() {
+                        return deltaSync(collection);
+                    });
+                })(dateKeys[j]);
             }
         });
         window.addEventListener('offline', function() {
@@ -2016,11 +2252,51 @@
         var syncResults = { full: [], delta: [], skipped: [] };
         
         function syncCollection(collection) {
-            if (collection === 'tables') {
-                syncResults.full.push(collection);
-                return fullSync(collection);
+            // Master collections: dùng reconcileCollection (so sánh keys, thêm thiếu, xóa dư)
+            // Thay vì fullSync (xóa hết rồi tải lại toàn bộ)
+            if (MASTER_COLLECTIONS[collection]) {
+                return getSyncMeta(collection).then(function(meta) {
+                    var isLocalEmpty = !memoryCache[collection] || Object.keys(memoryCache[collection]).length === 0;
+                    
+                    if (!meta || isLocalEmpty) {
+                        if (isLocalEmpty) {
+                            return loadFromLocal(collection).then(function(localData) {
+                                var hasLocalData = localData && (Array.isArray(localData) ? localData.length > 0 : Object.keys(localData).length > 0);
+                                if (hasLocalData) {
+                                    if (!memoryCache[collection]) memoryCache[collection] = {};
+                                    for (var i = 0; i < localData.length; i++) {
+                                        memoryCache[collection][localData[i].id] = localData[i];
+                                    }
+                                    if (meta) {
+                                        syncResults.delta.push(collection);
+                                        return deltaSync(collection);
+                                    }
+                                }
+                                // Không có dữ liệu local → reconcile để tải đúng những gì Firebase có
+                                syncResults.delta.push(collection);
+                                return reconcileCollection(collection);
+                            });
+                        }
+                        // Không có meta → reconcile thay vì fullSync
+                        syncResults.delta.push(collection);
+                        return reconcileCollection(collection);
+                    }
+                    
+                    var now = Date.now();
+                    var timeSinceLastSync = now - (meta.lastSyncAt || 0);
+                    
+                    if (timeSinceLastSync > THIRTY_DAYS_MS) {
+                        // Quá 30 ngày: reconcile để đảm bảo đồng bộ hoàn toàn
+                        syncResults.delta.push(collection);
+                        return reconcileCollection(collection);
+                    }
+                    
+                    syncResults.delta.push(collection);
+                    return deltaSync(collection);
+                });
             }
             
+            // Date-based collections: giữ nguyên logic cũ (deltaSync, fullSync nếu cần)
             return getSyncMeta(collection).then(function(meta) {
                 var isLocalEmpty = !memoryCache[collection] || Object.keys(memoryCache[collection]).length === 0;
                 

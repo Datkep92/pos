@@ -1281,6 +1281,114 @@ function initRealtime() {
         }
     });
 
+    // ============================================================
+    // RECONCILED HANDLERS: Khi reconcileCollection hoàn tất
+    // reconcileCollection so sánh keys Firebase vs local, thêm thiếu, xóa dư
+    // ============================================================
+
+    // NÂNG CẤP: Khi tables được reconcile (có thể có thêm hoặc xóa bàn)
+    DB.on('tables:reconciled', function(data) {
+        console.log('[Realtime] Tables reconciled:', data);
+        if (currentTab !== 'tables') return;
+        DB.getAll('tables').then(function(allTables) {
+            cachedTables = allTables;
+            tablesCacheTime = Date.now();
+            updateTablesDiff(allTables);
+            if (typeof startTableTimer === 'function') startTableTimer();
+        });
+    });
+
+    // NÂNG CẤP: Khi customers được reconcile
+    DB.on('customers:reconciled', function() {
+        if (currentTab !== 'customers') return;
+        var cached = DB.getMemoryCache('customers');
+        if (cached && cached.length > 0) {
+            customers = cached;
+            window.customers = customers;
+            renderCustomerList();
+        } else {
+            DB.getAll('customers').then(function(list) {
+                customers = list;
+                window.customers = customers;
+                renderCustomerList();
+            });
+        }
+    });
+
+    // NÂNG CẤP: Khi menu được reconcile
+    DB.on('menu:reconciled', function() {
+        DB.getAll('menu').then(function(list) {
+            menuItems = list;
+            menuItems.sort(function(a, b) {
+                var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
+                var orderB = (b.sortOrder !== undefined && b.sortOrder !== null) ? b.sortOrder : 9999;
+                return orderA - orderB;
+            });
+            window.menuItems = menuItems;
+            var orderModal = document.getElementById('orderModal');
+            if (orderModal && orderModal.style.display === 'flex') {
+                renderMenuByCategory(currentMenuCategory);
+            }
+        });
+    });
+
+    // NÂNG CẤP: Khi menu_categories được reconcile
+    DB.on('menu_categories:reconciled', function() {
+        DB.getAll('menu_categories').then(function(list) {
+            menuCategories = list;
+            var orderModal = document.getElementById('orderModal');
+            if (orderModal && orderModal.style.display === 'flex') {
+                renderOrderCategoriesColumn();
+            }
+        });
+    });
+
+    // NÂNG CẤP: Khi staffs được reconcile
+    DB.on('staffs:reconciled', function() {
+        if (typeof getStaffs === 'function') {
+            getStaffs();
+        }
+    });
+
+    // NÂNG CẤP: Khi info được reconcile
+    DB.on('info:reconciled', function() {
+        DB.getAll('info').then(function(data) {
+            if (!data || data.length === 0) return;
+            var infoItem = null;
+            for (var i = 0; i < data.length; i++) {
+                if (data[i].id === 'shop_config') {
+                    infoItem = data[i];
+                    break;
+                }
+            }
+            if (!infoItem) return;
+            var hasLockData = (infoItem.lockStartHour !== undefined ||
+                               infoItem.lockEndHour !== undefined ||
+                               infoItem.lockEndMinute !== undefined ||
+                               infoItem.tableLockHours !== undefined ||
+                               infoItem.lockPassword !== undefined);
+            var oldConfig = window.shopConfig || {};
+            window.shopConfig = {
+                telegramBotToken: infoItem.telegramBotToken || oldConfig.telegramBotToken || '8813111415:AAHjX0-vXMM0dVgVqDSSZNbHtiQ2wiVsFrc',
+                telegramChatId: infoItem.telegramChatId || oldConfig.telegramChatId || '6372876364',
+                telegramShiftCloseToken: infoItem.telegramShiftCloseToken || oldConfig.telegramShiftCloseToken || '',
+                telegramWarningToken: infoItem.telegramWarningToken || oldConfig.telegramWarningToken || '',
+                telegramExpenseToken: infoItem.telegramExpenseToken || oldConfig.telegramExpenseToken || '',
+                lockPassword: hasLockData && infoItem.lockPassword ? infoItem.lockPassword : (oldConfig.lockPassword || '28122020'),
+                lockStartHour: hasLockData && infoItem.lockStartHour !== undefined ? infoItem.lockStartHour : (oldConfig.lockStartHour !== undefined ? oldConfig.lockStartHour : 22),
+                lockEndHour: hasLockData && infoItem.lockEndHour !== undefined ? infoItem.lockEndHour : (oldConfig.lockEndHour !== undefined ? oldConfig.lockEndHour : 5),
+                lockEndMinute: hasLockData && infoItem.lockEndMinute !== undefined ? infoItem.lockEndMinute : (oldConfig.lockEndMinute !== undefined ? oldConfig.lockEndMinute : 30),
+                tableLockHours: hasLockData && infoItem.tableLockHours !== undefined ? infoItem.tableLockHours : (oldConfig.tableLockHours !== undefined ? oldConfig.tableLockHours : 5)
+            };
+            if (infoItem.name) {
+                window.shopInfo = window.shopInfo || {};
+                window.shopInfo.name = infoItem.name;
+                var shopNameEl = document.getElementById('shopNameHeader');
+                if (shopNameEl) shopNameEl.textContent = infoItem.name;
+            }
+        });
+    });
+
     // FIX: Gọi updateRecentToast() ngay khi khởi tạo để hiển thị 5 giao dịch gần nhất
     setTimeout(function() {
         updateRecentToast();
