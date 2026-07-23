@@ -8,8 +8,37 @@
 // _managerCacheRange: range hiện tại đã cache
 var _managerTxCache = null;       // { transactions: [], range: 'start|end', timestamp: 0 }
 var _managerMasterCache = null;   // { customers: [], staffs: [], pickups: [], timestamp: 0 }
-var _drinkStatsCache = null;      // { sorted: [], totalQty: 0, totalRevenue: 0, range: 'start|end', timestamp: 0 }
 var _MANAGER_CACHE_TTL = 60000;   // 60 giây - đủ cho các thao tác click qua lại
+
+// Biến lưu range hiện tại của manager filter - dùng chung cho tất cả box
+// Được cập nhật bởi managerApplyFilter(), dùng bởi showManagerXxxDetail()
+// Khởi tạo _managerCurrentRange với giá trị mặc định (Kỳ hiện tại)
+// để tránh hiển thị sai khi load trang lần đầu mà chưa kịp gọi managerApplyFilter()
+var _managerCurrentRange = (function() {
+    var now = new Date();
+    var day = now.getDate();
+    var startDate, endDate;
+    if (day >= 20) {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 20);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 19, 23, 59, 59);
+    } else {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 20);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 19, 23, 59, 59);
+    }
+    function _toDateKey(d) {
+        var y = d.getFullYear();
+        var m = ('0' + (d.getMonth() + 1)).slice(-2);
+        var day = ('0' + d.getDate()).slice(-2);
+        return y + '-' + m + '-' + day;
+    }
+    return {
+        startStr: _toDateKey(startDate),
+        endStr: _toDateKey(endDate),
+        mode: 'period',
+        label: 'Kỳ ' + _toDateKey(startDate) + ' → ' + _toDateKey(endDate)
+    };
+})();
+window._managerCurrentRange = _managerCurrentRange; // Export global để các file khác dùng chung
 
 // Lấy transactions từ cache hoặc DB
 function _getManagerTransactions(startStr, endStr) {
@@ -103,7 +132,6 @@ function _getManagerMasterData() {
 function _invalidateManagerCache() {
     _managerTxCache = null;
     _managerMasterCache = null;
-    _drinkStatsCache = null;
 }
 window._invalidateManagerCache = _invalidateManagerCache;
 
@@ -117,6 +145,12 @@ function _toDateKey(d) {
 }
 
 function _getManagerDateRange() {
+    // Nếu đã có _managerCurrentRange (được cập nhật bởi managerApplyFilter), dùng luôn
+    // để đảm bảo tất cả box đều dùng chung một range
+    if (_managerCurrentRange) {
+        return _managerCurrentRange;
+    }
+
     var modeSelect = document.getElementById('managerViewModeSelect');
     var mode = modeSelect ? modeSelect.value : 'period';
     var offset = window.managerPeriodOffset || 0;
@@ -144,12 +178,17 @@ function _getManagerDateRange() {
         }
     }
 
-    return {
+    var range = {
         startStr: _toDateKey(startDate),
         endStr: _toDateKey(endDate),
         mode: mode,
         label: _getManagerPeriodLabel(mode, startDate, endDate)
     };
+
+    // Lưu vào _managerCurrentRange để các lần gọi sau dùng chung
+    _managerCurrentRange = range;
+    window._managerCurrentRange = range; // Đồng bộ global
+    return range;
 }
 
 function _getManagerPeriodLabel(mode, startDate, endDate) {
@@ -242,7 +281,9 @@ function _openManagerDetail(title, filterFn, summaryFn, showFilters, updateBigVa
     var oldModal = document.getElementById('managerDetailModal');
     if (oldModal) oldModal.parentNode.removeChild(oldModal);
 
-    var range = _getManagerDateRange();
+    // Dùng _managerCurrentRange nếu có (được cập nhật bởi managerApplyFilter)
+    // để đảm bảo tất cả box dùng chung range, tránh hiển thị sai lệch
+    var range = _managerCurrentRange || _getManagerDateRange();
 
     var modal = document.createElement('div');
     modal.className = 'manager-detail-modal active';
@@ -441,7 +482,7 @@ function _toggleMDAccordion(header) {
 
 // 1. DOANH THU
 function showManagerRevenueDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83D\uDCB0 Doanh thu - ' + range.label,
         function(filter) {
@@ -501,7 +542,7 @@ function showManagerRevenueDetail() {
 
 // 2. GRAB
 function showManagerGrabDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83D\uDE95 Grab - ' + range.label,
         function(filter) {
@@ -573,7 +614,7 @@ function showManagerGrabDetail() {
 
 // 3. CHUYỂN KHOẢN
 function showManagerBankDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83C\uDFE6 Chuy\u1EC3n kho\u1EA3n - ' + range.label,
         function(filter) {
@@ -645,7 +686,7 @@ function showManagerBankDetail() {
 
 // 4. THỰC NHẬN (CASH) - lấy từ manager_cash_pickups (tiền QL nhận tại POS)
 function showManagerCashDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83D\uDCB5 Th\u1EF1c nh\u1EADn (Ti\u1EC1n m\u1EB7t) - ' + range.label,
         function(filter) {
@@ -718,7 +759,7 @@ function showManagerCashDetail() {
 
 // 5. CHI PHÍ TỪ KÉT POS
 function showManagerExpenseDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83C\uDFE6 Chi ph\u00ED t\u1EEB K\u00E9t POS - ' + range.label,
         function(filter) {
@@ -785,7 +826,7 @@ function showManagerExpenseDetail() {
 
 // 6. CÔNG NỢ PHÁT SINH
 function showManagerDebtOccurDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83D\uDCCA C\u00F4ng n\u1EE3 ph\u00E1t sinh - ' + range.label,
         function(filter) {
@@ -870,7 +911,7 @@ function showManagerDebtOccurDetail() {
 
 // 7. TỔNG CP QUẢN LÝ
 function showManagerAdminExpenseDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83D\uDCCB T\u1ED5ng CP Qu\u1EA3n l\u00FD - ' + range.label,
         function(filter) {
@@ -998,7 +1039,9 @@ function showManagerEmployeeDetail() {
 // ========== QUỸ POS - CHI TIẾT ==========
 // Hiển thị daily_balances theo ngày với bộ lọc +/- và tổng số tiền âm/dương
 function showManagerPosFundDetail() {
-    var range = _getManagerDateRange();
+    // Dùng _managerCurrentRange nếu có (được cập nhật bởi managerApplyFilter)
+    // để đảm bảo tất cả box dùng chung range, tránh hiển thị sai lệch
+    var range = _managerCurrentRange || _getManagerDateRange();
     var title = '\uD83C\uDFE6 QU\u1EF8 POS - ' + range.label;
 
     // Xóa modal cũ nếu có
@@ -1052,7 +1095,8 @@ function _switchPosFundFilter(btn) {
     var filter = btn.getAttribute('data-posfund-filter');
     // Dùng range đã lưu trong modal, không gọi _getManagerDateRange() lại
     var range = modal._posFundRange;
-    if (!range) range = _getManagerDateRange();
+    // Fallback: dùng _managerCurrentRange (đã được đồng bộ với filter chính)
+    if (!range) range = _managerCurrentRange || _getManagerDateRange();
     _loadPosFundData(modal, range, filter);
 }
 
@@ -1168,7 +1212,7 @@ function _loadPosFundData(modal, range, filter) {
 
 // 11. 1% QUỸ THƯỞNG (hiển thị đơn giản, không lưu Firebase)
 function showManagerBonusDetail() {
-    var range = _getManagerDateRange();
+    var range = _managerCurrentRange || _getManagerDateRange();
     _openManagerDetail(
         '\uD83C\uDFAF 1% Qu\u1EF9 th\u01B0\u1EDFng - ' + range.label,
         function(filter) {
@@ -1397,10 +1441,18 @@ function _initManagerFilters() {
 }
 
 // Tự động gắn khi DOM sẵn sàng
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _initManagerFilters);
-} else {
+function _onDOMReady() {
     _initManagerFilters();
+    // Gọi managerApplyFilter() ngay để đồng bộ _managerCurrentRange với filter mặc định
+    // Đảm bảo các box dùng chung range ngay từ đầu, tránh hiển thị sai lệch
+    if (typeof managerApplyFilter === 'function') {
+        managerApplyFilter();
+    }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _onDOMReady);
+} else {
+    _onDOMReady();
 }
 
 // ========== MANAGER TAB: LỌC & HIỂN THỊ CHI PHÍ ==========
@@ -1481,6 +1533,15 @@ function managerApplyFilter() {
     }
     var startStr = _toDateKey(startDate);
     var endStr = _toDateKey(endDate);
+
+    // Cập nhật _managerCurrentRange để tất cả box dùng chung range này
+    _managerCurrentRange = {
+        startStr: startStr,
+        endStr: endStr,
+        mode: mode,
+        label: _getManagerPeriodLabel(mode, startDate, endDate)
+    };
+    window._managerCurrentRange = _managerCurrentRange; // Đồng bộ global
 
     // Cập nhật label cho tất cả option
     if (modeSelect) {
@@ -1720,130 +1781,92 @@ function _showCostHistory(encodedName, startStr, endStr) {
 }
 
 // ========== MANAGER TAB: THỐNG KÊ ĐỒ UỐNG ==========
-// Cache kết quả tính toán để tránh tính lại mỗi lần
-var _DRINK_STATS_CACHE_TTL = 60000; // 60 giây
-
-function _computeDrinkStats(transactions) {
-    var validTx = transactions.filter(function(t) { return !t.refunded; });
-
-    // Đếm đồ uống theo tên
-    var drinkMap = {};
-    for (var i = 0; i < validTx.length; i++) {
-        var tx = validTx[i];
-        if (tx.items && tx.items.length) {
-            for (var j = 0; j < tx.items.length; j++) {
-                var item = tx.items[j];
-                var name = item.name || 'Không tên';
-                if (!drinkMap[name]) {
-                    drinkMap[name] = { qty: 0, revenue: 0 };
-                }
-                drinkMap[name].qty += item.qty || 0;
-                drinkMap[name].revenue += (item.price || 0) * (item.qty || 0);
-            }
-        }
-    }
-
-    // Chuyển sang mảng và sắp xếp theo số lượng giảm dần
-    var sorted = [];
-    for (var key in drinkMap) {
-        if (drinkMap.hasOwnProperty(key)) {
-            sorted.push({ name: key, qty: drinkMap[key].qty, revenue: drinkMap[key].revenue });
-        }
-    }
-    sorted.sort(function(a, b) { return b.qty - a.qty; });
-
-    var totalQty = 0;
-    var totalRevenue = 0;
-    for (var k = 0; k < sorted.length; k++) {
-        totalQty += sorted[k].qty;
-        totalRevenue += sorted[k].revenue;
-    }
-
-    return { sorted: sorted, totalQty: totalQty, totalRevenue: totalRevenue };
-}
-
-function _renderDrinkStatsHTML(sorted, totalQty, totalRevenue, showAll) {
-    var maxShow = 10;
-
-    if (sorted.length === 0) {
-        return '<div class="empty-state">📭 Không có dữ liệu đồ uống trong kỳ</div>';
-    }
-
-    var html = '<div class="drink-stats-wrap" style="font-size:13px;">';
-
-    // Tổng quan
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
-        '<span style="background:#f0fdf4;padding:4px 10px;border-radius:40px;font-size:12px;">☕ Tổng món: ' + sorted.length + '</span>' +
-        '<span style="background:#f0f9ff;padding:4px 10px;border-radius:40px;font-size:12px;">📦 Tổng SL: ' + totalQty + '</span>' +
-        '<span style="background:#fffbeb;padding:4px 10px;border-radius:40px;font-size:12px;">💰 Tổng DT: ' + formatMoney(totalRevenue) + '</span>' +
-    '</div>';
-
-    // Header bảng
-    html += '<div style="display:flex;padding:8px 0;border-bottom:2px solid var(--border,#e2e8f0);font-weight:700;color:#475569;">' +
-        '<span style="flex:1;">Đồ uống</span>' +
-        '<span style="width:50px;text-align:center;">SL</span>' +
-        '<span style="width:90px;text-align:right;">Doanh thu</span>' +
-    '</div>';
-
-    // Danh sách
-    for (var n = 0; n < sorted.length; n++) {
-        if (!showAll && n >= maxShow) break;
-        var d = sorted[n];
-        html += '<div style="display:flex;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:center;">' +
-            '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(d.name) + '</span>' +
-            '<span style="width:50px;text-align:center;font-weight:600;">' + d.qty + '</span>' +
-            '<span style="width:90px;text-align:right;">' + formatMoney(d.revenue) + '</span>' +
-        '</div>';
-    }
-
-    // Nút mở rộng
-    if (sorted.length > maxShow) {
-        var remaining = sorted.length - maxShow;
-        html += '<div style="text-align:center;padding:8px 0;">' +
-            '<button class="filter-btn" onclick="toggleDrinkStatsExpand()" style="font-size:12px;padding:6px 16px;">' +
-            (showAll ? '▲ Thu gọn' : '▼ Xem thêm ' + remaining + ' món') +
-            '</button></div>';
-    }
-
-    html += '</div>';
-    return html;
-}
-
 function renderDrinkStats(startStr, endStr) {
     var container = document.getElementById('managerDrinkStats');
     if (!container) return;
 
-    var cacheKey = startStr + '|' + endStr;
-    var now = Date.now();
+    DB.getTransactionsByDateRange(startStr, endStr).then(function(transactions) {
+        var validTx = transactions.filter(function(t) { return !t.refunded; });
 
-    // Nếu cache còn hạn và cùng range, dùng cache để render
-    if (_drinkStatsCache && _drinkStatsCache.range === cacheKey && (now - _drinkStatsCache.timestamp) < _DRINK_STATS_CACHE_TTL) {
-        var showAll = container.getAttribute('data-show-all') === 'true';
-        var newHtml = _renderDrinkStatsHTML(_drinkStatsCache.sorted, _drinkStatsCache.totalQty, _drinkStatsCache.totalRevenue, showAll);
-        if (container.innerHTML !== newHtml) {
-            container.innerHTML = newHtml;
+        // Đếm đồ uống theo tên
+        var drinkMap = {};
+        for (var i = 0; i < validTx.length; i++) {
+            var tx = validTx[i];
+            if (tx.items && tx.items.length) {
+                for (var j = 0; j < tx.items.length; j++) {
+                    var item = tx.items[j];
+                    var name = item.name || 'Không tên';
+                    if (!drinkMap[name]) {
+                        drinkMap[name] = { qty: 0, revenue: 0 };
+                    }
+                    drinkMap[name].qty += item.qty || 0;
+                    drinkMap[name].revenue += (item.price || 0) * (item.qty || 0);
+                }
+            }
         }
-        return;
-    }
 
-    // Dùng _getManagerTransactions để tận dụng cache layer
-    _getManagerTransactions(startStr, endStr).then(function(transactions) {
-        var result = _computeDrinkStats(transactions);
+        // Chuyển sang mảng và sắp xếp theo số lượng giảm dần
+        var sorted = [];
+        for (var key in drinkMap) {
+            if (drinkMap.hasOwnProperty(key)) {
+                sorted.push({ name: key, qty: drinkMap[key].qty, revenue: drinkMap[key].revenue });
+            }
+        }
+        sorted.sort(function(a, b) { return b.qty - a.qty; });
 
-        // Lưu vào cache
-        _drinkStatsCache = {
-            sorted: result.sorted,
-            totalQty: result.totalQty,
-            totalRevenue: result.totalRevenue,
-            range: cacheKey,
-            timestamp: Date.now()
-        };
+        // Render
+        if (sorted.length === 0) {
+            container.innerHTML = '<div class="empty-state">📭 Không có dữ liệu đồ uống trong kỳ</div>';
+            return;
+        }
 
         var showAll = container.getAttribute('data-show-all') === 'true';
-        var newHtml = _renderDrinkStatsHTML(result.sorted, result.totalQty, result.totalRevenue, showAll);
-        if (container.innerHTML !== newHtml) {
-            container.innerHTML = newHtml;
+        var maxShow = 10;
+        var totalQty = 0;
+        var totalRevenue = 0;
+        for (var k = 0; k < sorted.length; k++) {
+            totalQty += sorted[k].qty;
+            totalRevenue += sorted[k].revenue;
         }
+
+        var html = '<div class="drink-stats-wrap" style="font-size:13px;">';
+
+        // Tổng quan
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
+            '<span style="background:#f0fdf4;padding:4px 10px;border-radius:40px;font-size:12px;">☕ Tổng món: ' + sorted.length + '</span>' +
+            '<span style="background:#f0f9ff;padding:4px 10px;border-radius:40px;font-size:12px;">📦 Tổng SL: ' + totalQty + '</span>' +
+            '<span style="background:#fffbeb;padding:4px 10px;border-radius:40px;font-size:12px;">💰 Tổng DT: ' + formatMoney(totalRevenue) + '</span>' +
+        '</div>';
+
+        // Header bảng
+        html += '<div style="display:flex;padding:8px 0;border-bottom:2px solid var(--border,#e2e8f0);font-weight:700;color:#475569;">' +
+            '<span style="flex:1;">Đồ uống</span>' +
+            '<span style="width:50px;text-align:center;">SL</span>' +
+            '<span style="width:90px;text-align:right;">Doanh thu</span>' +
+        '</div>';
+
+        // Danh sách
+        for (var n = 0; n < sorted.length; n++) {
+            if (!showAll && n >= maxShow) break;
+            var d = sorted[n];
+            html += '<div style="display:flex;padding:6px 0;border-bottom:1px solid #f1f5f9;align-items:center;">' +
+                '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(d.name) + '</span>' +
+                '<span style="width:50px;text-align:center;font-weight:600;">' + d.qty + '</span>' +
+                '<span style="width:90px;text-align:right;">' + formatMoney(d.revenue) + '</span>' +
+            '</div>';
+        }
+
+        // Nút mở rộng
+        if (sorted.length > maxShow) {
+            var remaining = sorted.length - maxShow;
+            html += '<div style="text-align:center;padding:8px 0;">' +
+                '<button class="filter-btn" onclick="toggleDrinkStatsExpand()" style="font-size:12px;padding:6px 16px;">' +
+                (showAll ? '▲ Thu gọn' : '▼ Xem thêm ' + remaining + ' món') +
+                '</button></div>';
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
     }).catch(function(err) {
         container.innerHTML = '<div class="empty-state">❌ Lỗi tải dữ liệu</div>';
     });
@@ -2184,49 +2207,8 @@ function toggleDrinkStatsExpand() {
     if (!container) return;
     var showAll = container.getAttribute('data-show-all') === 'true';
     container.setAttribute('data-show-all', showAll ? 'false' : 'true');
-
-    // Chỉ re-render phần drink stats, không gọi managerApplyFilter (gây re-render toàn bộ)
-    if (_drinkStatsCache) {
-        var newHtml = _renderDrinkStatsHTML(_drinkStatsCache.sorted, _drinkStatsCache.totalQty, _drinkStatsCache.totalRevenue, !showAll);
-        if (container.innerHTML !== newHtml) {
-            container.innerHTML = newHtml;
-        }
-    } else if (typeof renderDrinkStats === 'function') {
-        // Nếu chưa có cache, lấy date range từ managerApplyFilter context
-        var modeSelect = document.getElementById('managerViewModeSelect');
-        var mode = modeSelect ? modeSelect.value : 'period';
-        var offset = window.managerPeriodOffset || 0;
-        var now = new Date();
-        var startDate, endDate;
-
-        if (mode === 'day') {
-            var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
-            startDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-            endDate = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
-        } else if (mode === 'month') {
-            var m = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-            startDate = new Date(m.getFullYear(), m.getMonth(), 1);
-            endDate = new Date(m.getFullYear(), m.getMonth() + 1, 0, 23, 59, 59);
-        } else {
-            var periodDate = new Date(now.getFullYear(), now.getMonth() + offset, now.getDate());
-            var day = periodDate.getDate();
-            if (day >= 20) {
-                startDate = new Date(periodDate.getFullYear(), periodDate.getMonth(), 20);
-                endDate = new Date(periodDate.getFullYear(), periodDate.getMonth() + 1, 19, 23, 59, 59);
-            } else {
-                startDate = new Date(periodDate.getFullYear(), periodDate.getMonth() - 1, 20);
-                endDate = new Date(periodDate.getFullYear(), periodDate.getMonth(), 19, 23, 59, 59);
-            }
-        }
-
-        function _toDateKeyLocal(d) {
-            var y = d.getFullYear();
-            var m = ('0' + (d.getMonth() + 1)).slice(-2);
-            var day = ('0' + d.getDate()).slice(-2);
-            return y + '-' + m + '-' + day;
-        }
-        renderDrinkStats(_toDateKeyLocal(startDate), _toDateKeyLocal(endDate));
-    }
+    // Gọi lại managerApplyFilter để re-render với cùng date range
+    if (typeof managerApplyFilter === 'function') managerApplyFilter();
 }
 
 // ========== MANAGER TAB: CẢNH BÁO TỒN KHO THẤP ==========

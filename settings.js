@@ -274,6 +274,13 @@ function initQuickCashCounter() {
 }
 
 // Lắng nghe realtime thay đổi daily_balances (chốt ngày, chênh lệch, hủy chốt...)
+// Biến cache cho cost_transactions và manager_cash_pickups
+// Giúp loadPosCashData không cần tải lại toàn bộ từ Firebase mỗi lần
+var _costTxCache = null; // { id: item, ... }
+var _pickupsCache = null; // { id: item, ... }
+var _costTxCacheLoaded = false;
+var _pickupsCacheLoaded = false;
+
 function _subscribeDayClosedRealtime() {
     try {
         var today = getTodayDateKey();
@@ -298,11 +305,76 @@ function _subscribeDayClosedRealtime() {
         });
 
         // 2. Lắng nghe thay đổi trên manager_cash_pickups (Tiền QL nhận)
-        // Khi admin nhập pickup ở máy A, máy B đang mở tab Settings tự động cập nhật
-        dbRef.child('manager_cash_pickups').on('value', function(snapshot) {
-            var data = snapshot.val();
-            if (data) {
-                // Chỉ reload nếu không đang xem ngày khác
+        // Dùng child_* events thay vì .on('value') để chỉ tải dữ liệu thay đổi
+        // Khi admin nhập pickup ở máy A, máy B nhận được child_added và cập nhật cache
+        dbRef.child('manager_cash_pickups').on('child_added', function(snapshot) {
+            var key = snapshot.key;
+            var val = snapshot.val();
+            if (val) {
+                if (!_pickupsCache) _pickupsCache = {};
+                val.id = key;
+                _pickupsCache[key] = val;
+                _pickupsCacheLoaded = true;
+                if (!_selectedCloseDate) {
+                    loadPosCashData();
+                }
+            }
+        });
+        dbRef.child('manager_cash_pickups').on('child_changed', function(snapshot) {
+            var key = snapshot.key;
+            var val = snapshot.val();
+            if (val) {
+                if (!_pickupsCache) _pickupsCache = {};
+                val.id = key;
+                _pickupsCache[key] = val;
+                _pickupsCacheLoaded = true;
+                if (!_selectedCloseDate) {
+                    loadPosCashData();
+                }
+            }
+        });
+        dbRef.child('manager_cash_pickups').on('child_removed', function(snapshot) {
+            var key = snapshot.key;
+            if (_pickupsCache && _pickupsCache[key]) {
+                delete _pickupsCache[key];
+                if (!_selectedCloseDate) {
+                    loadPosCashData();
+                }
+            }
+        });
+
+        // 3. Lắng nghe thay đổi trên cost_transactions (Chi phí Két POS)
+        // Dùng child_* events để chỉ tải dữ liệu thay đổi, cập nhật cache
+        dbRef.child('cost_transactions').on('child_added', function(snapshot) {
+            var key = snapshot.key;
+            var val = snapshot.val();
+            if (val) {
+                if (!_costTxCache) _costTxCache = {};
+                val.id = key;
+                _costTxCache[key] = val;
+                _costTxCacheLoaded = true;
+                if (!_selectedCloseDate) {
+                    loadPosCashData();
+                }
+            }
+        });
+        dbRef.child('cost_transactions').on('child_changed', function(snapshot) {
+            var key = snapshot.key;
+            var val = snapshot.val();
+            if (val) {
+                if (!_costTxCache) _costTxCache = {};
+                val.id = key;
+                _costTxCache[key] = val;
+                _costTxCacheLoaded = true;
+                if (!_selectedCloseDate) {
+                    loadPosCashData();
+                }
+            }
+        });
+        dbRef.child('cost_transactions').on('child_removed', function(snapshot) {
+            var key = snapshot.key;
+            if (_costTxCache && _costTxCache[key]) {
+                delete _costTxCache[key];
                 if (!_selectedCloseDate) {
                     loadPosCashData();
                 }
@@ -335,15 +407,55 @@ function loadPosCashData(targetDate) {
 
     // Đọc trực tiếp từ Firebase Realtime Database vì cost_transactions, daily_balances, manager_cash_pickups
     // KHÔNG được subscribe (đồng bộ) xuống IndexedDB local (xem db.js initDatabase)
+    // TỐI ƯU: Dùng cache (_costTxCache, _pickupsCache) đã được cập nhật realtime qua child_* events
+    // Chỉ tải từ Firebase nếu cache chưa có dữ liệu (lần đầu hoặc chưa có listener)
+    var costTxPromise;
+    if (_costTxCacheLoaded && _costTxCache) {
+        costTxPromise = Promise.resolve(_costTxCache);
+    } else {
+        costTxPromise = dbRef.child('cost_transactions').once('value').then(function(snapshot) {
+            var data = snapshot.val() || {};
+            _costTxCache = {};
+            for (var k in data) {
+                if (data.hasOwnProperty(k)) {
+                    var item = data[k];
+                    item.id = k;
+                    _costTxCache[k] = item;
+                }
+            }
+            _costTxCacheLoaded = true;
+            return _costTxCache;
+        });
+    }
+
+    var pickupsPromise;
+    if (_pickupsCacheLoaded && _pickupsCache) {
+        pickupsPromise = Promise.resolve(_pickupsCache);
+    } else {
+        pickupsPromise = dbRef.child('manager_cash_pickups').once('value').then(function(snapshot) {
+            var data = snapshot.val() || {};
+            _pickupsCache = {};
+            for (var k in data) {
+                if (data.hasOwnProperty(k)) {
+                    var item = data[k];
+                    item.id = k;
+                    _pickupsCache[k] = item;
+                }
+            }
+            _pickupsCacheLoaded = true;
+            return _pickupsCache;
+        });
+    }
+
     Promise.all([
         // Số dư đầu kỳ = cashKept của ngày hôm trước
         dbRef.child('daily_balances/' + prevDateStr).once('value'),
         // Doanh thu tiền mặt trong ngày (từ IndexedDB - transactions đã được subscribe)
         DB.getTransactionsByDate(today),
-        // Chi phí từ Két POS - đọc trực tiếp từ Firebase
-        dbRef.child('cost_transactions').once('value'),
-        // Tiền quản lý nhận - đọc trực tiếp từ Firebase
-        dbRef.child('manager_cash_pickups').once('value'),
+        // Chi phí từ Két POS - dùng cache nếu có, chỉ tải từ Firebase nếu chưa có
+        costTxPromise,
+        // Tiền quản lý nhận - dùng cache nếu có, chỉ tải từ Firebase nếu chưa có
+        pickupsPromise,
         // daily_balances của ngày target (đã lưu) - đọc trực tiếp từ Firebase
         dbRef.child('daily_balances/' + today).once('value'),
         // Bàn đang hoạt động
@@ -351,26 +463,24 @@ function loadPosCashData(targetDate) {
     ]).then(function(results) {
         var prevBalance = results[0].val() || {};
         var transactions = results[1] || [];
-        var allCostsSnapshot = results[2].val() || {};
-        var pickupsSnapshot = results[3].val() || {};
+        var allCostsCache = results[2] || {}; // Đã là object {id: item}
+        var pickupsCache = results[3] || {};  // Đã là object {id: item}
         var savedBalance = results[4].val() || {};
         var allTables = results[5] || [];
 
-        // Chuyển đổi Firebase snapshot object thành array
+        // Chuyển đổi cache object thành array
         var allCosts = [];
-        for (var key in allCostsSnapshot) {
-            if (allCostsSnapshot.hasOwnProperty(key)) {
-                var item = allCostsSnapshot[key];
-                item.id = key;
+        for (var key in allCostsCache) {
+            if (allCostsCache.hasOwnProperty(key)) {
+                var item = allCostsCache[key];
                 allCosts.push(item);
             }
         }
 
         var pickups = [];
-        for (var key2 in pickupsSnapshot) {
-            if (pickupsSnapshot.hasOwnProperty(key2)) {
-                var item2 = pickupsSnapshot[key2];
-                item2.id = key2;
+        for (var key2 in pickupsCache) {
+            if (pickupsCache.hasOwnProperty(key2)) {
+                var item2 = pickupsCache[key2];
                 pickups.push(item2);
             }
         }
@@ -3259,11 +3369,24 @@ function showPaymentMethodTransactions(paymentMethod) {
 function showPosCostTransactions() {
     var targetDate = _selectedCloseDate || (_posCashData && _posCashData.dateKey) || getTodayDateKey();
 
-    // Đọc cost_transactions từ Firebase
+    // TỐI ƯU: Dùng cache _costTxCache nếu đã có (được cập nhật realtime qua child_* events)
+    // Nếu cache chưa có, chỉ tải cost_transactions cho targetDate bằng orderByChild
     var shopId = (typeof DB !== 'undefined' && DB.getShopId) ? DB.getShopId() : 'shop_default';
     var dbRef = firebase.database().ref(shopId);
-    dbRef.child('cost_transactions').once('value').then(function(snapshot) {
-        var allCostsSnapshot = snapshot.val() || {};
+
+    var costPromise;
+    if (_costTxCacheLoaded && _costTxCache) {
+        // Dùng cache đã có, filter client-side
+        costPromise = Promise.resolve(_costTxCache);
+    } else {
+        // Chỉ tải các transaction có dateKey === targetDate (tiết kiệm băng thông)
+        // Yêu cầu index .indexOn: "dateKey" trên node cost_transactions trong Firebase Rules
+        costPromise = dbRef.child('cost_transactions').orderByChild('dateKey').equalTo(targetDate).once('value').then(function(snapshot) {
+            return snapshot.val() || {};
+        });
+    }
+
+    costPromise.then(function(allCostsSnapshot) {
         var allCosts = [];
         for (var key in allCostsSnapshot) {
             if (allCostsSnapshot.hasOwnProperty(key)) {
@@ -3274,6 +3397,7 @@ function showPosCostTransactions() {
         }
 
         // Lọc: cùng ngày, chưa xóa, nguồn từ Két POS
+        // Nếu dùng cache, cần filter dateKey; nếu query Firebase có equalTo thì dateKey đã đúng
         var filtered = allCosts.filter(function(c) {
             return c.dateKey === targetDate && !c.deleted && c.fundSource === 'pos_cash';
         });

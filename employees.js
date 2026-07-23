@@ -420,90 +420,127 @@ function empLoadStaffList() {
         }
 
         // Load salary data từ Firebase cho tất cả nhân viên
+        // TỐI ƯU: Kiểm tra cache trước, chỉ tải từ Firebase nếu chưa có dữ liệu cho period này
         if (typeof firebase !== 'undefined' && firebase.database && shopId) {
-            var salariesRef = firebase.database().ref(shopId + '/employee_salaries');
-            salariesRef.once('value').then(function(snapshot) {
-                var allSalaries = snapshot.val() || {};
-                for (var staffId in allSalaries) {
-                    if (!allSalaries.hasOwnProperty(staffId)) continue;
-                    var staffPeriods = allSalaries[staffId];
-                    if (!staffPeriods) continue;
-                    var salaryData = staffPeriods[period];
-                    if (salaryData) {
-                        if (!EMP.salaryCache[staffId]) EMP.salaryCache[staffId] = {};
-                        var existing = EMP.salaryCache[staffId][period] || {};
-                        var merged = {};
-                        // Copy tất cả key từ existing trước
-                        for (var ek in existing) {
-                            if (existing.hasOwnProperty(ek)) {
-                                merged[ek] = existing[ek];
-                            }
-                        }
-                        // Ghi đè bằng Firebase data
-                        for (var k in salaryData) {
-                            if (salaryData.hasOwnProperty(k)) {
-                                merged[k] = salaryData[k];
-                            }
-                        }
-                        // Đảm bảo dailySalary luôn có giá trị hợp lệ
-                        // Ưu tiên: Firebase > 0 -> dùng Firebase
-                        // Firebase = 0 hoặc undefined -> giữ từ existing (staff object)
-                        // existing cũng = 0 -> giữ 0
-                        if (salaryData.dailySalary !== undefined && salaryData.dailySalary !== null && salaryData.dailySalary > 0) {
-                            merged.dailySalary = salaryData.dailySalary;
-                        } else if (existing.dailySalary !== undefined && existing.dailySalary !== null && existing.dailySalary > 0) {
-                            merged.dailySalary = existing.dailySalary;
-                        } else {
-                            // Fallback: lấy từ staff object
-                            var staffFound = null;
-                            for (var sfi = 0; sfi < EMP.staffs.length; sfi++) {
-                                if (EMP.staffs[sfi] && EMP.staffs[sfi].id === staffId) {
-                                    staffFound = EMP.staffs[sfi];
-                                    break;
-                                }
-                            }
-                            merged.dailySalary = (staffFound && staffFound.dailySalary > 0) ? staffFound.dailySalary : 0;
-                        }
-                        // Đảm bảo revenueBonusEnabled
-                        if (salaryData.revenueBonusEnabled !== undefined && salaryData.revenueBonusEnabled !== null) {
-                            merged.revenueBonusEnabled = salaryData.revenueBonusEnabled;
-                        } else if (existing.revenueBonusEnabled !== undefined && existing.revenueBonusEnabled !== null) {
-                            merged.revenueBonusEnabled = existing.revenueBonusEnabled;
-                        } else {
-                            var staffFound2 = null;
-                            for (var sfi2 = 0; sfi2 < EMP.staffs.length; sfi2++) {
-                                if (EMP.staffs[sfi2] && EMP.staffs[sfi2].id === staffId) {
-                                    staffFound2 = EMP.staffs[sfi2];
-                                    break;
-                                }
-                            }
-                            merged.revenueBonusEnabled = staffFound2 ? (staffFound2.revenueBonusEnabled || false) : false;
-                        }
-                        EMP.salaryCache[staffId][period] = merged;
-                    }
+            // Kiểm tra xem đã có dữ liệu salary cho period này chưa
+            var hasSalaryData = false;
+            for (var si2 = 0; si2 < EMP.staffs.length; si2++) {
+                var st2 = EMP.staffs[si2];
+                if (st2 && st2.id && EMP.salaryCache[st2.id] && EMP.salaryCache[st2.id][period]) {
+                    hasSalaryData = true;
+                    break;
                 }
-                // Load attendance từ Firebase
-                var attRef = firebase.database().ref(shopId + '/employee_attendance');
-                return attRef.once('value');
-            }).then(function(attSnapshot) {
-                if (attSnapshot) {
-                    var allAtt = attSnapshot.val() || {};
-                    for (var attStaffId in allAtt) {
-                        if (!allAtt.hasOwnProperty(attStaffId)) continue;
-                        var staffPeriods = allAtt[attStaffId];
+            }
+
+            var salaryPromise;
+            if (hasSalaryData) {
+                // Đã có cache, không cần tải lại
+                salaryPromise = Promise.resolve();
+            } else {
+                var salariesRef = firebase.database().ref(shopId + '/employee_salaries');
+                salaryPromise = salariesRef.once('value').then(function(snapshot) {
+                    var allSalaries = snapshot.val() || {};
+                    for (var staffId in allSalaries) {
+                        if (!allSalaries.hasOwnProperty(staffId)) continue;
+                        var staffPeriods = allSalaries[staffId];
                         if (!staffPeriods) continue;
-                        // Attendance lưu theo monthKey (YYYY-MM)
-                        var monthKey = period.split('-').slice(0, 2).join('-');
-                        var attData = staffPeriods[monthKey] || staffPeriods[period] || null;
-                        if (attData) {
-                            if (!EMP.attendanceCache[attStaffId]) EMP.attendanceCache[attStaffId] = {};
-                            EMP.attendanceCache[attStaffId][period] = {
-                                offDays: (attData.offDays && Array.isArray(attData.offDays)) ? attData.offDays : [],
-                                otDays: (attData.otDays && Array.isArray(attData.otDays)) ? attData.otDays : []
-                            };
+                        var salaryData = staffPeriods[period];
+                        if (salaryData) {
+                            if (!EMP.salaryCache[staffId]) EMP.salaryCache[staffId] = {};
+                            var existing = EMP.salaryCache[staffId][period] || {};
+                            var merged = {};
+                            // Copy tất cả key từ existing trước
+                            for (var ek in existing) {
+                                if (existing.hasOwnProperty(ek)) {
+                                    merged[ek] = existing[ek];
+                                }
+                            }
+                            // Ghi đè bằng Firebase data
+                            for (var k in salaryData) {
+                                if (salaryData.hasOwnProperty(k)) {
+                                    merged[k] = salaryData[k];
+                                }
+                            }
+                            // Đảm bảo dailySalary luôn có giá trị hợp lệ
+                            // Ưu tiên: Firebase > 0 -> dùng Firebase
+                            // Firebase = 0 hoặc undefined -> giữ từ existing (staff object)
+                            // existing cũng = 0 -> giữ 0
+                            if (salaryData.dailySalary !== undefined && salaryData.dailySalary !== null && salaryData.dailySalary > 0) {
+                                merged.dailySalary = salaryData.dailySalary;
+                            } else if (existing.dailySalary !== undefined && existing.dailySalary !== null && existing.dailySalary > 0) {
+                                merged.dailySalary = existing.dailySalary;
+                            } else {
+                                // Fallback: lấy từ staff object
+                                var staffFound = null;
+                                for (var sfi = 0; sfi < EMP.staffs.length; sfi++) {
+                                    if (EMP.staffs[sfi] && EMP.staffs[sfi].id === staffId) {
+                                        staffFound = EMP.staffs[sfi];
+                                        break;
+                                    }
+                                }
+                                merged.dailySalary = (staffFound && staffFound.dailySalary > 0) ? staffFound.dailySalary : 0;
+                            }
+                            // Đảm bảo revenueBonusEnabled
+                            if (salaryData.revenueBonusEnabled !== undefined && salaryData.revenueBonusEnabled !== null) {
+                                merged.revenueBonusEnabled = salaryData.revenueBonusEnabled;
+                            } else if (existing.revenueBonusEnabled !== undefined && existing.revenueBonusEnabled !== null) {
+                                merged.revenueBonusEnabled = existing.revenueBonusEnabled;
+                            } else {
+                                var staffFound2 = null;
+                                for (var sfi2 = 0; sfi2 < EMP.staffs.length; sfi2++) {
+                                    if (EMP.staffs[sfi2] && EMP.staffs[sfi2].id === staffId) {
+                                        staffFound2 = EMP.staffs[sfi2];
+                                        break;
+                                    }
+                                }
+                                merged.revenueBonusEnabled = staffFound2 ? (staffFound2.revenueBonusEnabled || false) : false;
+                            }
+                            EMP.salaryCache[staffId][period] = merged;
                         }
                     }
+                });
+            }
+
+            salaryPromise.then(function() {
+                // Load attendance từ Firebase - chỉ tải nếu chưa có trong cache
+                var monthKey = period.split('-').slice(0, 2).join('-');
+                var hasAttData = false;
+                for (var si3 = 0; si3 < EMP.staffs.length; si3++) {
+                    var st3 = EMP.staffs[si3];
+                    if (st3 && st3.id && EMP.attendanceCache[st3.id] && EMP.attendanceCache[st3.id][period]) {
+                        hasAttData = true;
+                        break;
+                    }
                 }
+
+                var attPromise;
+                if (hasAttData) {
+                    attPromise = Promise.resolve();
+                } else {
+                    var attRef = firebase.database().ref(shopId + '/employee_attendance');
+                    attPromise = attRef.once('value').then(function(attSnapshot) {
+                        if (attSnapshot) {
+                            var allAtt = attSnapshot.val() || {};
+                            for (var attStaffId in allAtt) {
+                                if (!allAtt.hasOwnProperty(attStaffId)) continue;
+                                var staffPeriods = allAtt[attStaffId];
+                                if (!staffPeriods) continue;
+                                // Attendance lưu theo monthKey (YYYY-MM)
+                                var attData = staffPeriods[monthKey] || staffPeriods[period] || null;
+                                if (attData) {
+                                    if (!EMP.attendanceCache[attStaffId]) EMP.attendanceCache[attStaffId] = {};
+                                    EMP.attendanceCache[attStaffId][period] = {
+                                        offDays: (attData.offDays && Array.isArray(attData.offDays)) ? attData.offDays : [],
+                                        otDays: (attData.otDays && Array.isArray(attData.otDays)) ? attData.otDays : []
+                                    };
+                                }
+                            }
+                        }
+                    });
+                }
+
+                return attPromise;
+            }).then(function() {
                 // Load doanh thu để tính thưởng (realtime qua Firebase daily_revenue)
                 var periodParts = period.split('-');
                 empLoadRevenueData(parseInt(periodParts[0]), parseInt(periodParts[1]));
@@ -1058,43 +1095,63 @@ function empInitDailyRevenueListener() {
     if (!EMP._revenueCache) EMP._revenueCache = {};
 
     var ref = firebase.database().ref(shopId + '/daily_revenue');
-    var listener = ref.on('value', function(snapshot) {
-        var data = snapshot.val() || {};
-        // Cập nhật cache: mỗi key là dateStr YYYY-MM-DD
-        // Ưu tiên tính từ cash+transfer+grab (chính xác hơn total, vì total có thể bị sai)
-        for (var dateStr in data) {
-            if (data.hasOwnProperty(dateStr) && data[dateStr]) {
-                var dayData = data[dateStr];
-                if (typeof dayData === 'number') {
-                    EMP._revenueCache[dateStr] = dayData;
-                } else if (typeof dayData === 'object') {
-                    // Ưu tiên cash+transfer+grab nếu có
-                    if (dayData.cash !== undefined || dayData.transfer !== undefined || dayData.grab !== undefined) {
-                        EMP._revenueCache[dateStr] = (dayData.cash || 0) + (dayData.transfer || 0) + (dayData.grab || 0);
-                    } else if (dayData.total) {
-                        EMP._revenueCache[dateStr] = dayData.total;
-                    }
-                }
-            }
+
+    // TỐI ƯU: Dùng child_added + child_changed thay vì .on('value')
+    // Chỉ tải dữ liệu của ngày thay đổi, không tải toàn bộ daily_revenue mỗi lần
+    var childListener = ref.on('child_added', function(snapshot) {
+        var dateStr = snapshot.key;
+        var dayData = snapshot.val();
+        if (dateStr && dayData) {
+            _updateRevenueCacheEntry(dateStr, dayData);
+            _onRevenueCacheChanged();
         }
-        // Refresh UI nếu đang mở detail
-        empRecalculateSalary();
-        // Nếu đang ở tab list, re-render để cập nhật thưởng doanh thu
-        var listContent = document.getElementById('empTabListContent');
-        if (listContent && listContent.style.display !== 'none') {
-            empRenderStaffList();
+    });
+
+    var changeListener = ref.on('child_changed', function(snapshot) {
+        var dateStr = snapshot.key;
+        var dayData = snapshot.val();
+        if (dateStr && dayData) {
+            _updateRevenueCacheEntry(dateStr, dayData);
+            _onRevenueCacheChanged();
         }
-        // Cập nhật nút tổng lương trên manager grid
-        _invalidateEmpManagerCache();
-        empUpdateManagerButton();
-    }, function(err) {
-        console.error('empInitDailyRevenueListener error:', err);
     });
 
     EMP._dailyRevenueListener = {
         ref: ref,
-        off: function() { ref.off('value', listener); }
+        off: function() {
+            ref.off('child_added', childListener);
+            ref.off('child_changed', changeListener);
+        }
     };
+}
+
+// Helper: cập nhật 1 entry trong _revenueCache
+function _updateRevenueCacheEntry(dateStr, dayData) {
+    if (!EMP._revenueCache) EMP._revenueCache = {};
+    if (typeof dayData === 'number') {
+        EMP._revenueCache[dateStr] = dayData;
+    } else if (typeof dayData === 'object') {
+        // Ưu tiên cash+transfer+grab nếu có
+        if (dayData.cash !== undefined || dayData.transfer !== undefined || dayData.grab !== undefined) {
+            EMP._revenueCache[dateStr] = (dayData.cash || 0) + (dayData.transfer || 0) + (dayData.grab || 0);
+        } else if (dayData.total) {
+            EMP._revenueCache[dateStr] = dayData.total;
+        }
+    }
+}
+
+// Helper: refresh UI sau khi cache thay đổi
+function _onRevenueCacheChanged() {
+    // Refresh UI nếu đang mở detail
+    empRecalculateSalary();
+    // Nếu đang ở tab list, re-render để cập nhật thưởng doanh thu
+    var listContent = document.getElementById('empTabListContent');
+    if (listContent && listContent.style.display !== 'none') {
+        empRenderStaffList();
+    }
+    // Cập nhật nút tổng lương trên manager grid
+    _invalidateEmpManagerCache();
+    empUpdateManagerButton();
 }
 
 /**
@@ -2395,19 +2452,20 @@ function empUpdateManagerButton(optPeriod) {
 
     // Listener attendance + daily_revenue để cập nhật realtime
     // Chỉ tạo listener 1 lần, dùng flag để tránh tạo lại nhiều lần
+    // TỐI ƯU: Dùng child_changed thay vì .on('value') để chỉ tải dữ liệu thay đổi
     if (!EMP._salaryListenerInitialized) {
         EMP._salaryListenerInitialized = true;
 
         var attRef = firebase.database().ref(shopId + '/employee_attendance');
         var revRef = firebase.database().ref(shopId + '/daily_revenue');
 
-        var attListener = attRef.on('value', function() {
+        var attListener = attRef.on('child_changed', function() {
             // Khi có thay đổi từ Firebase, xóa cache và tính lại
             _invalidateEmpManagerCache();
             _calcTotalSalary();
         }, function() {});
 
-        var revListener = revRef.on('value', function() {
+        var revListener = revRef.on('child_changed', function() {
             // Khi có thay đổi từ Firebase, xóa cache và tính lại
             _invalidateEmpManagerCache();
             _calcTotalSalary();
@@ -2417,8 +2475,8 @@ function empUpdateManagerButton(optPeriod) {
         EMP._salaryListener = {
             ref: attRef,
             off: function() {
-                attRef.off('value', attListener);
-                revRef.off('value', revListener);
+                attRef.off('child_changed', attListener);
+                revRef.off('child_changed', revListener);
                 EMP._salaryListenerInitialized = false;
             }
         };
