@@ -770,24 +770,9 @@ function initRealtime() {
     });
 
     // ============================================================
-    // MENU (polling 60s)
+    // MENU (Event Bus)
     // ============================================================
-    // Subscribe cũ: cập nhật menuItems
-    DB.subscribeWithPolling('menu', function(data) {
-        if (!data) return;
-        _debounceRealtime('menu', function() {
-            DB.getAll('menu').then(function(list) {
-                menuItems = list;
-                menuItems.sort(function(a, b) {
-                    var orderA = (a.sortOrder !== undefined && a.sortOrder !== null) ? a.sortOrder : 9999;
-                    var orderB = (b.sortOrder !== undefined && b.sortOrder !== null) ? b.sortOrder : 9999;
-                    return orderA - orderB;
-                });
-                window.menuItems = menuItems;
-            });
-        }, 200);
-    }, 60);
-    // NÂNG CẤP: Event Bus handler cho menu
+    // Event Bus handler cho menu
     DB.on('menu:*', function(event) {
         if (!event || !event.data) return;
         _debounceRealtime('menu_ui', function() {
@@ -825,18 +810,9 @@ function initRealtime() {
     });
 
     // ============================================================
-    // MENU CATEGORIES (polling 60s)
+    // MENU CATEGORIES (Event Bus)
     // ============================================================
-    // Subscribe cũ: cập nhật menuCategories
-    DB.subscribeWithPolling('menu_categories', function(data) {
-        if (!data) return;
-        _debounceRealtime('menu_categories', function() {
-            DB.getAll('menu_categories').then(function(list) {
-                menuCategories = list;
-            });
-        }, 200);
-    }, 60);
-    // NÂNG CẤP: Event Bus handler cho menu_categories
+    // Event Bus handler cho menu_categories
     DB.on('menu_categories:*', function(event) {
         if (!event || !event.data) return;
         _debounceRealtime('menu_categories_ui', function() {
@@ -996,19 +972,9 @@ function initRealtime() {
     });
 
     // ============================================================
-    // INGREDIENTS (polling 60s)
+    // INGREDIENTS (Event Bus)
     // ============================================================
-    // Subscribe cũ: cập nhật window.ingredients
-    DB.subscribeWithPolling('ingredients', function(data) {
-        if (!data) return;
-        _debounceRealtime('ingredients', function() {
-            DB.getAll('ingredients').then(function(list) {
-                window.ingredients = list;
-                if (typeof _invalidateLookups === 'function') _invalidateLookups();
-            });
-        }, 200);
-    }, 60);
-    // NÂNG CẤP: Event Bus handler cho ingredients
+    // Event Bus handler cho ingredients
     DB.on('ingredients:*', function(event) {
         if (!event || !event.data) return;
         _debounceRealtime('ingredients_ui', function() {
@@ -1159,26 +1125,9 @@ function initRealtime() {
     });
 
     // ============================================================
-    // MESSAGES (polling 30s)
+    // MESSAGES (Event Bus)
     // ============================================================
-    // Subscribe cũ: cập nhật messages
-    DB.subscribeWithPolling('messages', function(data) {
-        if (!data) return;
-        _debounceRealtime('messages', function() {
-            if (typeof updateChatBadge === 'function') {
-                updateChatBadge();
-            }
-            if (_chatPopupVisible) {
-                if (typeof renderChatMessages === 'function') {
-                    renderChatMessages();
-                }
-            }
-            if (typeof checkNewMessages === 'function') {
-                checkNewMessages();
-            }
-        }, 200);
-    }, 30);
-    // NÂNG CẤP: Event Bus handler cho messages
+    // Event Bus handler cho messages
     DB.on('messages:*', function(event) {
         if (!event || !event.data) return;
         _debounceRealtime('messages_ui', function() {

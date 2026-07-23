@@ -1171,10 +1171,11 @@
     var _fetchingTxDateKeys = {};
     
     // PHASE 2: Cache kết quả query transactions
-    // PHASE 4: Thêm TTL cho _txDateCache - tự động invalidate sau 2 phút
+    // PHASE 4: Thêm TTL cho _txDateCache - tự động invalidate sau 10 phút
+    // P4: Tăng từ 2 phút lên 10 phút để giảm số lần query IndexedDB + auto-fetch Firebase
     var _txDateCache = {}; // { '2024-01-15|all': [transactions] }
     var _txDateCacheTimestamps = {}; // { '2024-01-15|all': timestamp }
-    var _TX_DATE_CACHE_TTL = 2 * 60 * 1000; // 2 phút
+    var _TX_DATE_CACHE_TTL = 10 * 60 * 1000; // 10 phút
     
     // Khi có transaction mới, xóa cache liên quan
     function _invalidateTxDateCache(dateKey) {
@@ -1730,7 +1731,8 @@
                 });
             });
             
-            _cleanupDeletedIds(collection);
+            // P5: _cleanupDeletedIds đã được xóa - child_removed listener xử lý việc xóa realtime
+            // vì nó đã được gọi trong fullSync/deltaSync và có cache riêng
         }, intervalSeconds * 1000);
         
         return function() {
@@ -1843,7 +1845,9 @@
             _quickSyncTimer = null;
             if (!isOnline) return;
             console.log('📡 Quick sync on resume...');
-            fullSync('tables');
+            // P3: Thay fullSync('tables') bằng deltaSync('tables')
+            // tables đã có realtime listener (child_added/changed/removed), không cần fullSync
+            deltaSync('tables');
             var masterKeys = Object.keys(MASTER_COLLECTIONS);
             for (var i = 0; i < masterKeys.length; i++) {
                 if (masterKeys[i] !== 'tables') {
@@ -1867,7 +1871,9 @@
             isOnline = true;
             showToast('📡 Đã kết nối mạng', 'success');
             processSyncQueue();
-            fullSync('tables');
+            // P6: Thay fullSync('tables') bằng deltaSync('tables')
+            // tables đã có realtime listener, không cần fullSync khi online
+            deltaSync('tables');
             var masterKeys = Object.keys(MASTER_COLLECTIONS);
             for (var i = 0; i < masterKeys.length; i++) {
                 if (masterKeys[i] !== 'tables') {
@@ -2219,15 +2225,13 @@
                 }
                 
                 return saveChain.then(function() {
-                    return _cleanupDeletedIds(collection).then(function() {
-                        // Ghi sync_meta
-                        saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
-                        updateMetaOnFirebase(collection, maxVersion);
-                        _setSuppressRealtime(false);
-                        if (isMaster) delete _syncingCollections[collection];
-                        _emit(collection + ':synced', { collection: collection, count: count, timestamp: Date.now() });
-                        resolve();
-                    });
+                    // Ghi sync_meta
+                    saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: maxVersion, dateKeys: dateKeys });
+                    updateMetaOnFirebase(collection, maxVersion);
+                    _setSuppressRealtime(false);
+                    if (isMaster) delete _syncingCollections[collection];
+                    _emit(collection + ':synced', { collection: collection, count: count, timestamp: Date.now() });
+                    resolve();
                 }).catch(function(err) {
                     console.error('  ❌ Error full syncing ' + collection + ': ', err);
                     _setSuppressRealtime(false);
@@ -2302,11 +2306,9 @@
                     }
                     
                     return saveChain.then(function() {
-                        return _cleanupDeletedIds(collection).then(function() {
-                            saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
-                            updateMetaOnFirebase(collection, newMaxVersion);
-                            resolve();
-                        });
+                        saveSyncMeta(collection, { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: dateKeys });
+                        updateMetaOnFirebase(collection, newMaxVersion);
+                        resolve();
                     }).catch(function(err) {
                         console.error('  ❌ Error delta syncing ' + collection + ': ', err);
                         resolve();
@@ -2319,72 +2321,19 @@
         });
     }
     
-    function _cleanupDeletedIds(collection) {
-        if (!isOnline) return Promise.resolve();
-        
-        var loadMemory = Promise.resolve();
-        if (!memoryCache[collection]) {
-            loadMemory = loadFromLocal(collection).then(function(data) {
-                if (data) {
-                    if (!memoryCache[collection]) memoryCache[collection] = {};
-                    for (var i = 0; i < data.length; i++) {
-                        memoryCache[collection][data[i].id] = data[i];
-                    }
-                }
-            });
-        }
-        
-        return loadMemory.then(function() {
-            if (!memoryCache[collection]) return;
-            
-            var localIds = Object.keys(memoryCache[collection]);
-            if (localIds.length === 0) return;
-        
-            var ref = _getDb().ref(CURRENT_SHOP_ID + '/' + collection);
-            return ref.once('value').then(function(snapshot) {
-                var remoteData = snapshot.val() || {};
-                var remoteIds = Object.keys(remoteData);
-                
-                var deletedIds = [];
-                for (var i = 0; i < localIds.length; i++) {
-                    if (remoteIds.indexOf(localIds[i]) === -1) {
-                        deletedIds.push(localIds[i]);
-                    }
-                }
-                
-                if (deletedIds.length === 0) return;
-                
-                console.log('  🗑️ Cleaning up', deletedIds.length, 'deleted IDs from', collection);
-                
-                var deleteChain = Promise.resolve();
-                for (var d = 0; d < deletedIds.length; d++) {
-                    (function(delId) {
-                        deleteChain = deleteChain.then(function() {
-                            return deleteFromLocal(collection, delId);
-                        });
-                    })(deletedIds[d]);
-                }
-                return deleteChain;
-            }).catch(function(err) {
-                console.warn('  ⚠️ Could not check deleted IDs for', collection, ':', err.message);
-            });
-        });
-    }
     
     function reconcileSnapshot(collection) {
         if (!isOnline) return Promise.resolve();
         var isMaster = MASTER_COLLECTIONS[collection];
         console.log('🔄 Reconcile snapshot for:', collection);
-        return _cleanupDeletedIds(collection).then(function() {
-            if (isMaster) {
-                // Master collections: reset sync_meta + fullSync
-                return saveSyncMeta(collection, { lastSyncAt: 0, maxVersion: 0, dateKeys: [] }).then(function() {
-                    return fullSync(collection);
-                });
-            } else {
-                return deltaSync(collection);
-            }
-        });
+        if (isMaster) {
+            // Master collections: reset sync_meta + fullSync
+            return saveSyncMeta(collection, { lastSyncAt: 0, maxVersion: 0, dateKeys: [] }).then(function() {
+                return fullSync(collection);
+            });
+        } else {
+            return deltaSync(collection);
+        }
     }
     
     var _fetchingDateKeys = {};
@@ -2862,146 +2811,22 @@
         
         // Đăng ký lại subscriptions với _getDb() (sẽ dùng _secondaryDb nếu có)
         subscribeToCollection('tables');
-        _cleanupDeletedIds('tables').then(function() {
-            subscribeToCollection('customers');
-            subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
-            subscribeToCollection('notifications');
-            subscribeToCollection('info');
-            subscribeToCollection('daily_balances');
-            subscribeToCollection('cost_categories');
-            subscribeToCollection('cost_transactions');
+        subscribeToCollection('customers');
+        subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
+        subscribeToCollection('notifications');
+        subscribeToCollection('info');
+        subscribeToCollection('daily_balances');
+        subscribeToCollection('cost_categories');
+        subscribeToCollection('cost_transactions');
 
-            if (!_pollingTimers['tables']) {
-                _pollingTimers['tables'] = setInterval(function() {
-                    if (!isOnline) return;
-                    _cleanupDeletedIds('tables').then(function() {
-                        return deltaSync('tables');
-                    });
-                }, 30000);
-            }
-            
-            if (!_pollingTimers['menu']) {
-                _pollingTimers['menu'] = setInterval(function() {
-                    if (!isOnline) return;
-                    var ref = _getDb().ref(CURRENT_SHOP_ID + '/menu');
-                    getSyncMeta('menu').then(function(meta) {
-                        var localMaxVersion = (meta && meta.maxVersion) || 0;
-                        ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                            if (!snapshot.exists()) return;
-                            var remote = snapshot.val() || {};
-                            var count = 0, newMaxVersion = localMaxVersion;
-                            for (var key in remote) {
-                                if (remote.hasOwnProperty(key)) {
-                                    var src = remote[key];
-                                    var item = { id: key };
-                                    for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                    if (item._version === undefined) item._version = 1;
-                                    if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                    var localItem = memoryCache['menu'] ? memoryCache['menu'][key] : null;
-                                    saveToLocal('menu', item, localItem ? 'changed' : 'added');
-                                    count++;
-                                }
-                            }
-                            if (count > 0) {
-                                saveSyncMeta('menu', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                            }
-                            _cleanupDeletedIds('menu');
-                        });
-                    });
-                }, 60000);
-            }
-            if (!_pollingTimers['menu_categories']) {
-                _pollingTimers['menu_categories'] = setInterval(function() {
-                    if (!isOnline) return;
-                    var ref = _getDb().ref(CURRENT_SHOP_ID + '/menu_categories');
-                    getSyncMeta('menu_categories').then(function(meta) {
-                        var localMaxVersion = (meta && meta.maxVersion) || 0;
-                        ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                            if (!snapshot.exists()) return;
-                            var remote = snapshot.val() || {};
-                            var count = 0, newMaxVersion = localMaxVersion;
-                            for (var key in remote) {
-                                if (remote.hasOwnProperty(key)) {
-                                    var src = remote[key];
-                                    var item = { id: key };
-                                    for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                    if (item._version === undefined) item._version = 1;
-                                    if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                    var localItem = memoryCache['menu_categories'] ? memoryCache['menu_categories'][key] : null;
-                                    saveToLocal('menu_categories', item, localItem ? 'changed' : 'added');
-                                    count++;
-                                }
-                            }
-                            if (count > 0) {
-                                saveSyncMeta('menu_categories', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                            }
-                            _cleanupDeletedIds('menu_categories');
-                        });
-                    });
-                }, 60000);
-            }
-            if (!_pollingTimers['ingredients']) {
-                _pollingTimers['ingredients'] = setInterval(function() {
-                    if (!isOnline) return;
-                    var ref = _getDb().ref(CURRENT_SHOP_ID + '/ingredients');
-                    getSyncMeta('ingredients').then(function(meta) {
-                        var localMaxVersion = (meta && meta.maxVersion) || 0;
-                        ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                            if (!snapshot.exists()) return;
-                            var remote = snapshot.val() || {};
-                            var count = 0, newMaxVersion = localMaxVersion;
-                            for (var key in remote) {
-                                if (remote.hasOwnProperty(key)) {
-                                    var src = remote[key];
-                                    var item = { id: key };
-                                    for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                    if (item._version === undefined) item._version = 1;
-                                    if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                    var localItem = memoryCache['ingredients'] ? memoryCache['ingredients'][key] : null;
-                                    saveToLocal('ingredients', item, localItem ? 'changed' : 'added');
-                                    count++;
-                                }
-                            }
-                            if (count > 0) {
-                                saveSyncMeta('ingredients', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                            }
-                            _cleanupDeletedIds('ingredients');
-                        });
-                    });
-                }, 60000);
-            }
-            if (!_pollingTimers['messages']) {
-                _pollingTimers['messages'] = setInterval(function() {
-                    if (!isOnline) return;
-                    var ref = _getDb().ref(CURRENT_SHOP_ID + '/messages');
-                    getSyncMeta('messages').then(function(meta) {
-                        var localMaxVersion = (meta && meta.maxVersion) || 0;
-                        ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                            if (!snapshot.exists()) return;
-                            var remote = snapshot.val() || {};
-                            var count = 0, newMaxVersion = localMaxVersion;
-                            for (var key in remote) {
-                                if (remote.hasOwnProperty(key)) {
-                                    var src = remote[key];
-                                    var item = { id: key };
-                                    for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                    if (item._version === undefined) item._version = 1;
-                                    if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                    var localItem = memoryCache['messages'] ? memoryCache['messages'][key] : null;
-                                    saveToLocal('messages', item, localItem ? 'changed' : 'added');
-                                    count++;
-                                }
-                            }
-                            if (count > 0) {
-                                saveSyncMeta('messages', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                            }
-                            _cleanupDeletedIds('messages');
-                        });
-                    });
-                }, 60000);
-            }
-            console.log('✅ Re-initialized subscriptions for Firebase config:', _secondaryDb ? 'custom' : 'default');
-        });
+        // P1+P2: Thay polling bằng Firebase realtime listeners
+        // tables đã có child_added/changed/removed listener ở trên, không cần polling 30s nữa
+        // menu, menu_categories, ingredients, messages: subscribe realtime listeners thay vì polling 60s
+        subscribeToCollection('menu');
+        subscribeToCollection('menu_categories');
+        subscribeToCollection('ingredients');
+        subscribeToCollection('messages');
+        console.log('✅ Re-initialized subscriptions for Firebase config:', _secondaryDb ? 'custom' : 'default');
     }
 
     // Init Database
@@ -3033,152 +2858,27 @@
             // tables, customers, menu, menu_categories, transactions, notifications
             //      admin_cost_categories, reports
             subscribeToCollection('tables');
-            // FIX: Cleanup deleted IDs ngay sau khi subscribe tables
-            _cleanupDeletedIds('tables').then(function() {
-                subscribeToCollection('customers');
-                subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
-                subscribeToCollection('notifications');
-                subscribeToCollection('info');
-                subscribeToCollection('daily_balances');
-                subscribeToCollection('cost_categories');
-                subscribeToCollection('cost_transactions');
+            subscribeToCollection('customers');
+            subscribeToCollection('transactions', null, { orderByChild: 'createdAt', limitToLast: 200 });
+            subscribeToCollection('notifications');
+            subscribeToCollection('info');
+            subscribeToCollection('daily_balances');
+            subscribeToCollection('cost_categories');
+            subscribeToCollection('cost_transactions');
 
-                if (!_pollingTimers['tables']) {
-                    _pollingTimers['tables'] = setInterval(function() {
-                        if (!isOnline) return;
-                        _cleanupDeletedIds('tables').then(function() {
-                            return deltaSync('tables');
-                        });
-                    }, 30000);
-                }
-                
-                if (!_pollingTimers['menu']) {
-                    _pollingTimers['menu'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb().ref(CURRENT_SHOP_ID + '/menu');
-                        getSyncMeta('menu').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['menu'] ? memoryCache['menu'][key] : null;
-                                        saveToLocal('menu', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('menu', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                _cleanupDeletedIds('menu');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['menu_categories']) {
-                    _pollingTimers['menu_categories'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb().ref(CURRENT_SHOP_ID + '/menu_categories');
-                        getSyncMeta('menu_categories').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['menu_categories'] ? memoryCache['menu_categories'][key] : null;
-                                        saveToLocal('menu_categories', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('menu_categories', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                _cleanupDeletedIds('menu_categories');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['ingredients']) {
-                    _pollingTimers['ingredients'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb().ref(CURRENT_SHOP_ID + '/ingredients');
-                        getSyncMeta('ingredients').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['ingredients'] ? memoryCache['ingredients'][key] : null;
-                                        saveToLocal('ingredients', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('ingredients', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                _cleanupDeletedIds('ingredients');
-                            });
-                        });
-                    }, 60000);
-                }
-                if (!_pollingTimers['messages']) {
-                    _pollingTimers['messages'] = setInterval(function() {
-                        if (!isOnline) return;
-                        var ref = _getDb().ref(CURRENT_SHOP_ID + '/messages');
-                        getSyncMeta('messages').then(function(meta) {
-                            var localMaxVersion = (meta && meta.maxVersion) || 0;
-                            ref.orderByChild('_version').startAt(localMaxVersion + 1).once('value', function(snapshot) {
-                                if (!snapshot.exists()) return;
-                                var remote = snapshot.val() || {};
-                                var count = 0, newMaxVersion = localMaxVersion;
-                                for (var key in remote) {
-                                    if (remote.hasOwnProperty(key)) {
-                                        var src = remote[key];
-                                        var item = { id: key };
-                                        for (var p in src) if (src.hasOwnProperty(p)) item[p] = src[p];
-                                        if (item._version === undefined) item._version = 1;
-                                        if (item._version > newMaxVersion) newMaxVersion = item._version;
-                                        var localItem = memoryCache['messages'] ? memoryCache['messages'][key] : null;
-                                        saveToLocal('messages', item, localItem ? 'changed' : 'added');
-                                        count++;
-                                    }
-                                }
-                                if (count > 0) {
-                                    saveSyncMeta('messages', { lastSyncAt: Date.now(), maxVersion: newMaxVersion, dateKeys: (meta && meta.dateKeys) || [] });
-                                }
-                                _cleanupDeletedIds('messages');
-                            });
-                        });
-                    }, 60000);
-                }
-                // PHASE 4: Khởi động periodic cleanup cache
-                _startPeriodicCleanup();
-                // DATA RETENTION: Khởi động cleanup dữ liệu cũ định kỳ (mỗi 6 tiếng)
-                _startPeriodicDataCleanup();
-                console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
-                return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
-            });
+            // P1+P2: Thay polling bằng Firebase realtime listeners
+            // tables đã có child_added/changed/removed listener ở trên, không cần polling 30s nữa
+            // menu, menu_categories, ingredients, messages: subscribe realtime listeners thay vì polling 60s
+            subscribeToCollection('menu');
+            subscribeToCollection('menu_categories');
+            subscribeToCollection('ingredients');
+            subscribeToCollection('messages');
+            // PHASE 4: Khởi động periodic cleanup cache
+            _startPeriodicCleanup();
+            // DATA RETENTION: Khởi động cleanup dữ liệu cũ định kỳ (mỗi 6 tiếng)
+            _startPeriodicDataCleanup();
+            console.log('✅ Database ready, device:', CURRENT_DEVICE_ID);
+            return { isOnline: isOnline, deviceId: CURRENT_DEVICE_ID };
         });
     }
 
